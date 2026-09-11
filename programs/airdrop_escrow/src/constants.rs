@@ -21,6 +21,11 @@ pub const MIN_BUYBACK_LAMPORTS: u64 = 10_000_000; // 0.01 SOL
 /// Kept in the buyer PDA to cover the accounts pump opens on the buyer's behalf
 /// (user_volume_accumulator ~0.00184 SOL plus a couple of ATAs).
 pub const BUYBACK_RESERVE_LAMPORTS: u64 = 10_000_000; // 0.01 SOL
+/// Most of the curve's quote reserves a single buyback may spend. Splitting the
+/// buy across calls keeps any one transaction small enough that sandwiching it
+/// is not worth the attacker's gas.
+pub const BUYBACK_MAX_RESERVE_BPS: u64 = 50; // 0.5%
+
 /// Slippage the on-chain buyback quote is allowed to miss by, in basis points.
 pub const BUYBACK_SLIPPAGE_BPS: u64 = 200; // 2%
 

@@ -11,7 +11,7 @@ import {
 import { assert } from "chai";
 import * as fs from "fs";
 import {
-  pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf,
+  pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx,
   TOKEN_2022, WSOL, TOKEN,
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
@@ -24,6 +24,19 @@ const leBytesToBigInt = (b: Buffer) => {
   for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]);
   return v;
 };
+/** pull lamports_spent / left_for_next_call out of a BuybackDone log */
+function decodeBuybackDone(logs: string[]) {
+  const line = [...logs].reverse().find((l) => l.startsWith("Program data: "));
+  const b = Buffer.from(line!.slice("Program data: ".length), "base64");
+  let o = 8 + 32;                       // discriminator + escrow
+  const spent = b.readBigUInt64LE(o); o += 8;
+  const bought = b.readBigUInt64LE(o); o += 8;
+  const quoted = b.readBigUInt64LE(o); o += 8;
+  const floor = b.readBigUInt64LE(o); o += 8;
+  const left = b.readBigUInt64LE(o);
+  return { spent, bought, quoted, floor, left };
+}
+
 const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
   const b = Buffer.alloc(4); b.writeUInt32LE(index);
   return PublicKey.findProgramAddressSync([Buffer.from("round"), escrow.toBuffer(), b], program)[0];
@@ -75,6 +88,7 @@ describe("airdrop_escrow (devnet)", () => {
   const SELLS_OUT = 5;   // receives, then sends everything back
   const TOO_SMALL = 6;   // 5M tokens, under 0.05 SOL
   let snap: any;
+  let earlyRejectProven = false;
   let lut: PublicKey;
   const sigs: Record<string, string> = {};
 
@@ -290,6 +304,27 @@ describe("airdrop_escrow (devnet)", () => {
       "buyback_tokens matches the ATA delta");
     assert.isBelow(solAfter, solBefore, "escrow SOL was spent");
     assert.isTrue(st.escrowed.gte(st.allocated), "escrowed still covers allocations");
+
+    // --- chunking: one call may only spend 0.5% of the curve's quote reserves ---
+    const bb = decodeBuybackDone((await conn.getTransaction(sig, {
+      commitment: "confirmed", maxSupportedTransactionVersion: 0,
+    }))!.meta!.logMessages!);
+    const raw = (await conn.getAccountInfo(pa.bondingCurve, "confirmed"))!.data;
+    const reservesAfter = raw.readBigUInt64LE(16);
+    // reserves before the buy = reserves now minus what went in
+    const capBefore = ((reservesAfter - bb.spent) * 50n) / 10000n;
+    assert.isAtMost(Number(bb.spent), Number(capBefore) * 1.02,
+      `spent ${bb.spent} must stay within 0.5% of reserves (~${capBefore})`);
+    assert.isAbove(Number(bb.left), 0, "the cap held something back for next time");
+    console.log(`  parcali: ${bb.spent} harcandi, ${bb.left} sonraki cagriya birakildi`);
+
+    // the held-back SOL is still usable: a second call buys again
+    const midEsc = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    const sig2 = await sendBuyback("buyback-2nd");
+    sigs.buybackChunk2 = sig2;
+    const endEsc = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    assert.isAbove(Number(endEsc.amount - midEsc.amount), 0, "second chunk also bought");
+    console.log(`  ikinci parca: +${endEsc.amount - midEsc.amount} token sig=${sig2}`);
     // the program quoted the curve itself; the fill must clear quote - 2%
     const ev = (await conn.getTransaction(sig, {
       commitment: "confirmed", maxSupportedTransactionVersion: 0,
@@ -437,6 +472,39 @@ describe("airdrop_escrow (devnet)", () => {
     const pool = st.escrowed.sub(st.allocated);
     assert.equal(st.authorized.toString(), pool.divn(100).toString(), "1% of the pool");
     console.log(`  armed: ${st.authorized.toString()} token (havuzun %1'i), fire_slot=${st.fireSlot} (now=${now})`);
+
+    // Try to fire straight away, while we are certainly still inside the delay.
+    // Done here rather than in a later test so an unlucky small draw cannot let
+    // the slot slip past before we get to it.
+    const fireSlot = st.fireSlot.toNumber();
+    if ((await conn.getSlot("confirmed")) < fireSlot) {
+      const tooEarly = (program.idl.errors ?? []).find((e: any) => e.name === "TooEarly");
+      let detail = "";
+      for (let i = 0; i < 6; i++) {
+        try {
+          await program.methods.fireTrigger()
+            .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
+            .rpc({ commitment: "confirmed" });
+          detail = "KABUL EDILDI"; break;
+        } catch (e: any) {
+          const m = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+          if (/Blockhash not found|429|Too Many Requests/i.test(m)) { await sleep(800); continue; }
+          detail = m; break;
+        }
+      }
+      if (detail === "" ) {
+        console.log("  not: RPC gurultusu erken cagriyi denetmedi");
+      } else {
+        assert.notEqual(detail, "KABUL EDILDI", "early fire must not succeed");
+        assert.isTrue(
+          /TooEarly/i.test(detail) || detail.includes("0x" + Number(tooEarly?.code ?? 0).toString(16)),
+          `expected TooEarly, got: ${detail.slice(0, 200)}`);
+        earlyRejectProven = true;
+        console.log(`  erken cagri reddedildi: TooEarly (fire_slot=${fireSlot})`);
+      }
+    } else {
+      console.log(`  not: gecikme cok kucuk cikti, erken cagri denenemedi`);
+    }
   });
 
   it("4d. checking again while armed changes nothing", async () => {
@@ -451,42 +519,12 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  ikinci cagri no-op, hata vermedi sig=${sig}`);
   });
 
-  it("4e. firing early is rejected; firing after the delay works", async () => {
+  it("4e. firing after the delay works", async () => {
     const st: any = await program.account.escrow.fetch(escrow);
     const fireSlot = st.fireSlot.toNumber();
-    let now = await conn.getSlot("confirmed");
-
-    if (now < fireSlot) {
-      const tooEarly = (program.idl.errors ?? []).find((e: any) => e.name === "TooEarly");
-      let detail = "";
-      // retry through RPC noise so the rejection we assert on is the program's
-      for (let i = 0; i < 6 && (await conn.getSlot("confirmed")) < fireSlot; i++) {
-        try {
-          await program.methods.fireTrigger()
-            .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
-            .rpc({ commitment: "confirmed", skipPreflight: false });
-          detail = "KABUL EDILDI";
-          break;
-        } catch (e: any) {
-          const m = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
-          if (/Blockhash not found|429|Too Many Requests/i.test(m)) { await sleep(1200); continue; }
-          detail = m;
-          break;
-        }
-      }
-      assert.notEqual(detail, "KABUL EDILDI", "early fire must not succeed");
-      assert.notEqual(detail, "", "expected a rejection before the fire slot");
-      assert.isTrue(
-        /TooEarly/i.test(detail) || detail.includes(String(tooEarly?.code ?? "6xxx")) ||
-        detail.includes("0x" + Number(tooEarly?.code ?? 0).toString(16)),
-        `expected TooEarly, got: ${detail.slice(0, 300)}`);
-      console.log(`  erken cagri reddedildi (slot ${now} < ${fireSlot}): TooEarly`);
-    } else {
-      console.log(`  not: gecikme 0 cikti (slot ${now} >= ${fireSlot}), erken cagri denenmedi`);
-    }
-
     while ((await conn.getSlot("confirmed")) < fireSlot) await sleep(400);
-    now = await conn.getSlot("confirmed");
+    const now = await conn.getSlot("confirmed");
+
     const sig = await withRetry("fire", () => program.methods.fireTrigger()
       .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
       .rpc({ commitment: "confirmed" }));
@@ -649,14 +687,29 @@ describe("airdrop_escrow (devnet)", () => {
       if (mid * mid <= inner) { vtTarget = mid; lo = mid + 1n; } else { hi = mid - 1n; }
     }
     const need = k / vtTarget - vq;
-    const fund = Number(need) * 1.05 + 0.025 * LAMPORTS_PER_SOL; // fees + reserve + rent
     console.log(`  mcap 2x icin ~${(Number(need) / 1e9).toFixed(3)} SOL alim gerekiyor`);
-    assert.isBelow(fund / LAMPORTS_PER_SOL, 2.5, "milestone pump stays affordable");
+    assert.isBelow(Number(need) / LAMPORTS_PER_SOL, 2.5, "milestone pump stays affordable");
 
-    await send([SystemProgram.transfer({
-      fromPubkey: dev.publicKey, toPubkey: escrow, lamports: Math.ceil(fund),
-    })]);
-    await sendBuyback("milestone-pump");
+    // Our own buyback is capped at 0.5% of reserves per call, so it can no longer
+    // move the cap on its own — which is the point. Move the market directly
+    // instead, the way an outside buyer would.
+    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
+    await withRetry("market-buy", async () => {
+      const bh = await conn.getLatestBlockhash("finalized");
+      const msg = new TransactionMessage({
+        payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+        instructions: [
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+          directBuyIx(mint, dev.publicKey, escrow, BigInt(Math.ceil(Number(need) * 1.03)), 1n),
+        ],
+      }).compileToV0Message([lutAcc]);
+      const tx = new VersionedTransaction(msg);
+      tx.sign([dev]);
+      const sg = await conn.sendTransaction(tx, { skipPreflight: false, maxRetries: 5 });
+      await conn.confirmTransaction({ signature: sg, ...bh }, "confirmed");
+      sigs.marketBuy = sg;
+      return sg;
+    });
 
     const sig = await withRetry("check_milestone", () => program.methods
       .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));

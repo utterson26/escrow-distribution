@@ -639,18 +639,35 @@ pub mod airdrop_escrow {
         // The escrow must stay rent-exempt; only what sits above that is spendable.
         let from_escrow = escrow_ai.lamports().saturating_sub(rent_min);
         let in_buyer = ctx.accounts.buyer.lamports();
-        let quote_in = from_escrow
+        let available = from_escrow
             .saturating_add(in_buyer)
             .saturating_sub(BUYBACK_RESERVE_LAMPORTS);
 
-        if quote_in < MIN_BUYBACK_LAMPORTS {
+        // The threshold is about whether enough has piled up to bother at all...
+        if available < MIN_BUYBACK_LAMPORTS {
             emit!(BuybackSkipped {
                 escrow: ctx.accounts.escrow.key(),
-                spendable: quote_in,
+                spendable: available,
                 threshold: MIN_BUYBACK_LAMPORTS,
             });
             return Ok(());
         }
+
+        // ...and the cap is about how much of it a single call may spend. What is
+        // left over stays put and is picked up by the next call.
+        let cap = (ctx.accounts.bonding_curve.virtual_quote_reserves as u128)
+            .checked_mul(BUYBACK_MAX_RESERVE_BPS as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        let quote_in = (available as u128).min(cap) as u64;
+        require!(quote_in > 0, EscrowError::ZeroAmount);
+
+        // Move only what this call actually needs. Whatever the cap held back
+        // stays in the escrow and is picked up by the next call.
+        let needed = quote_in
+            .saturating_add(BUYBACK_RESERVE_LAMPORTS)
+            .saturating_sub(in_buyer)
+            .min(from_escrow);
 
         // Pump moves the buyer's SOL with a system transfer, which requires a
         // system-owned, dataless signer. The escrow PDA carries state and is owned
@@ -669,7 +686,7 @@ pub mod airdrop_escrow {
                     to: ctx.accounts.buyer.to_account_info(),
                 },
             ),
-            from_escrow,
+            needed,
         )?;
 
         let mint_key = ctx.accounts.escrow.mint;
@@ -807,8 +824,8 @@ pub mod airdrop_escrow {
         }
 
         // Reimburse whoever fronted the SOL, now that no further CPI follows.
-        **escrow_ai.try_borrow_mut_lamports()? -= from_escrow;
-        **ctx.accounts.payer.try_borrow_mut_lamports()? += from_escrow;
+        **escrow_ai.try_borrow_mut_lamports()? -= needed;
+        **ctx.accounts.payer.try_borrow_mut_lamports()? += needed;
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.buyback_spent = escrow
@@ -831,6 +848,7 @@ pub mod airdrop_escrow {
             tokens_bought: gained,
             quoted: expected_out as u64,
             floor: min_tokens_out,
+            left_for_next_call: available.saturating_sub(quote_in),
         });
         Ok(())
     }
@@ -946,6 +964,8 @@ pub struct BuybackDone {
     pub quoted: u64,
     /// `quoted` less BUYBACK_SLIPPAGE_BPS; the buy must clear this.
     pub floor: u64,
+    /// Spendable SOL the cap held back for the next call.
+    pub left_for_next_call: u64,
 }
 #[event]
 pub struct BuybackSkipped {

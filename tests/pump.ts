@@ -72,3 +72,40 @@ export const buyerPda = (mint: PublicKey, program: PublicKey) =>
   pda([Buffer.from("buyer"), mint.toBuffer()], program);
 export const baseAtaOf = (owner: PublicKey, mint: PublicKey) =>
   ata(owner, mint, TOKEN_2022);
+
+import { TransactionInstruction, SystemProgram } from "@solana/web3.js";
+
+/**
+ * A direct pump `buy_exact_quote_in_v2`, used by tests to move the market
+ * independently of our own (deliberately small) buyback.
+ */
+export function directBuyIx(
+  mint: PublicKey, user: PublicKey, escrow: PublicKey,
+  spendableQuoteIn: bigint, minTokensOut: bigint,
+): TransactionInstruction {
+  const p = pumpAccounts(mint, user, escrow);
+  const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
+  const data = Buffer.concat([
+    Buffer.from([194, 171, 28, 70, 104, 77, 91, 47]),
+    u64(spendableQuoteIn), u64(minTokensOut),
+  ]);
+  const ro = (pubkey: PublicKey) => ({ pubkey, isWritable: false, isSigner: false });
+  const rw = (pubkey: PublicKey) => ({ pubkey, isWritable: true, isSigner: false });
+  return new TransactionInstruction({
+    programId: PUMP,
+    data,
+    keys: [
+      ro(p.global), ro(mint), ro(WSOL), ro(TOKEN_2022), ro(TOKEN), ro(ATA_PROGRAM),
+      rw(p.feeRecipient), rw(p.associatedQuoteFeeRecipient),
+      rw(p.buybackFeeRecipient), rw(p.associatedQuoteBuybackFeeRecipient),
+      rw(p.bondingCurve), rw(p.associatedBaseBondingCurve), rw(p.associatedQuoteBondingCurve),
+      { pubkey: user, isWritable: true, isSigner: true },
+      rw(p.associatedBaseUser), rw(p.associatedQuoteUser),
+      rw(p.creatorVault), rw(p.associatedCreatorVault),
+      ro(p.sharingConfig), ro(p.globalVolumeAccumulator),
+      rw(p.userVolumeAccumulator), rw(p.associatedUserVolumeAccumulator),
+      ro(p.feeConfig), ro(FEE_PROGRAM), ro(SystemProgram.programId),
+      ro(p.eventAuthority), ro(PUMP),
+    ],
+  });
+}
