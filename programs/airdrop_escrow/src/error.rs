@@ -6,16 +6,32 @@ pub enum EscrowError {
     InvalidBps,
     #[msg("buy amount must be greater than zero")]
     ZeroAmount,
-    #[msg("holder list is empty or exceeds the per-call limit")]
-    BadHolderCount,
-    #[msg("holder account list does not match the weight list")]
-    HolderAccountMismatch,
+    #[msg("winner count must be between 1 and MAX_WINNERS")]
+    BadWinnerCount,
+    #[msg("merkle root must not be empty")]
+    EmptyRoot,
+    #[msg("round randomness has already been drawn")]
+    AlreadyDrawn,
+    #[msg("round randomness is not drawn yet")]
+    NotDrawn,
+    #[msg("draw must wait at least DRAW_DELAY_SLOTS after the root was committed")]
+    DrawTooEarly,
+    #[msg("slot hashes sysvar is empty")]
+    NoSlotHash,
+    #[msg("the draw did not land in this holder's weight range")]
+    TicketOutOfRange,
+    #[msg("merkle proof does not match the committed root")]
+    BadProof,
+    #[msg("position is below the minimum, valued at the curve price")]
+    PositionTooSmall,
     #[msg("total weight is zero")]
     ZeroWeight,
     #[msg("allocation already claimed")]
     AlreadyClaimed,
     #[msg("nothing to claim")]
     NothingToClaim,
+    #[msg("round does not belong to this escrow")]
+    HolderMismatch,
     #[msg("only the dev authority may call this")]
     NotDev,
     #[msg("arithmetic overflow")]

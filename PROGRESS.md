@@ -1,10 +1,10 @@
 # airdrop_escrow — gece çalışması raporu
 
 Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
-Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 6.131208144 SOL)
+Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.13377459 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
-## Sonuç: 6 adımın 6'sı da devnet'te çalışıyor ✅
+## Sonuç: 8 adımın 8'i de devnet'te çalışıyor ✅
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -12,25 +12,26 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 | 2 | collect_creator_fee_v2 CPI (escrow PDA creator) | ✅ |
 | 3 | distribute — ağırlıklı pay, **idempotent** | ✅ |
 | 4 | claim | ✅ |
-| 5 | Anchor testleri, devnet'te koşuyor | ✅ 9/9 passing |
+| 5 | Anchor testleri, devnet'te koşuyor | ✅ 12/12 passing |
 | 6 | buyback — escrow SOL'ünü coin'e çevirir, izinsiz | ✅ |
 | 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
+| 8 | holder listesi doğrulaması — (c) hibrit, deterministik indexer | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
-Son koşu — coin `3oFEd1nqF3Fze6wnkkMPTNzgG4si5oWWYGaRqgJsEB3e`,
-escrow PDA `CRK71iqCtX9Qd9BGPcot6vXjT4c8ua2rFXorhzmL1S7C`:
+Son koşu — coin `9cZUKeu23cdkubJP1az9kvhDmQ7DZFrqAH9FR7yWHPyt`,
+escrow PDA `mE1jn5XhcQGZve5RPPVNoDXMQu6ZwNUNHuZbFybG37z`:
 
 | Adım | İmza |
 |------|------|
-| launch | `HK4Ym7SNKxgSoqkChhAXZfjygRvR6oPZErs2fwCkeT9Zt4oTViyhfPDgSjbgB7rj5xNL8D5kyDn7rVu4Jae3rAM` |
-| collect_fees | `KnwujwQmvua34qC58oxqsLFftbaDQFfGzMZtnf26MpVMXaVVh9uCXnee7Hi1Y23EukssgdFCyRf2Arcpjyy6NyM` |
-| buyback (eşik altı, no-op) | `46bHeYjfwmtxzSbDzNuMars9wuibHZGkm9m5d8aho1H6VaCogNaqywwbFxaGjsXvFz19uQqWWaC6pqeWB9MxtjdJ` |
-| buyback (gerçek alım) | `31zjSnnmY6msz3Muy8GaLbdQUoNziJMpuhYghoFQuSwPXhmxfqDnkxKVNbB3q9CrNtnevgjnqFMb8bmcSGLdeuoZ` |
-| buyback (sandviç sonrası kontrol) | `PKC8TGoi8W6HYmrCUpPpUfeqTcKst5CTstJMVwV16vPAqDWDti7nr6KdDTfdyEqjQHvx9FTS9jbamNiFAqRxMbg` |
-| distribute | `5WVKyrp8qi62ujsWCw7TEXHFv8qCUJcX63W5qdqyJ4fgVQNYTmw9MaCMq6upRPbuix8LMqhKyDgfXdf2iJ77kciv` |
-| distribute (tekrar, no-op) | `4aBCRDF74xMNrmjGUVR3tV9kcq33VjJqcbuFQDvZZqutuvNwa5sgrjkV5niHzJ9UWd6VMnA39tjeEaEaWzFntEz5` |
-| claim | `5mBHtnuqfufR9KxGNZnij93W1nmWzbFqAMFMPBYhCvnyM69i8y8WrqkqgLoaR3QJTtSo1vvqwRpv4eQji7rtJ2Zp` |
+| launch | `2RMaJukKaTpq5NW1oo4xzgDNc5P7zkALcpSJ4xLWXb9dd95pSmHvFSDweMuAzwCQ8DaagUwK3KVoLdDXMWrPFNtH` |
+| collect_fees | `CWpGhMfxo3Y8TGFBCigRxUQpdtw9YWXFLtxSjG3TDnrL81Uyh8zCwYXkZXrCcwSbUdpEEE39UCSXj1aVEweiMC2` |
+| buyback (eşik altı, no-op) | `grpYAhJ7iiQafEeUvQyQNP6XoDeF91npasx4sagNfZxWthyimQdLc8qgkJNs9cWqU46WgZfzoToXLsWztoQXtHZ` |
+| buyback (gerçek alım) | `2yb2kype9sXopFhfdBv7VjjcuFLJt4cnqrfMEDYd2RbGfo2RXLQSvQyMuSZje22UJyR7TsWR6rKchipPYrsCJCPf` |
+| buyback (sandviç sonrası kontrol) | `5g7juhmPziRGCs6yjRjTDKaZ8BAGNmq4GWayWUvai52d59VBTG2nE1NnyCfwvpW1ALYBsE9MW8qagTDBKnyXFRwW` |
+| open_round (kök işlendi) | `5xkF5u2xWi8UZWhTRQrCrTjaUWWCuWmTjDBd7y8hZaYR5gKqNuvYRZdUQjVmvNve7HhtqyRMQbj7Z5nmQM7hkD9M` |
+| draw (rastgelelik) | `2QuHR3djU59MUbNGwfbj6ytdWFsgXXdLPw8sAHft9KTCsih2thD1HeCzksZJSKGY5Wwd9uA1SGDGxJKQ7PxAhvNX` |
+| claim_prize (ilk ödül) | `3tdctLggQBVuhxJYrrC5A7QMMY4Rtaf1LY216PSxfQ5L7YsFsmEUnPAQcUUHPQ9Y6cRrdyAGxqn5LLooo3HC1ivH` |
 
 ```bash
 solana confirm -v <imza> --url devnet
@@ -49,6 +50,13 @@ solana confirm -v <imza> --url devnet
   (fee program + Token-2022 TransferChecked). Escrow SOL 61.338.839 → 1.336.040
   (= tam rent-exempt taban), escrow token hesabı +50.404.940.778.743.
   Eşik altı çağrı hiç pump CPI'ı yapmadan dönüyor.
+- **Holder doğrulama kanıtı:** 7 cüzdan fonlandı; 1'i her şeyi sattı, 1'i eşiğin
+  altında kaldı. Indexer **tam olarak 5** uygun holder buldu, ikisini de eledi.
+  8 çekiliş yapıldı, 8 ödül ödendi; aynı çekiliş ikinci kez ödenmedi; ağaçta
+  olmayan bir cüzdanın başkasının yaprağıyla yaptığı sahte claim reddedildi.
+- **Determinizm kanıtı:** ödüller dağıtıldıktan **sonra** zincirden yeniden
+  üretilen kök, dosyadakiyle birebir aynı çıktı:
+  `e6c53711c7315062f1cca34c0799dc723686db2f9301f50ad41d954ea79c884a`
 - **Slippage tabanı kanıtı:** başarılı alımın `BuybackDone` event'i çözüldü —
   curve'den teklif 50.523.826.939.404, taban (−%2) 49.513.350.400.615, gerçekleşen
   50.404.940.778.743 = teklifin **%99,7647**'si. Yani %2 toleransın yalnızca %0,24'ü kullanıldı.
@@ -146,11 +154,83 @@ transfer kaynağın System Program'a ait ve verisiz olmasını şart koşuyor. E
 tutuyor ve bu programa ait. Bu yüzden araya verisiz bir `["buyer", mint]` PDA'sı
 koydum: çağıran SOL'ü öne sürüyor, escrow aynı işlemde geri ödüyor.
 
+## Holder listesi nasıl doğrulanıyor — (c) hibrit
+
+Sorun şuydu: dağıtım listesi dışarıdan geliyordu, yani kime gideceğini biri elle
+yazabiliyordu. Çözüm, işi ikiye ayırmak:
+
+**Zincirin bilemeyeceği tek şey dışarıdan geliyor:** "bu kişi ne kadar süredir
+tutuyor". Bunu ancak geçmişe bakarak hesaplayabilirsin, o da zincir dışı bir iş.
+Indexer bunu hesaplayıp bir özet (Merkle kökü) üretiyor, kök zincire yazılıyor.
+
+**Zincirin bilebileceği her şeyi program kendisi doğruluyor:**
+- ödül alacak kişinin **şu anki** bakiyesini kendi okuyor — sıfırsa ödeme yok
+- pozisyon değerini curve fiyatından hesaplıyor — 0,05 SOL altındaysa ödeme yok
+- token hesabı, claim eden cüzdanın kendi hesabı olmak zorunda (başkasının
+  pozisyonunu göstererek eşiği geçemezsin)
+
+**Kazananı kimse seçemiyor:** Kök önce işleniyor (`open_round`), rastgelelik
+**sonra** çekiliyor (`draw`) ve en az bir slot beklemek zorunda. Yani kökü
+yazan kişi kimin kazanacağını bilemez. Kazanan, ağırlık aralığının çekilen sayıyı
+kapsadığını ispatlıyor; program tek tek kontrol ediyor.
+
+**Geriye kalan güven:** Indexer ağırlıkları çarpıtabilir (birinin sırasını
+kayırabilir). Yapamayacakları: elinde coin olmayana ödeme yaptırmak, eşiğin
+altındakini geçirmek, kazananı seçmek.
+
+## Indexer'ı kendin doğrula
+
+Indexer açık kaynak ve deterministik: çıktısı yalnızca (coin, slot) çiftine ve
+zincirin kalıcı geçmişine bağlı. Hiçbir yerde "o anki" hesap durumuna güvenmiyor;
+her token hesabının kendi işlem geçmişini o slot'a kadar oynatarak bakiyeyi ve
+tutma süresini yeniden kuruyor. Bu yüzden aynı girdiyle herkes aynı kökü üretir.
+
+Üç komut var:
+
+```bash
+export HELIUS_RPC_URL="https://devnet.helius-rpc.com/?api-key=<ANAHTARIN>"
+
+# 1) Anlık görüntü üret
+npx ts-node --compiler-options '{"module":"commonjs"}' indexer/snapshot.ts \
+  snapshot --mint <COIN> --slot <SLOT> --out snapshot.json
+
+# 2) Kök gerçekten bu yapraklardan mı çıkıyor? (ağ gerekmez)
+npx ts-node --compiler-options '{"module":"commonjs"}' indexer/snapshot.ts \
+  verify --in snapshot.json
+
+# 3) Zincirden bastan üret, dosyayla karşılaştır
+npx ts-node --compiler-options '{"module":"commonjs"}' indexer/snapshot.ts \
+  reproduce --in snapshot.json
+```
+
+`verify` üç şeyi kontrol eder: kök yapraklardan yeniden hesaplanıyor mu,
+ağırlıkların toplamı `totalWeight` ile uyuşuyor mu, kümülatif aralıklar
+boşluksuz mu. `reproduce` ise zincire gidip her şeyi baştan kurar ve kökü
+karşılaştırır — **AYNI** demezse listede oynama var demektir.
+
+Zincire yazılan kökü ise şuradan okursun: `open_round` işleminin
+`RoundOpened` kaydında ve `Round` hesabının `root` alanında.
+Dosyadaki kök ile bu ikisi aynı olmalı.
+
+### Dışlanan hesaplar
+Coin'in token hesaplarının hepsi holder değil: bonding curve'ün kendi hesabı,
+mayhem kasası, escrow ve buyer PDA'ları protokol hesabı. Bunlar coin'den
+deterministik olarak türetiliyor ve snapshot dosyasındaki `excluded`
+alanına yazılıyor, böylece yeniden üretim aynı listeyi kullanır. Bu koşuda dev
+cüzdanı da hazine olduğu için elle dışlandı — o da dosyada görünür.
+
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
 - `collect_fees` sonrası escrow'daki SOL'ü çekecek bir instruction yok.
 - Holder listesi/ağırlıkları zincir dışından geliyor; program doğrulamıyor.
+- **Eşik sabit 0,05 SOL, dolar değil.** Gerçek $10 için fiyat beslemesi (Pyth)
+  gerekir; SOL fiyatı oynadıkça dolar karşılığı kayar.
+- **Rastgelelik slot hash.** Blok üreticisi sınırlı ölçüde oynayabilir; VRF sonra.
+- **Ağırlık `u64`'e sığmalı** (bakiye × slot). Indexer taşarsa kırpıyor; çok uzun
+  tutma sürelerinde ölçek küçültmek gerekir.
+- **Kapanmış token hesapları gözden kaçar** — ama zaten tamamen satmış demektir,
+  eleneceklerdi.
 - **Slippage toleransı sabit (%2), escrow başına ayarlanamıyor.** Çok sığ curve'lerde dar,
   çok derinlerde gereksiz geniş kalabilir.
 - **Taban, alımın gerçekleştiği curve durumundan türüyor.** Aynı blokta önden koşan biri
@@ -177,6 +257,17 @@ koydum: çağıran SOL'ü öne sürüyor, escrow aynı işlemde geri ödüyor.
    `Access violation ... at address 0x300010000` — BPF'in 4 KB stack frame'i
    taşıyor. Çözüm: `Box<Account<...>>` ile heap'e almak. `BondingCurve`
    ve token hesaplarını da aynı şekilde box'ladım.
+
+11. **`getProgramAccounts` Token-2022'de public RPC'de kapalı** — *"excluded from
+   account secondary indexes"*. Holder listesi için Helius/Triton gibi bir sağlayıcı
+   şart. Anahtar repoda değil, `~/.airdrop-launchpad.env` içinde ve `.gitignore`'da.
+
+12. **Token hesapları 165 değil 170 bayt** (Token-2022 `ImmutableOwner` uzantısı).
+   `dataSize: 165` ile tarayan bir indexer sessizce **sıfır** sonuç döndürür;
+   bu yüzden coin adresine göre (`memcmp` offset 0) filtreliyoruz.
+
+13. **Coin'de transfer hook yok ve ekleyemeyiz** (mint'i pump yaratıyor). Bu yüzden
+   tutma süresi zincir üstü takip edilemiyor; (a) şıkkı bu yüzden elendi.
 
 ## Çalıştırma
 ```bash

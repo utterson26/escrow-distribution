@@ -6,13 +6,28 @@ import {
 } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction, getAccount,
-  getAssociatedTokenAddressSync,
+  getAssociatedTokenAddressSync, createTransferCheckedInstruction,
 } from "@solana/spl-token";
 import { assert } from "chai";
+import * as fs from "fs";
 import {
-  pumpAccounts, escrowPda, allocPda, escrowAta, buyerPda, baseAtaOf,
+  pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf,
   TOKEN_2022, WSOL, TOKEN,
 } from "./pump";
+import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
+import { createHash } from "crypto";
+
+const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
+const u16le = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+const leBytesToBigInt = (b: Buffer) => {
+  let v = 0n;
+  for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]);
+  return v;
+};
+const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
+  const b = Buffer.alloc(4); b.writeUInt32LE(index);
+  return PublicKey.findProgramAddressSync([Buffer.from("round"), escrow.toBuffer(), b], program)[0];
+};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -54,7 +69,12 @@ describe("airdrop_escrow (devnet)", () => {
   const quoteAta = (owner: PublicKey) =>
     getAssociatedTokenAddressSync(WSOL, owner, true, TOKEN);
 
-  const holders = [Keypair.generate(), Keypair.generate(), Keypair.generate()];
+  // 7 wallets: 5 that should qualify, 1 that sells out, 1 below the minimum
+  const holders = Array.from({ length: 7 }, () => Keypair.generate());
+  const GRANT = [25, 30, 35, 40, 45, 30, 5].map((m) => new BN(m).mul(new BN(1_000_000)).mul(new BN(10 ** 6)));
+  const SELLS_OUT = 5;   // receives, then sends everything back
+  const TOO_SMALL = 6;   // 5M tokens, under 0.05 SOL
+  let snap: any;
   let lut: PublicKey;
   const sigs: Record<string, string> = {};
 
@@ -105,8 +125,9 @@ describe("airdrop_escrow (devnet)", () => {
   });
 
   it("1. launch: create_v2 + buy_v2 in one atomic tx", async () => {
-    const amount = new BN(1_000_000).mul(new BN(10 ** 6)); // 1M base tokens
-    const maxSolCost = new BN(0.5 * LAMPORTS_PER_SOL);
+    // large enough that a real position clears the 0.05 SOL minimum
+    const amount = new BN(400_000_000).mul(new BN(10 ** 6));
+    const maxSolCost = new BN(1.5 * LAMPORTS_PER_SOL);
     const escrowBps = 3000; // 30% to escrow
 
     const ix = await program.methods
@@ -170,16 +191,6 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  escrow lamports ${before} -> ${after}, recorded=${st.feesCollected} sig=${sig}`);
     assert.isAtLeast(after, before, "escrow must not lose lamports");
   });
-
-  const weights = [
-      { balance: new BN(1000), heldSecs: new BN(3600) },
-      { balance: new BN(2000), heldSecs: new BN(1800) },
-    { balance: new BN(500),  heldSecs: new BN(7200) },
-  ];
-  const remaining = () => holders.flatMap((h) => [
-    { pubkey: allocPda(escrow, h.publicKey, program.programId), isWritable: true, isSigner: false },
-    { pubkey: h.publicKey, isWritable: false, isSigner: false },
-  ]);
 
   /** every account `buyback` needs, shared by both buyback tests */
   const buybackAccounts = () => ({
@@ -326,86 +337,177 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  control buy ok, +${escAfter.amount - escBefore.amount} sig=${sig}`);
   });
 
-  it("3. distribute: weighted allocations (balance x held_secs, hash-jittered)", async () => {
-    const sig = await withRetry("distribute", () => program.methods
-      .distribute(weights)
-      .accountsPartial({ dev: dev.publicKey, escrow, systemProgram: SystemProgram.programId })
-      .remainingAccounts(remaining())
-      .rpc({ commitment: "confirmed" }));
-    sigs.distribute = sig;
-
-    const st: any = await program.account.escrow.fetch(escrow);
-    let sum = new BN(0);
-    for (const h of holders) {
-      const a: any = await program.account.allocation.fetch(
-        allocPda(escrow, h.publicKey, program.programId));
-      console.log(`  ${h.publicKey.toBase58().slice(0, 8)} amount=${a.amount} weight=${a.weight}`);
-      sum = sum.add(a.amount);
-    }
-    assert.equal(sum.toString(), st.allocated.toString(), "sum of allocations == escrow.allocated");
-    assert.isTrue(st.allocated.lte(st.escrowed), "cannot allocate more than escrowed");
-    console.log(`  allocated=${st.allocated} of escrowed=${st.escrowed} sig=${sig}`);
-  });
-
-  it("3b. distribute is idempotent: resending the same batch is a no-op", async () => {
-    const before: any = await program.account.escrow.fetch(escrow);
-    const allocBefore = await Promise.all(holders.map((h) =>
-      program.account.allocation.fetch(allocPda(escrow, h.publicKey, program.programId))));
-    allocBefore.forEach((a: any, i) =>
-      assert.isTrue(a.distributed, `holder ${i} must carry the distributed flag`));
-
-    const sig = await withRetry("distribute-again", () => program.methods
-      .distribute(weights)
-      .accountsPartial({ dev: dev.publicKey, escrow, systemProgram: SystemProgram.programId })
-      .remainingAccounts(remaining())
-      .rpc({ commitment: "confirmed" }));
-    sigs.distributeAgain = sig;
-
-    const after: any = await program.account.escrow.fetch(escrow);
-    assert.equal(after.allocated.toString(), before.allocated.toString(), "allocated unchanged");
-    assert.equal(after.holderCount, before.holderCount, "holder_count unchanged");
+  it("3. holders are funded on chain", async () => {
     for (let i = 0; i < holders.length; i++) {
-      const a: any = await program.account.allocation.fetch(
-        allocPda(escrow, holders[i].publicKey, program.programId));
-      assert.equal(a.amount.toString(), (allocBefore[i] as any).amount.toString(),
-        `holder ${i} amount unchanged`);
-      assert.equal(a.weight.toString(), (allocBefore[i] as any).weight.toString(),
-        `holder ${i} weight unchanged`);
+      const ata = baseAta(holders[i].publicKey);
+      await send([
+        SystemProgram.transfer({
+          fromPubkey: dev.publicKey, toPubkey: holders[i].publicKey,
+          lamports: 0.02 * LAMPORTS_PER_SOL,
+        }),
+        createAssociatedTokenAccountIdempotentInstruction(
+          dev.publicKey, ata, holders[i].publicKey, mint, TOKEN_2022),
+        createTransferCheckedInstruction(
+          pa.associatedBaseUser, mint, ata, dev.publicKey,
+          BigInt(GRANT[i].toString()), 6, [], TOKEN_2022),
+      ]);
     }
-    console.log(`  no-op confirmed, allocated still ${after.allocated} sig=${sig}`);
+    // one of them sells out completely — must drop out of the snapshot
+    await send([createTransferCheckedInstruction(
+      baseAta(holders[SELLS_OUT].publicKey), mint, pa.associatedBaseUser,
+      holders[SELLS_OUT].publicKey, BigInt(GRANT[SELLS_OUT].toString()), 6, [], TOKEN_2022,
+    )], [holders[SELLS_OUT]]);
+
+    const sold = await getAccount(conn, baseAta(holders[SELLS_OUT].publicKey), "confirmed", TOKEN_2022);
+    assert.equal(sold.amount.toString(), "0", "seller is flat");
+    console.log(`  ${holders.length} holder funded; #${SELLS_OUT} sold out, #${TOO_SMALL} is dust`);
   });
 
-  it("4. claim: a holder pulls their allocation", async () => {
-    const h = holders[0];
-    // fund the holder so it can pay its own fees, and open its ATA
-    await send([
-      SystemProgram.transfer({
-        fromPubkey: dev.publicKey, toPubkey: h.publicKey, lamports: 0.02 * LAMPORTS_PER_SOL,
-      }),
-      createAssociatedTokenAccountIdempotentInstruction(
-        dev.publicKey,
-        baseAta(h.publicKey), h.publicKey, mint, TOKEN_2022),
-    ]);
+  it("4. indexer builds a deterministic snapshot", async () => {
+    const slot = await conn.getSlot("confirmed");
+    // the dev wallet is the treasury here, not an airdrop participant
+    snap = await snapshot(process.env.HELIUS_RPC_URL!, mint.toBase58(), slot,
+                          program.programId, [dev.publicKey.toBase58()]);
+    assert.equal(snap.leaves.length, 5, "exactly the 5 qualifying holders");
 
-    const holderTa = baseAta(h.publicKey);
-    const alloc = allocPda(escrow, h.publicKey, program.programId);
-    const a: any = await program.account.allocation.fetch(alloc);
+    const inSnap = new Set(snap.leaves.map((l: any) => l.holder));
+    assert.isFalse(inSnap.has(holders[SELLS_OUT].publicKey.toBase58()), "seller excluded");
+    assert.isFalse(inSnap.has(holders[TOO_SMALL].publicKey.toBase58()), "dust position excluded");
+    for (const i of [0, 1, 2, 3, 4]) {
+      assert.isTrue(inSnap.has(holders[i].publicKey.toBase58()), `holder ${i} present`);
+    }
+    // weights are balance x slots held, and cum ranges must tile the line
+    let cum = 0n;
+    for (const l of snap.leaves) {
+      assert.equal(l.cumStart, cum.toString(), "cumulative ranges are contiguous");
+      cum += BigInt(l.weight);
+    }
+    assert.equal(cum.toString(), snap.totalWeight);
 
-    const sig = await withRetry("claim", () => program.methods
-      .claim()
-      .accountsPartial({
-        holder: h.publicKey, escrow, allocation: alloc, mint,
-        escrowTokenAccount: escrowTa, holderTokenAccount: holderTa,
-        baseTokenProgram: TOKEN_2022,
-      })
-      .signers([h])
+    // same inputs -> same root, recomputed from the leaves alone
+    const { root } = buildTree(snap.leaves);
+    assert.equal(root.toString("hex"), snap.root, "root recomputes from leaves");
+    fs.writeFileSync("snapshot.json", JSON.stringify(snap, null, 2));
+    console.log(`  ${snap.leaves.length} uygun holder, root=${snap.root.slice(0, 16)}...`);
+  });
+
+  it("5. round is opened: root committed before any randomness exists", async () => {
+    const roundIndex = 0;
+    const round = roundPda(escrow, roundIndex, program.programId);
+    const winners = 8;
+    const st: any = await program.account.escrow.fetch(escrow);
+    const free = st.escrowed.sub(st.allocated);
+    const prize = free.divn(winners * 2); // leave headroom
+
+    const sig = await withRetry("open_round", () => program.methods
+      .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
+                 new BN(snap.totalWeight), winners, prize)
+      .accountsPartial({ dev: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
       .rpc({ commitment: "confirmed" }));
-    sigs.claim = sig;
+    sigs.openRound = sig;
 
-    const bal = await getAccount(conn, holderTa, "confirmed", TOKEN_2022);
-    assert.equal(bal.amount.toString(), a.amount.toString(), "holder received their allocation");
-    const after: any = await program.account.allocation.fetch(alloc);
-    assert.isTrue(after.claimed, "allocation marked claimed");
-    console.log(`  holder got ${bal.amount} sig=${sig}`);
+    const r: any = await program.account.round.fetch(round);
+    assert.equal(Buffer.from(r.root).toString("hex"), snap.root, "root stored as committed");
+    assert.isFalse(r.drawn, "no randomness at commit time");
+    assert.equal(r.winnerCount, winners);
+    console.log(`  root islendi, ${winners} kazanan x ${prize.toString()} odul sig=${sig}`);
+  });
+
+  it("6. randomness is drawn afterwards, by anyone", async () => {
+    const round = roundPda(escrow, 0, program.programId);
+    const before: any = await program.account.round.fetch(round);
+    // the draw must be in a later slot than the commit
+    while ((await conn.getSlot("confirmed")) <= before.commitSlot.toNumber()) await sleep(500);
+
+    const sig = await withRetry("draw", () => program.methods
+      .draw()
+      .accountsPartial({ round, slotHashes: SLOT_HASHES })
+      .rpc({ commitment: "confirmed" }));
+    sigs.draw = sig;
+
+    const r: any = await program.account.round.fetch(round);
+    assert.isTrue(r.drawn, "seed filled in");
+    assert.notEqual(Buffer.from(r.seed).toString("hex"), "00".repeat(32), "seed is real");
+    console.log(`  seed=${Buffer.from(r.seed).toString("hex").slice(0, 16)}... sig=${sig}`);
+  });
+
+  it("7. winners claim; only the drawn ranges pay out", async () => {
+    const roundIndex = 0;
+    const round = roundPda(escrow, roundIndex, program.programId);
+    const r: any = await program.account.round.fetch(round);
+    const seed = Buffer.from(r.seed);
+    const total = BigInt(snap.totalWeight);
+    const { layers } = buildTree(snap.leaves);
+
+    // recompute the same draws the program will
+    const winnersOf = new Map<number, number[]>();
+    for (let k = 0; k < r.winnerCount; k++) {
+      const h = createHash("sha256").update(Buffer.concat([seed, u16le(k)])).digest();
+      const ticket = leBytesToBigInt(h.subarray(0, 16)) % total;
+      const idx = snap.leaves.findIndex((l: any) =>
+        BigInt(l.cumStart) <= ticket && ticket < BigInt(l.cumStart) + BigInt(l.weight));
+      assert.isAtLeast(idx, 0, `draw ${k} must land on a leaf`);
+      winnersOf.set(k, [...(winnersOf.get(k) ?? []), idx]);
+    }
+
+    let paid = 0;
+    for (const [k, [idx]] of winnersOf) {
+      const leaf = snap.leaves[idx];
+      const h = holders.find((x) => x.publicKey.toBase58() === leaf.holder)!;
+      const before = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
+      const sig = await withRetry(`claim ${k}`, () => program.methods
+        .claimPrize(k, leaf.index, new BN(leaf.weight), new BN(leaf.cumStart),
+                    proofFor(layers, leaf.index).map((b) => [...b]))
+        .accountsPartial({
+          holder: h.publicKey, escrow, round, mint,
+          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(h.publicKey),
+          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
+        })
+        .signers([h]).rpc({ commitment: "confirmed" }));
+      if (paid === 0) sigs.claimPrize = sig;
+      const after = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
+      assert.equal((after.amount - before.amount).toString(), r.prize.toString(),
+        `draw ${k} paid exactly one prize`);
+      paid++;
+    }
+    const rr: any = await program.account.round.fetch(round);
+    assert.equal(rr.claimedCount, paid, "every drawn prize claimed once");
+    console.log(`  ${paid} odul odendi`);
+
+    // the same draw cannot be claimed twice
+    const [k0, [i0]] = [...winnersOf][0];
+    const l0 = snap.leaves[i0];
+    const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
+    let again = false;
+    try {
+      await program.methods.claimPrize(k0, l0.index, new BN(l0.weight), new BN(l0.cumStart),
+          proofFor(layers, l0.index).map((b) => [...b]))
+        .accountsPartial({
+          holder: h0.publicKey, escrow, round, mint,
+          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(h0.publicKey),
+          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
+        }).signers([h0]).rpc({ commitment: "confirmed" });
+    } catch { again = true; }
+    assert.isTrue(again, "double claim rejected");
+    console.log("  ayni cekilis ikinci kez odenmedi");
+  });
+
+  it("8. a holder who is not in the tree cannot forge a claim", async () => {
+    const round = roundPda(escrow, 0, program.programId);
+    const { layers } = buildTree(snap.leaves);
+    const victim = snap.leaves[0];
+    const outsider = holders[TOO_SMALL]; // real wallet, but below the minimum
+    let rejected = false;
+    try {
+      await program.methods.claimPrize(0, victim.index, new BN(victim.weight), new BN(victim.cumStart),
+          proofFor(layers, victim.index).map((b) => [...b]))
+        .accountsPartial({
+          holder: outsider.publicKey, escrow, round, mint,
+          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(outsider.publicKey),
+          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
+        }).signers([outsider]).rpc({ commitment: "confirmed" });
+    } catch { rejected = true; }
+    assert.isTrue(rejected, "someone else's leaf must not pay out");
+    console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi");
   });
 });

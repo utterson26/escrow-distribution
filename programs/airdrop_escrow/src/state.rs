@@ -28,27 +28,28 @@ pub struct Escrow {
     pub bump: u8,
 }
 
+/// One distribution round. The Merkle root is committed first and the
+/// randomness is drawn afterwards, so whoever publishes the root cannot know
+/// — and therefore cannot pick — the winners.
 #[account]
 #[derive(InitSpace)]
-pub struct Allocation {
+pub struct Round {
     pub escrow: Pubkey,
-    pub holder: Pubkey,
-    /// Base tokens owed to this holder.
-    pub amount: u64,
-    /// Weight this allocation was computed from (balance x held_secs, jittered).
-    pub weight: u128,
-    /// Set once `distribute` has written a share for this holder. Makes
-    /// `distribute` idempotent: a holder is never allocated twice.
-    pub distributed: bool,
-    pub claimed: bool,
+    pub index: u32,
+    /// Merkle root over the holder snapshot leaves.
+    pub root: [u8; 32],
+    /// Sum of every leaf weight; the draw is taken modulo this.
+    pub total_weight: u128,
+    pub winner_count: u16,
+    /// Tokens paid per winning draw.
+    pub prize: u64,
+    pub commit_slot: u64,
+    /// Randomness, filled in by `draw`.
+    pub seed: [u8; 32],
+    pub drawn: bool,
+    /// One bit per draw index; 256 draws max.
+    pub claimed_bits: [u8; 32],
+    pub claimed_count: u16,
     pub bump: u8,
 }
 
-/// Per-holder input to `distribute`.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
-pub struct HolderWeight {
-    /// Token balance snapshot.
-    pub balance: u64,
-    /// Seconds the balance has been held.
-    pub held_secs: u64,
-}

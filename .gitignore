@@ -11,3 +11,9 @@ test-ledger
 docs/pump/
 node_modules/
 package-lock.json
+
+# gizli anahtarlar
+.env
+*.env
+!*.example.env
+snapshot.json
