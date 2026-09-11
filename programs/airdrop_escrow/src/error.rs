@@ -20,4 +20,10 @@ pub enum EscrowError {
     NotDev,
     #[msg("arithmetic overflow")]
     Overflow,
+    #[msg("bonding curve is complete; the coin has migrated")]
+    CurveComplete,
+    #[msg("buy returned fewer tokens than the on-chain quote allows")]
+    SlippageExceeded,
+    #[msg("bonding curve quote mint does not match the quote mint passed")]
+    QuoteMintMismatch,
 }

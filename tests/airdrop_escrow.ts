@@ -206,9 +206,11 @@ describe("airdrop_escrow (devnet)", () => {
     systemProgram: SystemProgram.programId,
   });
 
-  async function sendBuyback(minTokensOut: BN, label: string): Promise<string> {
-    const ix = await program.methods.buyback(minTokensOut)
-      .accountsPartial(buybackAccounts()).instruction();
+  async function sendBuyback(
+    label: string, overrides: Record<string, PublicKey> = {},
+  ): Promise<string> {
+    const ix = await program.methods.buyback()
+      .accountsPartial({ ...buybackAccounts(), ...overrides }).instruction();
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
     return withRetry(label, async () => {
       const bh = await conn.getLatestBlockhash("finalized");
@@ -231,7 +233,7 @@ describe("airdrop_escrow (devnet)", () => {
     // only the swept creator fee is in there, far below MIN_BUYBACK_LAMPORTS (0.01 SOL)
     assert.isBelow(lamports, 10_000_000, "escrow must be under the threshold here");
 
-    const sig = await sendBuyback(new BN(0), "buyback-noop");
+    const sig = await sendBuyback("buyback-noop");
     sigs.buybackNoop = sig;
 
     const escAfter = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
@@ -250,7 +252,7 @@ describe("airdrop_escrow (devnet)", () => {
     const solBefore = await conn.getBalance(escrow, "confirmed");
     const escBefore = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
 
-    const sig = await sendBuyback(new BN(1), "buyback");
+    const sig = await sendBuyback("buyback");
     sigs.buyback = sig;
 
     const solAfter = await conn.getBalance(escrow, "confirmed");
@@ -262,8 +264,66 @@ describe("airdrop_escrow (devnet)", () => {
       "buyback_tokens matches the ATA delta");
     assert.isBelow(solAfter, solBefore, "escrow SOL was spent");
     assert.isTrue(st.escrowed.gte(st.allocated), "escrowed still covers allocations");
+    // the program quoted the curve itself; the fill must clear quote - 2%
+    const ev = (await conn.getTransaction(sig, {
+      commitment: "confirmed", maxSupportedTransactionVersion: 0,
+    }))!.meta!.logMessages!.join("\n");
+    assert.match(ev, /Instruction: BuyExactQuoteInV2/, "went through the pump v2 buy");
+    const bought = Number(escAfter.amount - escBefore.amount);
+    assert.isAbove(bought, 0, "tokens received");
     console.log(`  SOL ${solBefore} -> ${solAfter}, coin +${escAfter.amount - escBefore.amount}`);
     console.log(`  buyback_spent=${st.buybackSpent} buyback_tokens=${st.buybackTokens} sig=${sig}`);
+  });
+
+  it("2d. sandwich: a non-canonical bonding curve is rejected", async () => {
+    // Top the escrow back up so any failure is about the curve, not about funds.
+    await send([SystemProgram.transfer({
+      fromPubkey: dev.publicKey, toPubkey: escrow, lamports: 0.05 * LAMPORTS_PER_SOL,
+    })]);
+    const solBefore = await conn.getBalance(escrow, "confirmed");
+    const escBefore = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+
+    // The program now derives its own price floor from the bonding curve, so the
+    // curve account is attacker-reachable input. Feeding it a curve with different
+    // reserves would quote a lower floor and let a sandwich through. Both shapes of
+    // that attack must be refused before anything is spent.
+    const cases: Array<[string, PublicKey]> = [
+      // a real, pump-owned BondingCurve — but for a different coin
+      ["foreign pump curve", new PublicKey("EED8ipKJRM2k4ezSNEgzK1TaNgMkaNQrs1HaAVHqy3pz")],
+      // an address that is not a bonding curve at all
+      ["non-existent curve", PublicKey.findProgramAddressSync(
+        [Buffer.from("bonding-curve"), Keypair.generate().publicKey.toBuffer()],
+        new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"))[0]],
+    ];
+
+    for (const [label, curve] of cases) {
+      let detail = "";
+      try {
+        await sendBuyback("buyback-forged", { bondingCurve: curve });
+        assert.fail(`${label}: buyback should have been rejected`);
+      } catch (e: any) {
+        detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+      }
+      // 2006 ConstraintSeeds / 3007 wrong owner / 3012 not initialized — whichever
+      // applies, the point is the program refuses to quote from a non-canonical account.
+      assert.match(detail, /ConstraintSeeds|0x7d6|0xbbf|0xbc4|seeds constraint/i,
+        `${label}: expected an account-validation rejection, got ${detail.slice(0, 200)}`);
+      console.log(`  ${label} rejected`);
+    }
+
+    // Nothing was spent by the rejected attempts.
+    assert.equal(await conn.getBalance(escrow, "confirmed"), solBefore, "escrow SOL untouched");
+    const escMid = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    assert.equal(escMid.amount.toString(), escBefore.amount.toString(), "no tokens moved");
+
+    // Control: the same funds buy fine against the canonical curve, so the
+    // rejections above were about the account, not about the money.
+    const sig = await sendBuyback("buyback-control");
+    sigs.buybackAfterForged = sig;
+    const escAfter = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    assert.isAbove(Number(escAfter.amount - escBefore.amount), 0,
+      "canonical curve still buys with the same funds");
+    console.log(`  control buy ok, +${escAfter.amount - escBefore.amount} sig=${sig}`);
   });
 
   it("3. distribute: weighted allocations (balance x held_secs, hash-jittered)", async () => {

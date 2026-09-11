@@ -1,7 +1,7 @@
 # airdrop_escrow — gece çalışması raporu
 
 Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
-Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 1.65634171 SOL)
+Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 6.131208144 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
 ## Sonuç: 6 adımın 6'sı da devnet'te çalışıyor ✅
@@ -12,27 +12,29 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 | 2 | collect_creator_fee_v2 CPI (escrow PDA creator) | ✅ |
 | 3 | distribute — ağırlıklı pay, **idempotent** | ✅ |
 | 4 | claim | ✅ |
-| 5 | Anchor testleri, devnet'te koşuyor | ✅ 8/8 passing |
+| 5 | Anchor testleri, devnet'te koşuyor | ✅ 9/9 passing |
 | 6 | buyback — escrow SOL'ünü coin'e çevirir, izinsiz | ✅ |
+| 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
-Son koşu — coin `4M3oSkABLtMFP4tAGZ6tA8RXoNxJZbp2XuP77Kph7kK6`,
-escrow PDA `CdaV3pYmFEiFh8aikp6hDXMoDqQMKjYhV81RPYx2BDnU`:
+Son koşu — coin `3oFEd1nqF3Fze6wnkkMPTNzgG4si5oWWYGaRqgJsEB3e`,
+escrow PDA `CRK71iqCtX9Qd9BGPcot6vXjT4c8ua2rFXorhzmL1S7C`:
 
 | Adım | İmza |
 |------|------|
-| launch | `2JhDiEqdqb1t5gXVFRnEcPcwRF3NLACpKNcV2k1vvQPvgHjXdhMEgfgGJ6XH72SGynJecfjZxxL8FPysQHo8rDuq` |
-| collect_fees | `63T5ikHpXbRxaoKQYGcPYos52pxjdoYSjQK6XvVNiFvEcLWDjnw2WmHfeVRqTnQztwuo8B5zNqGZAvqj83AN2QCv` |
-| buyback (eşik altı, no-op) | `5v6pzd2NnwpzR5ywBMznU3ymtJBSU4BJ45z3yuU19BrqZcfRYXkd5UJVUVKc5ELPsq17t6MsGS9eQKQ2YK5z9HLr` |
-| buyback (gerçek alım) | `5MznxsqdCSr1kZce4UpMv7hxX47jrTQ33b6gQ7Ec1io1LvxujyDtiEW1wCtouobyMgZobipezuS7MUuXyiKnQwM6` |
-| distribute | `5Bcp6ABLiXxb7EnMTJk6tEYJ7qxUi57GMbM7o7t8AyfJW8qLDwLHaUfp1MK33dcrxCa6isjLX2tKheYS7ZWPAcvm` |
-| distribute (tekrar, no-op) | `iheQnNJx4a5zcnUvEwNWvCZmVt3Ydq9B2J4NDs9bvnkseUDTqv2HG8Z4pcHKmSsco1QukVuSfuqMQnUfWFJgtjj` |
-| claim | `5UwuThgQxfUrp9Nu2VXT55ka2v9AvhKHZcQuPQbY6fdp145Ga1Hq2ahhePLoYk7qBSwA29TVDeaeoVTHXKecXAZ6` |
+| launch | `HK4Ym7SNKxgSoqkChhAXZfjygRvR6oPZErs2fwCkeT9Zt4oTViyhfPDgSjbgB7rj5xNL8D5kyDn7rVu4Jae3rAM` |
+| collect_fees | `KnwujwQmvua34qC58oxqsLFftbaDQFfGzMZtnf26MpVMXaVVh9uCXnee7Hi1Y23EukssgdFCyRf2Arcpjyy6NyM` |
+| buyback (eşik altı, no-op) | `46bHeYjfwmtxzSbDzNuMars9wuibHZGkm9m5d8aho1H6VaCogNaqywwbFxaGjsXvFz19uQqWWaC6pqeWB9MxtjdJ` |
+| buyback (gerçek alım) | `31zjSnnmY6msz3Muy8GaLbdQUoNziJMpuhYghoFQuSwPXhmxfqDnkxKVNbB3q9CrNtnevgjnqFMb8bmcSGLdeuoZ` |
+| buyback (sandviç sonrası kontrol) | `PKC8TGoi8W6HYmrCUpPpUfeqTcKst5CTstJMVwV16vPAqDWDti7nr6KdDTfdyEqjQHvx9FTS9jbamNiFAqRxMbg` |
+| distribute | `5WVKyrp8qi62ujsWCw7TEXHFv8qCUJcX63W5qdqyJ4fgVQNYTmw9MaCMq6upRPbuix8LMqhKyDgfXdf2iJ77kciv` |
+| distribute (tekrar, no-op) | `4aBCRDF74xMNrmjGUVR3tV9kcq33VjJqcbuFQDvZZqutuvNwa5sgrjkV5niHzJ9UWd6VMnA39tjeEaEaWzFntEz5` |
+| claim | `5mBHtnuqfufR9KxGNZnij93W1nmWzbFqAMFMPBYhCvnyM69i8y8WrqkqgLoaR3QJTtSo1vvqwRpv4eQji7rtJ2Zp` |
 
-``bash
+```bash
 solana confirm -v <imza> --url devnet
-``
+```
 
 ### Zincir üstünde doğrulanan gerçekler
 - launch tx log sırası: `Launch → CreateV2 → BuyV2 → TransferChecked` — **tek instruction, tek tx**,
@@ -47,6 +49,12 @@ solana confirm -v <imza> --url devnet
   (fee program + Token-2022 TransferChecked). Escrow SOL 61.338.839 → 1.336.040
   (= tam rent-exempt taban), escrow token hesabı +50.404.940.778.743.
   Eşik altı çağrı hiç pump CPI'ı yapmadan dönüyor.
+- **Slippage tabanı kanıtı:** başarılı alımın `BuybackDone` event'i çözüldü —
+  curve'den teklif 50.523.826.939.404, taban (−%2) 49.513.350.400.615, gerçekleşen
+  50.404.940.778.743 = teklifin **%99,7647**'si. Yani %2 toleransın yalnızca %0,24'ü kullanıldı.
+- **Sandviç kanıtı:** kanonik olmayan iki bonding curve (gerçek ama yabancı bir pump curve'ü
+  ve hiç var olmayan bir adres) reddedildi; escrow'un SOL'ü ve tokenı kıl payı oynamadı.
+  Ardından **aynı parayla** kanonik curve'le alım geçti — yani ret paradan değil hesaptandı.
 
 ## Ne çalıştı, nasıl
 
@@ -120,6 +128,19 @@ token miktarı ister; elimizde SOL olduğu için pump'ın ücret matematiğini p
 yazmak gerekirdi ve pump ücretleri değiştirdiğinde sessizce kayardı. `buy_v2`'ye
 geçmek isterseniz tek satırlık değişiklik.
 
+**Taban (min_tokens_out) zincir üstünde hesaplanıyor, çağırandan alınmıyor.** Program
+`bonding_curve` ve `global` hesaplarını okuyup sabit çarpım
+formülüyle beklenen çıktıyı buluyor (ücretler düşülmüş: `fee_basis_points` +
+`creator_fee_basis_points` = 100 bps), sonra **%2** (`BUYBACK_SLIPPAGE_BPS`)
+tolerans uygulayıp tabanı pump'a geçiriyor. CPI dönüşünde gelen miktarı ayrıca kendisi de
+doğruluyor. Ücret modelini gerçek bir devnet alımıyla kalibre ettim: tahmin/gerçek = %99,76,
+yani %2 toleransın içinde rahat pay var.
+
+**Rezervleri okumak yeni bir saldırı yüzeyi açıyor.** Taban artık bir hesaptan türediği için,
+saldırgan düşük fiyat ima eden sahte bir curve geçirip tabanı düşürebilirdi. Bu yüzden
+`bonding_curve` ve `global` Accounts struct'ında pump PDA'larına
+`seeds::program` ile sabitlendi. Sandviç testi tam olarak bunu kanıtlıyor.
+
 **Escrow PDA alıcı olamıyor.** Pump, alıcının SOL'ünü System transfer ile çekiyor; System
 transfer kaynağın System Program'a ait ve verisiz olmasını şart koşuyor. Escrow PDA veri
 tutuyor ve bu programa ait. Bu yüzden araya verisiz bir `["buyer", mint]` PDA'sı
@@ -130,9 +151,12 @@ koydum: çağıran SOL'ü öne sürüyor, escrow aynı işlemde geri ödüyor.
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
 - `collect_fees` sonrası escrow'daki SOL'ü çekecek bir instruction yok.
 - Holder listesi/ağırlıkları zincir dışından geliyor; program doğrulamıyor.
-- **buyback'te `min_tokens_out` çağırana ait.** İzinsiz olduğu için 0 geçen bir
-  çağıran alımı sandviçleyebilir. Üretimde tabanın bonding curve'den zincir üstünde
-  türetilmesi gerekir.
+- **Slippage toleransı sabit (%2), escrow başına ayarlanamıyor.** Çok sığ curve'lerde dar,
+  çok derinlerde gereksiz geniş kalabilir.
+- **Taban, alımın gerçekleştiği curve durumundan türüyor.** Aynı blokta önden koşan biri
+  fiyatı oynatırsa program yeni duruma göre teklif verir; tek instruction içinde bunu
+  tespit etmenin yolu yok. Gerçek koruma için zincir dışı bir referans fiyat gerekir —
+  buradaki taban, kanonik olmayan hesap ve bozuk dolum senaryolarını kapatıyor.
 - Test her koşuda yeni coin basıyor (~0.02 SOL/koşu).
 
 8. **Elle lamport aritmetiği CPI'dan ÖNCE yapılamıyor.** `try_borrow_mut_lamports`
@@ -147,6 +171,12 @@ koydum: çağıran SOL'ü öne sürüyor, escrow aynı işlemde geri ödüyor.
    yükseltmesi sorunsuz; sadece IDL hesabı büyüyen IDL'e göre yeniden boyutlanmıyor.
    Testler yerel `target/idl/airdrop_escrow.json` dosyasını kullandığı için engel
    değil, ama `anchor idl fetch` şu an eski IDL'i döndürür.
+
+10. **Büyük hesabı `Account<>` ile açmak stack'i patlatıyor.** pump'ın
+   `Global`'ı 1408 bayt; `Account<Global>` olarak alınca
+   `Access violation ... at address 0x300010000` — BPF'in 4 KB stack frame'i
+   taşıyor. Çözüm: `Box<Account<...>>` ile heap'e almak. `BondingCurve`
+   ve token hesaplarını da aynı şekilde box'ladım.
 
 ## Çalıştırma
 ```bash

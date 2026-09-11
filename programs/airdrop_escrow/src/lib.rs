@@ -418,7 +418,7 @@ pub mod airdrop_escrow {
     ///
     /// A no-op below `MIN_BUYBACK_LAMPORTS` — it returns `Ok(())` rather than
     /// erroring so a keeper can call it on a schedule without handling failures.
-    pub fn buyback(ctx: Context<Buyback>, min_tokens_out: u64) -> Result<()> {
+    pub fn buyback(ctx: Context<Buyback>) -> Result<()> {
         let escrow_ai = ctx.accounts.escrow.to_account_info();
         let rent_min = Rent::get()?.minimum_balance(escrow_ai.data_len());
         // The escrow must stay rent-exempt; only what sits above that is spendable.
@@ -460,6 +460,45 @@ pub mod airdrop_escrow {
         let mint_key = ctx.accounts.escrow.mint;
         let buyer_bump = ctx.bumps.buyer;
         let buyer_seeds: &[&[u8]] = &[BUYER_SEED, mint_key.as_ref(), &[buyer_bump]];
+
+        // Quote the buy from the curve itself. `bonding_curve` and `global` are
+        // pinned to their pump PDAs in the Accounts struct, so these reserves cannot
+        // be swapped for an attacker-controlled account with flattering numbers.
+        let curve = &ctx.accounts.bonding_curve;
+        require!(!curve.complete, EscrowError::CurveComplete);
+        require_keys_eq!(
+            curve.quote_mint,
+            Pubkey::default(),
+            EscrowError::QuoteMintMismatch
+        );
+
+        let g = &ctx.accounts.global;
+        let fee_bps = g
+            .fee_basis_points
+            .checked_add(g.creator_fee_basis_points)
+            .ok_or(EscrowError::Overflow)?;
+
+        // quote_in carries the fees, so only part of it reaches the curve.
+        let quote_net = (quote_in as u128)
+            .checked_mul(BPS_DENOM as u128)
+            .ok_or(EscrowError::Overflow)?
+            / (BPS_DENOM as u128 + fee_bps as u128);
+
+        // Constant product against the virtual reserves, capped by what the curve
+        // actually holds.
+        let out = quote_net
+            .checked_mul(curve.virtual_token_reserves as u128)
+            .ok_or(EscrowError::Overflow)?
+            / (curve.virtual_quote_reserves as u128)
+                .checked_add(quote_net)
+                .ok_or(EscrowError::Overflow)?;
+        let expected_out = out.min(curve.real_token_reserves as u128);
+
+        let min_tokens_out = (expected_out
+            .checked_mul((BPS_DENOM - BUYBACK_SLIPPAGE_BPS) as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128) as u64;
+        require!(min_tokens_out > 0, EscrowError::ZeroAmount);
 
         let before = ctx.accounts.buyer_token_account.amount;
 
@@ -534,6 +573,7 @@ pub mod airdrop_escrow {
         // Sweep what the buy produced into the escrow token account.
         ctx.accounts.buyer_token_account.reload()?;
         let gained = ctx.accounts.buyer_token_account.amount.saturating_sub(before);
+        require!(gained >= min_tokens_out, EscrowError::SlippageExceeded);
         if gained > 0 {
             token_interface::transfer_checked(
                 CpiContext::new_with_signer(
@@ -574,6 +614,8 @@ pub mod airdrop_escrow {
             escrow: escrow.key(),
             lamports_spent: quote_in,
             tokens_bought: gained,
+            quoted: expected_out as u64,
+            floor: min_tokens_out,
         });
         Ok(())
     }
@@ -689,6 +731,10 @@ pub struct BuybackDone {
     pub escrow: Pubkey,
     pub lamports_spent: u64,
     pub tokens_bought: u64,
+    /// What the curve implied before the buy.
+    pub quoted: u64,
+    /// `quoted` less BUYBACK_SLIPPAGE_BPS; the buy must clear this.
+    pub floor: u64,
 }
 #[event]
 pub struct BuybackSkipped {
@@ -917,7 +963,7 @@ pub struct Buyback<'info> {
     pub buyer: SystemAccount<'info>,
 
     #[account(address = escrow.mint)]
-    pub mint: InterfaceAccount<'info, anchor_spl::token_interface::Mint>,
+    pub mint: Box<InterfaceAccount<'info, anchor_spl::token_interface::Mint>>,
     #[account(
         init_if_needed,
         payer = payer,
@@ -926,7 +972,7 @@ pub struct Buyback<'info> {
         associated_token::token_program = base_token_program,
     )]
     pub buyer_token_account:
-        InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
     #[account(
         mut,
         associated_token::mint = mint,
@@ -934,12 +980,12 @@ pub struct Buyback<'info> {
         associated_token::token_program = base_token_program,
     )]
     pub escrow_token_account:
-        InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
 
     // ---- pump: same 27 accounts as buy_v2 ----
-    /// CHECK: pump PDA
-    #[account(mut)]
-    pub global: UncheckedAccount<'info>,
+    /// Read on-chain for the fee rates, so it is pinned to the pump PDA.
+    #[account(seeds = [b"global"], bump, seeds::program = pump::ID)]
+    pub global: Box<Account<'info, pump::accounts::Global>>,
     /// CHECK: wSOL
     pub quote_mint: UncheckedAccount<'info>,
     /// CHECK: token program for the quote mint
@@ -956,9 +1002,15 @@ pub struct Buyback<'info> {
     /// CHECK: ATA
     #[account(mut)]
     pub associated_quote_buyback_fee_recipient: UncheckedAccount<'info>,
-    /// CHECK: pump PDA
-    #[account(mut)]
-    pub bonding_curve: UncheckedAccount<'info>,
+    /// Read on-chain for the reserves the quote is computed from, so it is pinned
+    /// to the pump PDA for this exact mint.
+    #[account(
+        mut,
+        seeds = [b"bonding-curve", escrow.mint.as_ref()],
+        bump,
+        seeds::program = pump::ID
+    )]
+    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
     /// CHECK: ATA
     #[account(mut)]
     pub associated_base_bonding_curve: UncheckedAccount<'info>,
