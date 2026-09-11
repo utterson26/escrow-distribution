@@ -4,6 +4,24 @@ Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
 Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.379386479 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
+## Tasarım kararı: dev cüzdanı airdrop'a katılmaz
+
+Coin'i basan ve escrow'u kuran **dev cüzdanı, dağıtımlarda holder sayılmaz.**
+Snapshot alınırken hazine olarak elenir ve anlık görüntü dosyasındaki
+`excluded` alanına yazılır, böylece anlık görüntüyü yeniden üreten
+herkes aynı elemeyi uygular.
+
+Sebebi: dev, launch anında arzın büyük bir kısmını elinde tutuyor (bu koşuda
+%70'i). Ağırlık `bakiye × tutma süresi` olduğu için dev cüzdanı dahil
+edilseydi çekilişlerin neredeyse tamamını kazanır, airdrop anlamsızlaşırdı.
+Aynı gerekçeyle protokolün kendi hesapları da elenir: bonding curve, mayhem
+kasası, escrow PDA'sı ve buyer PDA'sı. Bunlar coin adresinden deterministik
+olarak türetilir.
+
+Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani bu bir
+politika kararıdır, kriptografik bir garanti değil — ama `excluded`
+listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
+
 ## Sonuç: 9 adımın 9'u da devnet'te çalışıyor ✅
 
 | # | Adım | Durum |
