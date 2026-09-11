@@ -21,6 +21,10 @@ pub struct Escrow {
     pub holder_count: u32,
     /// Lamports swept out of the pump creator vault by `collect_fees`.
     pub fees_collected: u64,
+    /// Lamports spent by `buyback` buying the coin back.
+    pub buyback_spent: u64,
+    /// Base tokens bought back into the escrow token account.
+    pub buyback_tokens: u64,
     pub bump: u8,
 }
 

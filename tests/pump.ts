@@ -67,3 +67,8 @@ export const allocPda = (escrow: PublicKey, holder: PublicKey, program: PublicKe
   pda([Buffer.from("alloc"), escrow.toBuffer(), holder.toBuffer()], program);
 export const escrowAta = (escrow: PublicKey, mint: PublicKey) =>
   ata(escrow, mint, TOKEN_2022);
+
+export const buyerPda = (mint: PublicKey, program: PublicKey) =>
+  pda([Buffer.from("buyer"), mint.toBuffer()], program);
+export const baseAtaOf = (owner: PublicKey, mint: PublicKey) =>
+  ata(owner, mint, TOKEN_2022);

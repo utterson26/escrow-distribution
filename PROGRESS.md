@@ -4,7 +4,7 @@ Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
 Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 3.500902745 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
-## Sonuç: 5 adımın 5'i de devnet'te çalışıyor ✅
+## Sonuç: 6 adımın 6'sı da devnet'te çalışıyor ✅
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -12,34 +12,41 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 | 2 | collect_creator_fee_v2 CPI (escrow PDA creator) | ✅ |
 | 3 | distribute — ağırlıklı pay, **idempotent** | ✅ |
 | 4 | claim | ✅ |
-| 5 | Anchor testleri, devnet'te koşuyor | ✅ 6/6 passing |
+| 5 | Anchor testleri, devnet'te koşuyor | ✅ 8/8 passing |
+| 6 | buyback — escrow SOL'ünü coin'e çevirir, izinsiz | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
-Son koşu — coin `FGrSZYhQQbU8PXoAuFxELnEw9bsbeHS5o8iFc7rA2b7T`,
-escrow PDA `2jDQQ3AVwQyGh8jd8n6CwiXufwKeaM4h1rbcrVdw2Ht9`:
+Son koşu — coin `4M3oSkABLtMFP4tAGZ6tA8RXoNxJZbp2XuP77Kph7kK6`,
+escrow PDA `CdaV3pYmFEiFh8aikp6hDXMoDqQMKjYhV81RPYx2BDnU`:
 
 | Adım | İmza |
 |------|------|
-| launch | `2fkxerRJYNrvVEBM4hm8WZFJcCGuZ7Gc7LP8a8mrP7S8X8ysk2f9iXKfjmRsJ6aSYigK2zk46kowajPLiRgsgrmD` |
-| collect_fees | `2xtuZZTmadRCHzCt459NGyGMuh3p2GtAFCiwa8yQDRW8RzYYqBxpgRThWr6XKFrkvT6ijd8t5b4GyUNyxDLjnfxw` |
-| distribute | `aQzugzv2baDJyo9GhEUH2NaXrw333Hkj6urWNBeS4ymFwzmTCq2Hk2DhqTCnYRFXTRNkY5sxSRTP69xxfa9Mwd9` |
-| distribute (tekrar, no-op) | `5F4KytABnDLFbiZM2KbNCyXXiFr8utduAY2dRXMaTPgCKMtKuybNX5H4LGg5oPYc4EiXMnhoHxmfsd27BhEdSkb4` |
-| claim | `fS6BCgevRgn7DuUVUYibra3AWRTQnMkNt7ejEYSyRvBraqLoqDxKVh6vRRFHRkz7UWsatwwuJ9AZVeAwyPHZqsq` |
+| launch | `2JhDiEqdqb1t5gXVFRnEcPcwRF3NLACpKNcV2k1vvQPvgHjXdhMEgfgGJ6XH72SGynJecfjZxxL8FPysQHo8rDuq` |
+| collect_fees | `63T5ikHpXbRxaoKQYGcPYos52pxjdoYSjQK6XvVNiFvEcLWDjnw2WmHfeVRqTnQztwuo8B5zNqGZAvqj83AN2QCv` |
+| buyback (eşik altı, no-op) | `5v6pzd2NnwpzR5ywBMznU3ymtJBSU4BJ45z3yuU19BrqZcfRYXkd5UJVUVKc5ELPsq17t6MsGS9eQKQ2YK5z9HLr` |
+| buyback (gerçek alım) | `5MznxsqdCSr1kZce4UpMv7hxX47jrTQ33b6gQ7Ec1io1LvxujyDtiEW1wCtouobyMgZobipezuS7MUuXyiKnQwM6` |
+| distribute | `5Bcp6ABLiXxb7EnMTJk6tEYJ7qxUi57GMbM7o7t8AyfJW8qLDwLHaUfp1MK33dcrxCa6isjLX2tKheYS7ZWPAcvm` |
+| distribute (tekrar, no-op) | `iheQnNJx4a5zcnUvEwNWvCZmVt3Ydq9B2J4NDs9bvnkseUDTqv2HG8Z4pcHKmSsco1QukVuSfuqMQnUfWFJgtjj` |
+| claim | `5UwuThgQxfUrp9Nu2VXT55ka2v9AvhKHZcQuPQbY6fdp145Ga1Hq2ahhePLoYk7qBSwA29TVDeaeoVTHXKecXAZ6` |
 
-```bash
+``bash
 solana confirm -v <imza> --url devnet
-```
+``
 
 ### Zincir üstünde doğrulanan gerçekler
-- launch tx log sırası: `Launch → CreateV2 → BuyV2 → TransferChecked` — **tek instruction,
-  tek tx**, 300.890 CU, tx boyutu 490 bayt (ALT ile).
+- launch tx log sırası: `Launch → CreateV2 → BuyV2 → TransferChecked` — **tek instruction, tek tx**,
+  ~300k CU, tx boyutu 490 bayt (ALT ile).
 - `bonding_curve.creator` = escrow PDA (istenen davranış).
 - Bölüşüm: escrow ATA %30, dev ATA %70 — escrow_bps=3000.
 - collect_fees log: `CollectFees → CollectCreatorFeeV2`; escrow lamports +2.799.
-- **İdempotentlik kanıtı:** ilk `distribute` 3 adet System `create_account` CPI'ı yapıp
-  32.644 CU harcadı; aynı batch'in tekrarı **hiç CPI yapmadan** 14.562 CU'da erken döndü,
+- **İdempotentlik kanıtı:** ilk `distribute` 3 adet System `create_account` CPI'ı yapıp 32.644 CU
+  harcadı; aynı batch'in tekrarı **hiç CPI yapmadan** 14.562 CU'da erken döndü,
   `allocated` ve `holder_count` değişmedi.
+- **buyback kanıtı:** gerçek alım log'u `Buyback → System transfer → BuyExactQuoteInV2`
+  (fee program + Token-2022 TransferChecked). Escrow SOL 61.338.839 → 1.336.040
+  (= tam rent-exempt taban), escrow token hesabı +50.404.940.778.743.
+  Eşik altı çağrı hiç pump CPI'ı yapmadan dönüyor.
 
 ## Ne çalıştı, nasıl
 

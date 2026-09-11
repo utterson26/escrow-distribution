@@ -10,7 +10,8 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import {
-  pumpAccounts, escrowPda, allocPda, escrowAta, TOKEN_2022, WSOL, TOKEN,
+  pumpAccounts, escrowPda, allocPda, escrowAta, buyerPda, baseAtaOf,
+  TOKEN_2022, WSOL, TOKEN,
 } from "./pump";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -44,6 +45,10 @@ describe("airdrop_escrow (devnet)", () => {
   const escrow = escrowPda(mint, program.programId);
   const pa = pumpAccounts(mint, dev.publicKey, escrow);
   const escrowTa = escrowAta(escrow, mint);
+  // the dataless PDA that signs the pump buy on the escrow's behalf
+  const buyer = buyerPda(mint, program.programId);
+  const buyerTa = baseAtaOf(buyer, mint);
+  const pb = pumpAccounts(mint, buyer, escrow); // pump accounts keyed on the buyer
   const baseAta = (owner: PublicKey) =>
     getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022);
   const quoteAta = (owner: PublicKey) =>
@@ -80,7 +85,8 @@ describe("airdrop_escrow (devnet)", () => {
     lut = addr;
     const keys = [
       ...Object.values(pa) as PublicKey[],
-      escrow, escrowTa, mint, dev.publicKey,
+      ...Object.values(pb) as PublicKey[],
+      escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa,
       SystemProgram.programId, program.programId,
     ];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
@@ -174,6 +180,91 @@ describe("airdrop_escrow (devnet)", () => {
     { pubkey: allocPda(escrow, h.publicKey, program.programId), isWritable: true, isSigner: false },
     { pubkey: h.publicKey, isWritable: false, isSigner: false },
   ]);
+
+  /** every account `buyback` needs, shared by both buyback tests */
+  const buybackAccounts = () => ({
+    payer: dev.publicKey, escrow, buyer, mint,
+    buyerTokenAccount: buyerTa, escrowTokenAccount: escrowTa,
+    global: pb.global, quoteMint: WSOL, quoteTokenProgram: TOKEN,
+    feeRecipient: pb.feeRecipient,
+    associatedQuoteFeeRecipient: pb.associatedQuoteFeeRecipient,
+    buybackFeeRecipient: pb.buybackFeeRecipient,
+    associatedQuoteBuybackFeeRecipient: pb.associatedQuoteBuybackFeeRecipient,
+    bondingCurve: pb.bondingCurve,
+    associatedBaseBondingCurve: pb.associatedBaseBondingCurve,
+    associatedQuoteBondingCurve: pb.associatedQuoteBondingCurve,
+    associatedQuoteUser: pb.associatedQuoteUser,
+    creatorVault: pb.creatorVault,
+    associatedCreatorVault: pb.associatedCreatorVault,
+    sharingConfig: pb.sharingConfig,
+    globalVolumeAccumulator: pb.globalVolumeAccumulator,
+    userVolumeAccumulator: pb.userVolumeAccumulator,
+    associatedUserVolumeAccumulator: pb.associatedUserVolumeAccumulator,
+    feeConfig: pb.feeConfig, feeProgram: pb.feeProgram,
+    eventAuthority: pb.eventAuthority, pumpProgram: pb.pumpProgram,
+    baseTokenProgram: TOKEN_2022, associatedTokenProgram: pb.associatedTokenProgram,
+    systemProgram: SystemProgram.programId,
+  });
+
+  async function sendBuyback(minTokensOut: BN, label: string): Promise<string> {
+    const ix = await program.methods.buyback(minTokensOut)
+      .accountsPartial(buybackAccounts()).instruction();
+    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
+    return withRetry(label, async () => {
+      const bh = await conn.getLatestBlockhash("finalized");
+      const msg = new TransactionMessage({
+        payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
+      }).compileToV0Message([lutAcc]);
+      const tx = new VersionedTransaction(msg);
+      tx.sign([dev]);
+      const sg = await conn.sendTransaction(tx, { skipPreflight: false, maxRetries: 5 });
+      await conn.confirmTransaction({ signature: sg, ...bh }, "confirmed");
+      return sg;
+    });
+  }
+
+  it("2b. buyback below the threshold is a no-op", async () => {
+    const lamports = await conn.getBalance(escrow, "confirmed");
+    const escBefore = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    const stBefore: any = await program.account.escrow.fetch(escrow);
+    // only the swept creator fee is in there, far below MIN_BUYBACK_LAMPORTS (0.01 SOL)
+    assert.isBelow(lamports, 10_000_000, "escrow must be under the threshold here");
+
+    const sig = await sendBuyback(new BN(0), "buyback-noop");
+    sigs.buybackNoop = sig;
+
+    const escAfter = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    const stAfter: any = await program.account.escrow.fetch(escrow);
+    assert.equal(escAfter.amount.toString(), escBefore.amount.toString(), "no tokens bought");
+    assert.equal(stAfter.buybackSpent.toString(), stBefore.buybackSpent.toString(), "nothing spent");
+    assert.equal(await conn.getBalance(escrow, "confirmed"), lamports, "escrow SOL untouched");
+    console.log(`  no-op at ${lamports} lamports (< 0.01 SOL) sig=${sig}`);
+  });
+
+  it("2c. buyback above the threshold converts escrow SOL into the coin", async () => {
+    // top the escrow up so it clears MIN_BUYBACK_LAMPORTS + the rent reserve
+    await send([SystemProgram.transfer({
+      fromPubkey: dev.publicKey, toPubkey: escrow, lamports: 0.06 * LAMPORTS_PER_SOL,
+    })]);
+    const solBefore = await conn.getBalance(escrow, "confirmed");
+    const escBefore = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+
+    const sig = await sendBuyback(new BN(1), "buyback");
+    sigs.buyback = sig;
+
+    const solAfter = await conn.getBalance(escrow, "confirmed");
+    const escAfter = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    const st: any = await program.account.escrow.fetch(escrow);
+
+    assert.isAbove(Number(escAfter.amount - escBefore.amount), 0, "escrow gained coin");
+    assert.equal(st.buybackTokens.toString(), (escAfter.amount - escBefore.amount).toString(),
+      "buyback_tokens matches the ATA delta");
+    assert.isBelow(solAfter, solBefore, "escrow SOL was spent");
+    assert.isTrue(st.escrowed.gte(st.allocated), "escrowed still covers allocations");
+    console.log(`  SOL ${solBefore} -> ${solAfter}, coin +${escAfter.amount - escBefore.amount}`);
+    console.log(`  buyback_spent=${st.buybackSpent} buyback_tokens=${st.buybackTokens} sig=${sig}`);
+  });
 
   it("3. distribute: weighted allocations (balance x held_secs, hash-jittered)", async () => {
     const sig = await withRetry("distribute", () => program.methods

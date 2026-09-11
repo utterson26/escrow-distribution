@@ -411,6 +411,173 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
+
+    /// Permissionless: turn the escrow's accumulated SOL (creator fees swept by
+    /// `collect_fees`, or anything else sent to the PDA) into more of the coin,
+    /// deposited straight into the escrow token account.
+    ///
+    /// A no-op below `MIN_BUYBACK_LAMPORTS` — it returns `Ok(())` rather than
+    /// erroring so a keeper can call it on a schedule without handling failures.
+    pub fn buyback(ctx: Context<Buyback>, min_tokens_out: u64) -> Result<()> {
+        let escrow_ai = ctx.accounts.escrow.to_account_info();
+        let rent_min = Rent::get()?.minimum_balance(escrow_ai.data_len());
+        // The escrow must stay rent-exempt; only what sits above that is spendable.
+        let from_escrow = escrow_ai.lamports().saturating_sub(rent_min);
+        let in_buyer = ctx.accounts.buyer.lamports();
+        let quote_in = from_escrow
+            .saturating_add(in_buyer)
+            .saturating_sub(BUYBACK_RESERVE_LAMPORTS);
+
+        if quote_in < MIN_BUYBACK_LAMPORTS {
+            emit!(BuybackSkipped {
+                escrow: ctx.accounts.escrow.key(),
+                spendable: quote_in,
+                threshold: MIN_BUYBACK_LAMPORTS,
+            });
+            return Ok(());
+        }
+
+        // Pump moves the buyer's SOL with a system transfer, which requires a
+        // system-owned, dataless signer. The escrow PDA carries state and is owned
+        // by this program, so it cannot be the buyer: the caller fronts the SOL to a
+        // dataless PDA we can sign for, and the escrow reimburses them at the end.
+        //
+        // The reimbursement is deliberately the LAST thing this instruction does.
+        // Rewriting lamports by hand before a CPI trips the runtime's balance
+        // verification at the CPI boundary; after the final CPI only the top-level
+        // check remains, and that one nets out.
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.key(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: ctx.accounts.buyer.to_account_info(),
+                },
+            ),
+            from_escrow,
+        )?;
+
+        let mint_key = ctx.accounts.escrow.mint;
+        let buyer_bump = ctx.bumps.buyer;
+        let buyer_seeds: &[&[u8]] = &[BUYER_SEED, mint_key.as_ref(), &[buyer_bump]];
+
+        let before = ctx.accounts.buyer_token_account.amount;
+
+        pump::cpi::buy_exact_quote_in_v2(
+            CpiContext::new_with_signer(
+                pump::ID,
+                pump::cpi::accounts::BuyExactQuoteInV2 {
+                    global: ctx.accounts.global.to_account_info(),
+                    base_mint: ctx.accounts.mint.to_account_info(),
+                    quote_mint: ctx.accounts.quote_mint.to_account_info(),
+                    base_token_program: ctx.accounts.base_token_program.to_account_info(),
+                    quote_token_program: ctx.accounts.quote_token_program.to_account_info(),
+                    associated_token_program: ctx
+                        .accounts
+                        .associated_token_program
+                        .to_account_info(),
+                    fee_recipient: ctx.accounts.fee_recipient.to_account_info(),
+                    associated_quote_fee_recipient: ctx
+                        .accounts
+                        .associated_quote_fee_recipient
+                        .to_account_info(),
+                    buyback_fee_recipient: ctx.accounts.buyback_fee_recipient.to_account_info(),
+                    associated_quote_buyback_fee_recipient: ctx
+                        .accounts
+                        .associated_quote_buyback_fee_recipient
+                        .to_account_info(),
+                    bonding_curve: ctx.accounts.bonding_curve.to_account_info(),
+                    associated_base_bonding_curve: ctx
+                        .accounts
+                        .associated_base_bonding_curve
+                        .to_account_info(),
+                    associated_quote_bonding_curve: ctx
+                        .accounts
+                        .associated_quote_bonding_curve
+                        .to_account_info(),
+                    user: ctx.accounts.buyer.to_account_info(),
+                    associated_base_user: ctx
+                        .accounts
+                        .buyer_token_account
+                        .to_account_info(),
+                    associated_quote_user: ctx.accounts.associated_quote_user.to_account_info(),
+                    creator_vault: ctx.accounts.creator_vault.to_account_info(),
+                    associated_creator_vault: ctx
+                        .accounts
+                        .associated_creator_vault
+                        .to_account_info(),
+                    sharing_config: ctx.accounts.sharing_config.to_account_info(),
+                    global_volume_accumulator: ctx
+                        .accounts
+                        .global_volume_accumulator
+                        .to_account_info(),
+                    user_volume_accumulator: ctx
+                        .accounts
+                        .user_volume_accumulator
+                        .to_account_info(),
+                    associated_user_volume_accumulator: ctx
+                        .accounts
+                        .associated_user_volume_accumulator
+                        .to_account_info(),
+                    fee_config: ctx.accounts.fee_config.to_account_info(),
+                    fee_program: ctx.accounts.fee_program.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.pump_program.to_account_info(),
+                },
+                &[buyer_seeds],
+            ),
+            quote_in,
+            min_tokens_out,
+        )?;
+
+        // Sweep what the buy produced into the escrow token account.
+        ctx.accounts.buyer_token_account.reload()?;
+        let gained = ctx.accounts.buyer_token_account.amount.saturating_sub(before);
+        if gained > 0 {
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.base_token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.buyer_token_account.to_account_info(),
+                        mint: ctx.accounts.mint.to_account_info(),
+                        to: ctx.accounts.escrow_token_account.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                    &[buyer_seeds],
+                ),
+                gained,
+                ctx.accounts.mint.decimals,
+            )?;
+        }
+
+        // Reimburse whoever fronted the SOL, now that no further CPI follows.
+        **escrow_ai.try_borrow_mut_lamports()? -= from_escrow;
+        **ctx.accounts.payer.try_borrow_mut_lamports()? += from_escrow;
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.buyback_spent = escrow
+            .buyback_spent
+            .checked_add(quote_in)
+            .ok_or(EscrowError::Overflow)?;
+        escrow.buyback_tokens = escrow
+            .buyback_tokens
+            .checked_add(gained)
+            .ok_or(EscrowError::Overflow)?;
+        // Bought-back tokens join the distributable pool.
+        escrow.escrowed = escrow
+            .escrowed
+            .checked_add(gained)
+            .ok_or(EscrowError::Overflow)?;
+
+        emit!(BuybackDone {
+            escrow: escrow.key(),
+            lamports_spent: quote_in,
+            tokens_bought: gained,
+        });
+        Ok(())
+    }
+
     /// Holder pulls their allocation out of the escrow token account.
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         let alloc = &mut ctx.accounts.allocation;
@@ -516,6 +683,18 @@ pub struct Distributed {
     /// Holders skipped because they already carried `distributed`.
     pub skipped: u32,
     pub amount: u64,
+}
+#[event]
+pub struct BuybackDone {
+    pub escrow: Pubkey,
+    pub lamports_spent: u64,
+    pub tokens_bought: u64,
+}
+#[event]
+pub struct BuybackSkipped {
+    pub escrow: Pubkey,
+    pub spendable: u64,
+    pub threshold: u64,
 }
 #[event]
 pub struct Claimed {
@@ -718,4 +897,105 @@ pub struct Claim<'info> {
     pub holder_token_account:
         InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
     pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
+}
+
+/// Permissionless buyback. `payer` only funds the transaction and any account
+/// rent; the SOL that is spent comes from the escrow PDA itself.
+#[derive(Accounts)]
+pub struct Buyback<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    /// Dataless, system-owned PDA that actually signs the pump buy.
+    #[account(mut, seeds = [BUYER_SEED, escrow.mint.as_ref()], bump)]
+    pub buyer: SystemAccount<'info>,
+
+    #[account(address = escrow.mint)]
+    pub mint: InterfaceAccount<'info, anchor_spl::token_interface::Mint>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = mint,
+        associated_token::authority = buyer,
+        associated_token::token_program = base_token_program,
+    )]
+    pub buyer_token_account:
+        InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = escrow,
+        associated_token::token_program = base_token_program,
+    )]
+    pub escrow_token_account:
+        InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>,
+
+    // ---- pump: same 27 accounts as buy_v2 ----
+    /// CHECK: pump PDA
+    #[account(mut)]
+    pub global: UncheckedAccount<'info>,
+    /// CHECK: wSOL
+    pub quote_mint: UncheckedAccount<'info>,
+    /// CHECK: token program for the quote mint
+    pub quote_token_program: UncheckedAccount<'info>,
+    /// CHECK: from global config
+    #[account(mut)]
+    pub fee_recipient: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_quote_fee_recipient: UncheckedAccount<'info>,
+    /// CHECK: from global config
+    #[account(mut)]
+    pub buyback_fee_recipient: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_quote_buyback_fee_recipient: UncheckedAccount<'info>,
+    /// CHECK: pump PDA
+    #[account(mut)]
+    pub bonding_curve: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_base_bonding_curve: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_quote_bonding_curve: UncheckedAccount<'info>,
+    /// CHECK: ATA of the buyer for the quote mint
+    #[account(mut)]
+    pub associated_quote_user: UncheckedAccount<'info>,
+    /// CHECK: pump PDA seeded by the escrow (our creator)
+    #[account(mut)]
+    pub creator_vault: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_creator_vault: UncheckedAccount<'info>,
+    /// CHECK: pump-fees PDA
+    pub sharing_config: UncheckedAccount<'info>,
+    /// CHECK: pump PDA
+    #[account(mut)]
+    pub global_volume_accumulator: UncheckedAccount<'info>,
+    /// CHECK: pump PDA keyed on the buyer
+    #[account(mut)]
+    pub user_volume_accumulator: UncheckedAccount<'info>,
+    /// CHECK: ATA
+    #[account(mut)]
+    pub associated_user_volume_accumulator: UncheckedAccount<'info>,
+    /// CHECK: pump-fees PDA
+    pub fee_config: UncheckedAccount<'info>,
+    /// CHECK: pump fees program
+    pub fee_program: UncheckedAccount<'info>,
+    /// CHECK: pump PDA
+    pub event_authority: UncheckedAccount<'info>,
+    /// CHECK: pump program
+    #[account(address = pump::ID)]
+    pub pump_program: UncheckedAccount<'info>,
+
+    pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
