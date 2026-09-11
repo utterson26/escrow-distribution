@@ -6,6 +6,11 @@ skip_local_validator = true
 resolution = true
 skip-lint = false
 
+# Same program id in both places, so the tests do not care which one they hit.
+# Local runs need scripts/localnet.sh first: it clones the pump world from devnet.
+[programs.localnet]
+airdrop_escrow = "5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe"
+
 [programs.devnet]
 airdrop_escrow = "5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe"
 
@@ -14,6 +19,8 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "ts-mocha -p ./tsconfig.json -t 600000 tests/**/*.ts"
+test = "ts-mocha -p ./tsconfig.json -t 900000 tests/**/*.ts"
+# localnet: ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npm run test:local
+test-local = "ts-mocha -p ./tsconfig.json -t 900000 tests/**/*.ts"
 
 [hooks]

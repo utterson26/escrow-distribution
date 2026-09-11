@@ -42,41 +42,7 @@ pub mod airdrop_escrow {
         let escrow_key = ctx.accounts.escrow.key();
 
         // ---- 1. create_v2: the coin's creator is our escrow PDA -----------------
-        pump::cpi::create_v2(
-            CpiContext::new(
-                pump::ID,
-                pump::cpi::accounts::CreateV2 {
-                    mint: ctx.accounts.mint.to_account_info(),
-                    mint_authority: ctx.accounts.mint_authority.to_account_info(),
-                    bonding_curve: ctx.accounts.bonding_curve.to_account_info(),
-                    associated_bonding_curve: ctx
-                        .accounts
-                        .associated_base_bonding_curve
-                        .to_account_info(),
-                    global: ctx.accounts.global.to_account_info(),
-                    user: ctx.accounts.dev.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    token_program: ctx.accounts.base_token_program.to_account_info(),
-                    associated_token_program: ctx
-                        .accounts
-                        .associated_token_program
-                        .to_account_info(),
-                    mayhem_program_id: ctx.accounts.mayhem_program.to_account_info(),
-                    global_params: ctx.accounts.global_params.to_account_info(),
-                    sol_vault: ctx.accounts.sol_vault.to_account_info(),
-                    mayhem_state: ctx.accounts.mayhem_state.to_account_info(),
-                    mayhem_token_vault: ctx.accounts.mayhem_token_vault.to_account_info(),
-                    event_authority: ctx.accounts.event_authority.to_account_info(),
-                    program: ctx.accounts.pump_program.to_account_info(),
-                },
-            ),
-            name,
-            symbol,
-            uri,
-            escrow_key,            // creator = escrow PDA
-            false,                 // is_mayhem_mode
-            pump::types::OptionBool(false), // is_cashback_enabled = off
-        )?;
+        cpi_create_v2(&ctx.accounts, name, symbol, uri, escrow_key)?;
 
         // ---- 2. the mint now exists: open both base ATAs ------------------------
         // Cannot be `init_if_needed` in the Accounts struct because the mint is
@@ -101,69 +67,7 @@ pub mod airdrop_escrow {
         )?;
 
         // ---- 3. buy_v2: dev pays, dev receives -------------------------------
-        pump::cpi::buy_v2(
-            CpiContext::new(
-                pump::ID,
-                pump::cpi::accounts::BuyV2 {
-                    global: ctx.accounts.global.to_account_info(),
-                    base_mint: ctx.accounts.mint.to_account_info(),
-                    quote_mint: ctx.accounts.quote_mint.to_account_info(),
-                    base_token_program: ctx.accounts.base_token_program.to_account_info(),
-                    quote_token_program: ctx.accounts.quote_token_program.to_account_info(),
-                    associated_token_program: ctx
-                        .accounts
-                        .associated_token_program
-                        .to_account_info(),
-                    fee_recipient: ctx.accounts.fee_recipient.to_account_info(),
-                    associated_quote_fee_recipient: ctx
-                        .accounts
-                        .associated_quote_fee_recipient
-                        .to_account_info(),
-                    buyback_fee_recipient: ctx.accounts.buyback_fee_recipient.to_account_info(),
-                    associated_quote_buyback_fee_recipient: ctx
-                        .accounts
-                        .associated_quote_buyback_fee_recipient
-                        .to_account_info(),
-                    bonding_curve: ctx.accounts.bonding_curve.to_account_info(),
-                    associated_base_bonding_curve: ctx
-                        .accounts
-                        .associated_base_bonding_curve
-                        .to_account_info(),
-                    associated_quote_bonding_curve: ctx
-                        .accounts
-                        .associated_quote_bonding_curve
-                        .to_account_info(),
-                    user: ctx.accounts.dev.to_account_info(),
-                    associated_base_user: ctx.accounts.associated_base_user.to_account_info(),
-                    associated_quote_user: ctx.accounts.associated_quote_user.to_account_info(),
-                    creator_vault: ctx.accounts.creator_vault.to_account_info(),
-                    associated_creator_vault: ctx
-                        .accounts
-                        .associated_creator_vault
-                        .to_account_info(),
-                    sharing_config: ctx.accounts.sharing_config.to_account_info(),
-                    global_volume_accumulator: ctx
-                        .accounts
-                        .global_volume_accumulator
-                        .to_account_info(),
-                    user_volume_accumulator: ctx
-                        .accounts
-                        .user_volume_accumulator
-                        .to_account_info(),
-                    associated_user_volume_accumulator: ctx
-                        .accounts
-                        .associated_user_volume_accumulator
-                        .to_account_info(),
-                    fee_config: ctx.accounts.fee_config.to_account_info(),
-                    fee_program: ctx.accounts.fee_program.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                    event_authority: ctx.accounts.event_authority.to_account_info(),
-                    program: ctx.accounts.pump_program.to_account_info(),
-                },
-            ),
-            amount,
-            max_sol_cost,
-        )?;
+        cpi_buy_v2(&ctx.accounts, amount, max_sol_cost)?;
 
         // ---- 4. split: escrow_bps of the buy goes to the escrow ATA -----------
         let escrow_cut = (amount as u128)
@@ -1171,6 +1075,109 @@ pub mod airdrop_escrow {
 
 }
 
+
+/// Kept in its own frame on purpose: the pump CPI account structs are large
+/// enough that building them alongside each other overflows the 4KB BPF stack.
+#[inline(never)]
+fn cpi_create_v2<'info>(
+    a: &Launch<'info>,
+    name: String,
+    symbol: String,
+    uri: String,
+    creator: Pubkey,
+) -> Result<()> {
+        pump::cpi::create_v2(
+            CpiContext::new(
+                pump::ID,
+                pump::cpi::accounts::CreateV2 {
+                    mint: a.mint.to_account_info(),
+                    mint_authority: a.mint_authority.to_account_info(),
+                    bonding_curve: a.bonding_curve.to_account_info(),
+                    associated_bonding_curve: a.associated_base_bonding_curve
+                        .to_account_info(),
+                    global: a.global.to_account_info(),
+                    user: a.dev.to_account_info(),
+                    system_program: a.system_program.to_account_info(),
+                    token_program: a.base_token_program.to_account_info(),
+                    associated_token_program: a.associated_token_program
+                        .to_account_info(),
+                    mayhem_program_id: a.mayhem_program.to_account_info(),
+                    global_params: a.global_params.to_account_info(),
+                    sol_vault: a.sol_vault.to_account_info(),
+                    mayhem_state: a.mayhem_state.to_account_info(),
+                    mayhem_token_vault: a.mayhem_token_vault.to_account_info(),
+                    event_authority: a.event_authority.to_account_info(),
+                    program: a.pump_program.to_account_info(),
+                },
+            ),
+            name,
+            symbol,
+            uri,
+            creator,
+            false,                 // is_mayhem_mode
+            pump::types::OptionBool(false), // is_cashback_enabled = off
+        )?;
+
+    Ok(())
+}
+
+/// Kept in its own frame on purpose: the pump CPI account structs are large
+/// enough that building them alongside each other overflows the 4KB BPF stack.
+#[inline(never)]
+fn cpi_buy_v2<'info>(
+    a: &Launch<'info>,
+    amount: u64,
+    max_sol_cost: u64,
+) -> Result<()> {
+        pump::cpi::buy_v2(
+            CpiContext::new(
+                pump::ID,
+                pump::cpi::accounts::BuyV2 {
+                    global: a.global.to_account_info(),
+                    base_mint: a.mint.to_account_info(),
+                    quote_mint: a.quote_mint.to_account_info(),
+                    base_token_program: a.base_token_program.to_account_info(),
+                    quote_token_program: a.quote_token_program.to_account_info(),
+                    associated_token_program: a.associated_token_program
+                        .to_account_info(),
+                    fee_recipient: a.fee_recipient.to_account_info(),
+                    associated_quote_fee_recipient: a.associated_quote_fee_recipient
+                        .to_account_info(),
+                    buyback_fee_recipient: a.buyback_fee_recipient.to_account_info(),
+                    associated_quote_buyback_fee_recipient: a.associated_quote_buyback_fee_recipient
+                        .to_account_info(),
+                    bonding_curve: a.bonding_curve.to_account_info(),
+                    associated_base_bonding_curve: a.associated_base_bonding_curve
+                        .to_account_info(),
+                    associated_quote_bonding_curve: a.associated_quote_bonding_curve
+                        .to_account_info(),
+                    user: a.dev.to_account_info(),
+                    associated_base_user: a.associated_base_user.to_account_info(),
+                    associated_quote_user: a.associated_quote_user.to_account_info(),
+                    creator_vault: a.creator_vault.to_account_info(),
+                    associated_creator_vault: a.associated_creator_vault
+                        .to_account_info(),
+                    sharing_config: a.sharing_config.to_account_info(),
+                    global_volume_accumulator: a.global_volume_accumulator
+                        .to_account_info(),
+                    user_volume_accumulator: a.user_volume_accumulator
+                        .to_account_info(),
+                    associated_user_volume_accumulator: a.associated_user_volume_accumulator
+                        .to_account_info(),
+                    fee_config: a.fee_config.to_account_info(),
+                    fee_program: a.fee_program.to_account_info(),
+                    system_program: a.system_program.to_account_info(),
+                    event_authority: a.event_authority.to_account_info(),
+                    program: a.pump_program.to_account_info(),
+                },
+            ),
+            amount,
+            max_sol_cost,
+        )?;
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -1352,7 +1359,7 @@ pub struct Launch<'info> {
         seeds = [ESCROW_SEED, mint.key().as_ref()],
         bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     /// Escrow's ATA for the coin; opened in-handler once the mint exists.
     /// CHECK: address checked by the ATA program
     #[account(mut)]
@@ -1466,7 +1473,7 @@ pub struct CollectFees<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
 
     /// CHECK: ATA of the escrow for the quote mint
     #[account(mut)]
@@ -1501,7 +1508,7 @@ pub struct PublishManualList<'info> {
         bump = escrow.bump,
         constraint = escrow.dev == dev.key() @ EscrowError::NotDev
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
 }
 
 #[derive(Accounts)]
@@ -1512,7 +1519,7 @@ pub struct Intervene<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     /// CHECK: PDA owning the manual token account
     #[account(seeds = [MANUAL_SEED, escrow.mint.as_ref()], bump)]
     pub manual_authority: UncheckedAccount<'info>,
@@ -1559,7 +1566,7 @@ pub struct ClaimManual<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     /// CHECK: PDA that owns the manual token account
     #[account(seeds = [MANUAL_SEED, escrow.mint.as_ref()], bump)]
     pub manual_authority: UncheckedAccount<'info>,
@@ -1594,7 +1601,7 @@ pub struct SetDelayWindow<'info> {
         bump = escrow.bump,
         constraint = escrow.dev == dev.key() @ EscrowError::NotDev
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
 }
 
 /// Anyone may check; the escrow is the only thing written.
@@ -1605,7 +1612,7 @@ pub struct CheckTrigger<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     #[account(
         seeds = [b"bonding-curve", escrow.mint.as_ref()],
         bump,
@@ -1624,7 +1631,7 @@ pub struct FireTrigger<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     #[account(
         seeds = [b"bonding-curve", escrow.mint.as_ref()],
         bump,
@@ -1644,7 +1651,7 @@ pub struct OpenRound<'info> {
         bump = escrow.bump,
         constraint = escrow.dev == dev.key() @ EscrowError::NotDev
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     #[account(
         init,
         payer = dev,
@@ -1652,7 +1659,7 @@ pub struct OpenRound<'info> {
         seeds = [ROUND_SEED, escrow.key().as_ref(), &index.to_le_bytes()],
         bump
     )]
-    pub round: Account<'info, Round>,
+    pub round: Box<Account<'info, Round>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1664,7 +1671,7 @@ pub struct Draw<'info> {
         seeds = [ROUND_SEED, round.escrow.as_ref(), &round.index.to_le_bytes()],
         bump = round.bump
     )]
-    pub round: Account<'info, Round>,
+    pub round: Box<Account<'info, Round>>,
     /// CHECK: pinned to the sysvar; read as raw bytes because it is too big to
     /// deserialize.
     #[account(address = SLOT_HASHES)]
@@ -1680,14 +1687,14 @@ pub struct ClaimPrize<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
     #[account(
         mut,
         seeds = [ROUND_SEED, escrow.key().as_ref(), &round.index.to_le_bytes()],
         bump = round.bump,
         constraint = round.escrow == escrow.key() @ EscrowError::HolderMismatch
     )]
-    pub round: Account<'info, Round>,
+    pub round: Box<Account<'info, Round>>,
 
     #[account(address = escrow.mint)]
     pub mint: Box<InterfaceAccount<'info, anchor_spl::token_interface::Mint>>,
@@ -1730,7 +1737,7 @@ pub struct Buyback<'info> {
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, Escrow>,
+    pub escrow: Box<Account<'info, Escrow>>,
 
     /// Dataless, system-owned PDA that actually signs the pump buy.
     #[account(mut, seeds = [BUYER_SEED, escrow.mint.as_ref()], bump)]

@@ -38,6 +38,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 10 | buyback parçalama (çağrı başına %0,5) | ✅ |
 | 11 | manuel airdrop modu | 🟡 kod tamam, devnet'e çıkamadı |
 | 12 | Switchboard rastgelelik | 🟡 uyumlu, entegre edilmedi |
+| 13 | localnet (pump klonlu test agi) | 🟡 kuruldu, bu makinede ayakta kalmiyor |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -349,6 +350,59 @@ Entegre etmedim çünkü deploy gerektiriyor ve fon yok. Gereken adımlar:
 Randomness hesabı açmak (rent), devnet oracle queue'ya bağlanmak, commit → oracle
 reveal → programın okuması, ve reveal'ı tetikleyecek bir zincir dışı crank.
 Slot hash şimdilik yerinde duruyor.
+
+## Adım 13 — localnet 🟡
+
+`scripts/localnet.sh` devnet'ten pump dünyasını klonlayıp yerel bir test ağı
+kuruyor: pump, fee ve mayhem programları (`--clone-upgradeable-program`) ve
+bunların okuduğu 11 hesap — global, fee_config, volume accumulator, mint authority,
+mayhem PDA'ları, ücret alıcıları ve wSOL hesapları. Token-2022 validator'da yerleşik.
+Anchor.toml'a `[programs.localnet]` profili eklendi.
+
+Klonlamanın doğru çalıştığını doğruladım: hesap boyutları devnet'le birebir aynı
+(global 1054, fee_config 4073, volume accumulator 600 bayt), programlar
+`Executable: true` olarak geldi, program yerelde deploy edildi ve testler koştu.
+
+### Localnet iki gerçek hata yakaladı — ikisi de devnet'te de patlardı
+
+**1. Stack taşması.** `launch` çağrısı `Access violation in stack frame 5`
+ile ölüyordu. Sebep: `Escrow` yeni alanlarla ~300 bayta çıkmıştı ve
+`Account<Escrow>` onu stack'te taşıyordu; üstüne pump'ın `CreateV2` (16
+hesap) ve `BuyV2` (27 hesap) CPI yapıları aynı fonksiyon kapsamında kurulunca
+4 KB'lık BPF frame'i aşıyordu. Çözüm: `Escrow` ve `Round` hesapları
+`Box`'landı (11 + 3 yerde), iki pump CPI'ı da `#[inline(never)]` ayrı
+fonksiyonlara taşındı ki her biri kendi frame'ini alsın.
+
+**2. Yanlış mimariyle derleme.** `anchor build` **SBPFv3** üretiyor
+(`e_flags=3`) ama bu özellik **devnet'te de kapalı**
+(`SIMD-0178/0179/0189: inactive`). Yani fon gelip deploy etseydik
+`ELF error: Detected sbpf_version required by the executable which are not enabled`
+alacaktık ve SOL boşa gidecekti. Doğru komut:
+
+```bash
+cd programs/airdrop_escrow && cargo-build-sbf --arch v0
+```
+
+Bu bilgiyle devnet maliyeti de güncellendi: v0 çıktısı 531.096 bayt, buffer rent'i
+**2,70 SOL** (v3'teki 2,33 değil), üstüne program alanını genişletme.
+
+### Neden bitmedi
+Validator bu makinede ayakta kalmıyor. Sistemde toplam **3,9 GB RAM** var ve swap
+tamamen dolmuş durumda; `solana-test-validator` gerçekçi olarak 4-8 GB ister.
+Validator bir kez başarıyla çalıştı (deploy + test koşusu yapıldı, yukarıdaki iki hata
+böyle bulundu), sonra slot üretmeyi bıraktı ve süreç kayboldu — OOM. Next.js sunucusunu
+kapatıp 400 MB boşalttım, yetmedi.
+
+**Çözüm sende:** Windows tarafında `%USERPROFILE%\\.wslconfig` dosyasına
+
+```ini
+[wsl2]
+memory=8GB
+swap=4GB
+```
+
+yazıp `wsl --shutdown` ile WSL'i yeniden başlatman gerekiyor. Sonrasında
+`./scripts/localnet.sh` tek komutla çalışır ve geliştirme localnet'e taşınır.
 
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
