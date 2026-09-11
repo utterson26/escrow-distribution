@@ -1,7 +1,7 @@
 # airdrop_escrow — gece çalışması raporu
 
 Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
-Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.379386479 SOL)
+Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 1.096772598 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
 ## Tasarım kararı: dev cüzdanı airdrop'a katılmaz
@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 9 adımın 9'u da devnet'te çalışıyor ✅
+## Sonuç: 10 adım devnet'te çalışıyor, 2 adım fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -35,6 +35,9 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
 | 8 | holder listesi doğrulaması — (c) hibrit, deterministik indexer | ✅ |
 | 9 | tetikleyiciler (hacim + kilometre taşı, rastgele gecikme) | ✅ |
+| 10 | buyback parçalama (çağrı başına %0,5) | ✅ |
+| 11 | manuel airdrop modu | 🟡 kod tamam, devnet'e çıkamadı |
+| 12 | Switchboard rastgelelik | 🟡 uyumlu, entegre edilmedi |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -289,6 +292,64 @@ Son tam koşu **17/17**.
 - kilometre taşı kuruldu (`kind=2`), tutar havuzun %5'i; taş
   2,369 → **4,920 SOL**'e çıktı ve sonraki kontrolde **geri gitmedi**
 
+## Adım 10 — buyback parçalama ✅
+
+Tek büyük alım yerine her çağrı, curve'ün SOL rezervinin en fazla **%0,5'ini**
+harcıyor; kalan escrow'da bekliyor ve sonraki çağrıyla alınıyor. Amaç sandviç
+çekiciliğini düşürmek: küçük alımı önden koşmak saldırgana kâr bırakmıyor.
+
+Eşik ile sınır **farklı şeylere** uygulanıyor, yoksa mod hiç çalışmazdı:
+0,01 SOL eşiği **biriken paraya**, %0,5 sınırı **tek çağrıda harcanana**.
+(Test coin'inde %0,5 ≈ 0,0075 SOL, yani eşiğin altında; ikisi de aynı sayıya
+uygulansaydı alım hiç olmazdı.)
+
+Devnet kanıtı: **7.971.768 lamport harcandı, 43.811.293 sonraki çağrıya
+bırakıldı**; ikinci çağrı +3.290.872.817.749 token aldı.
+
+**Yan etki — bilmen gereken:** buyback artık piyasayı tek başına oynatamıyor.
+Kilometre taşı testi eskiden fiyatı bizim buyback'imizle itiyordu; %0,5 sınırıyla
+piyasa değerini 2 katına çıkarmak ~70 çağrı alırdı. Doğrusu da bu: teste
+doğrudan pump alımı eklendi, piyasa bağımsız hareket ediyor.
+
+## Adım 11 — manuel airdrop modu 🟡
+
+`launch` iki yeni argüman alıyor: `manual_root` ve `manual_bps`.
+Dev payının `manual_bps` kadarı ayrı bir PDA'nın token hesabına ayrılıyor;
+her cüzdan kendi payını `claim_manual` ile çekiyor.
+
+**Liste neden kök olarak işleniyor:** 50 cüzdan + yüzde ≈ 1.700 bayt. launch
+işlemi ALT ile bile 1.232 baytlık sınıra sığmıyor. Kök işlemek listeyi yine
+**launch anında** kilitliyor — sonradan değiştirilemez, kimse kendini ekleyemez.
+Tek fark, listenin kendisi zincirde durmuyor; iddia eden kendi satırını ispatlıyor.
+
+Kök tek başına listenin %100'ü geçmediğini ispatlayamadığı için üst sınır claim
+sırasında tutuluyor: `manual_claimed_bps` 10.000'i aşamıyor. Index
+`MAX_MANUAL_ENTRIES` (50) ile sınırlı.
+
+30 günlük kilit launch'ta yazılıyor (`manual_unlock_ts` + `manual_locked`).
+İstediğin gibi **müdahale instruction'ı yok** — şimdilik sadece zaman kilidi ve bayrak.
+
+**Durum:** `cargo check` temiz, testler yazıldı (`tests/manual_airdrop.ts`:
+liste launch'ta kilitlenir, 6 cüzdan kendi payını çeker, ikinci claim reddedilir,
+listede olmayan ve yüzdesini büyüten denemeler reddedilir). **Devnet'e çıkamadı:**
+deploy buffer'ı için ~1,97 SOL gerekiyor, cüzdanda 1,10 SOL var.
+
+## Adım 12 — Switchboard rastgelelik 🟡
+
+Devnet'te üç Switchboard programı da **deployed**:
+`SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv`,
+`Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2`,
+`SW1TCH7qEPTdLsDHRgPuMQjbQxKdH2aBStViMFnt64f`.
+
+Asıl risk crate uyumluluğuydu: `switchboard-on-demand 0.13.0` paketi
+`anchor-lang >=0.31.0` istiyor, bizde 1.2.0 var ve 0.31 → 1.x geçişinde
+kırıcı değişiklikler olmuştu. **Denedim: temiz derleniyor.** Yani engel yok.
+
+Entegre etmedim çünkü deploy gerektiriyor ve fon yok. Gereken adımlar:
+Randomness hesabı açmak (rent), devnet oracle queue'ya bağlanmak, commit → oracle
+reveal → programın okuması, ve reveal'ı tetikleyecek bir zincir dışı crank.
+Slot hash şimdilik yerinde duruyor.
+
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
@@ -343,6 +404,33 @@ Son tam koşu **17/17**.
 
 13. **Coin'de transfer hook yok ve ekleyemeyiz** (mint'i pump yaratıyor). Bu yüzden
    tutma süresi zincir üstü takip edilemiyor; (a) şıkkı bu yüzden elendi.
+
+## Senden beklediğim kararlar
+
+1. **Devnet SOL.** Tıkanma burada. Deploy buffer'ı ~1,97 SOL, tam test koşusu
+   ~1,3 SOL. Rahat etmek için **~5 SOL** iyi olur:
+   [faucet.solana.com](https://faucet.solana.com) →
+   `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ`.
+   Gelince adım 11 tek deploy + tek koşuyla kapanır.
+
+2. **Manuel liste kök olarak işleniyor — onaylıyor musun?** "Dev bir liste verir"
+   dedin; 50 satır launch işlemine sığmadığı için listenin özetini işliyorum.
+   Sonuç aynı (launch'ta kilitli, değiştirilemez) ama liste zincirde durmuyor:
+   dağıtımı yapan tarafın listeyi yayınlaması gerekir, yoksa kimse kendi payını
+   ispatlayamaz. Alternatif: listeyi ayrı bir instruction'la parça parça zincire
+   yazmak (daha pahalı, ve "launch'ta kilitli" garantisi zayıflar).
+
+3. **30 gün dolunca ne olacak?** Şu an sadece zaman kilidi ve bayrak var, doğru.
+   Müdahale instruction'ını yazarken kime ne hak vereceğini söylemen gerekecek:
+   dev geri alabilsin mi, escrow havuzuna mı dönsün, yoksa süresiz mi beklesin.
+
+4. **%0,5 buyback sınırı üretim için doğru mu?** Sandviçi caydırıyor ama
+   buyback'i yavaşlatıyor: %0,5'lik adımlarla fiyatı %41 oynatmak ~70 çağrı
+   eder. Sayı ayarlanabilir; sen karar ver.
+
+5. **Switchboard'a geçelim mi?** Uyumluluk doğrulandı. Geçersek her çekiliş
+   Randomness hesabı + oracle reveal + crank gerektirir; slot hash bedava ama
+   blok üreticisi sınırlı ölçüde oynayabilir.
 
 ## Çalıştırma
 ```bash
