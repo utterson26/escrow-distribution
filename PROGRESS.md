@@ -1,10 +1,10 @@
 # airdrop_escrow — gece çalışması raporu
 
 Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
-Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.13377459 SOL)
+Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.379386479 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
-## Sonuç: 8 adım tamam, 9. adım kısmen doğrulandı 🟡
+## Sonuç: 9 adımın 9'u da devnet'te çalışıyor ✅
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -12,27 +12,35 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 | 2 | collect_creator_fee_v2 CPI (escrow PDA creator) | ✅ |
 | 3 | distribute — ağırlıklı pay, **idempotent** | ✅ |
 | 4 | claim | ✅ |
-| 5 | Anchor testleri, devnet'te koşuyor | ✅ 12/12 passing |
+| 5 | Anchor testleri, devnet'te koşuyor | ✅ 17/17 passing |
 | 6 | buyback — escrow SOL'ünü coin'e çevirir, izinsiz | ✅ |
 | 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
 | 8 | holder listesi doğrulaması — (c) hibrit, deterministik indexer | ✅ |
-| 9 | tetikleyiciler (hacim + kilometre taşı, rastgele gecikme) | 🟡 15/17 |
+| 9 | tetikleyiciler (hacim + kilometre taşı, rastgele gecikme) | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
-Son koşu — coin `9cZUKeu23cdkubJP1az9kvhDmQ7DZFrqAH9FR7yWHPyt`,
-escrow PDA `mE1jn5XhcQGZve5RPPVNoDXMQu6ZwNUNHuZbFybG37z`:
+Son koşu — coin `4NgGpUUwpZXfh2Hvj8EACxw8HdyTMtntvFoKcg2uFx8G`,
+escrow PDA `43vJaEY1qfDZ9hDBtD4Ud3HHtJuUya4A4jmaSmbNDvkG`:
 
 | Adım | İmza |
 |------|------|
-| launch | `2RMaJukKaTpq5NW1oo4xzgDNc5P7zkALcpSJ4xLWXb9dd95pSmHvFSDweMuAzwCQ8DaagUwK3KVoLdDXMWrPFNtH` |
-| collect_fees | `CWpGhMfxo3Y8TGFBCigRxUQpdtw9YWXFLtxSjG3TDnrL81Uyh8zCwYXkZXrCcwSbUdpEEE39UCSXj1aVEweiMC2` |
-| buyback (eşik altı, no-op) | `grpYAhJ7iiQafEeUvQyQNP6XoDeF91npasx4sagNfZxWthyimQdLc8qgkJNs9cWqU46WgZfzoToXLsWztoQXtHZ` |
-| buyback (gerçek alım) | `2yb2kype9sXopFhfdBv7VjjcuFLJt4cnqrfMEDYd2RbGfo2RXLQSvQyMuSZje22UJyR7TsWR6rKchipPYrsCJCPf` |
-| buyback (sandviç sonrası kontrol) | `5g7juhmPziRGCs6yjRjTDKaZ8BAGNmq4GWayWUvai52d59VBTG2nE1NnyCfwvpW1ALYBsE9MW8qagTDBKnyXFRwW` |
-| open_round (kök işlendi) | `5xkF5u2xWi8UZWhTRQrCrTjaUWWCuWmTjDBd7y8hZaYR5gKqNuvYRZdUQjVmvNve7HhtqyRMQbj7Z5nmQM7hkD9M` |
-| draw (rastgelelik) | `2QuHR3djU59MUbNGwfbj6ytdWFsgXXdLPw8sAHft9KTCsih2thD1HeCzksZJSKGY5Wwd9uA1SGDGxJKQ7PxAhvNX` |
-| claim_prize (ilk ödül) | `3tdctLggQBVuhxJYrrC5A7QMMY4Rtaf1LY216PSxfQ5L7YsFsmEUnPAQcUUHPQ9Y6cRrdyAGxqn5LLooo3HC1ivH` |
+| launch | `3Jx1SdWBLhbosPvCwmFTPo5G5m1FNk48bf1wzbv53PKuwbR7oHCXHibVEQTct41sQRzeYAPxh7aqJvW5qoauxVmc` |
+| check_trigger (temel) | `YA3bKj9hLZDp9dAs1g87h8isgiXE5SjTbPy44aMMsshkJCwYiXwBgTwCaqraGC5neohTw4e4P11KkoCCEjoZ2EP` |
+| collect_fees | `41sMjntjSUgvZvThejevfbXc64AqrNjT91TKUxTpUhoHwKf1t4xVbZ3H8nX8uxy1bfrCZmRajGoG21duUiQSioGH` |
+| buyback (eşik altı, no-op) | `h6Q48hjiLtDV5KwYnWyxmf1ZP5hHfomJKyBHwDng46cG5e5zXvCwehiQar2CnZoNLqkbD9racqe5mmijmnajSHi` |
+| buyback (gerçek alım) | `5G1mqheHRDC1UMnR3KjnWvF1xhGBc4XcxWAXScsGqTQiYgmUn79GLvxXduCXfVyUQ25FwS7i7VzujavTwbWm1PxN` |
+| check_trigger (hacim → armed) | `zkAmsWavYhLQwMXnBQeWvZFbMThcf61uVUvbY7yrPNdNEXirbApWmqhgKYgWs6QswsdSaKQ4NgiDCLQbKguCYpr` |
+| check_trigger (armed iken no-op) | `64NywiXAunYKKdKE8yQ5ZuMv2KGmFSnUzCygJbhJNTSFdu8cmHC6Yv1S2asDCZuEhPiuyraYXko79JgBCKuKhy6Y` |
+| fire_trigger (gecikme dolunca) | `SK1g5mrbvgikUqHWn8M4UvCPBgziNbk1CCJoXVkkj4GBuv7dXGfGUhzxUfWFk8M1SKfd1PA2sunUKYPL93D9TRj` |
+| open_round | `4dnmW2MGZkWBzpitDDgSu3hUQ8BXWS7tS7KniqohTaBXwzxL2anaztiQUok6ACY3Aw9p7geVfpWEPtoLxRkRa5eM` |
+| draw | `XnMZ6XDk9hPhZ34oR6xxJcVSK5uCQWjBykM7vbeh7QjSZAxD2EJxXHbRGqPMJvSgFiQg9U5sXr7obaVDx9nxfGU` |
+| claim_prize | `3YcJbKg2BaWWyfp9pwf8gFvex35h3qRYLhiGU7RjSsH1wWZJQvzX6HSmBF3HqJVV9MTB8f9ecLqvFnEtiRg22FqP` |
+| check_trigger (kilometre taşı) | `4RAu7bbRpwf5RynDhYTQcjbuqTDtSpWSC41bwJDzUV7hnGsFrzaASfeGyqbBg67DiBAtmPSxvr32x9xTECSPqL3p` |
+| fire_trigger (kilometre taşı) | `5gCgTUrNxyAwPpCphrHi53nq8VnPMJduiYuhAbXiwVa43ZgfgRjp7T7XiwQoNwYWUazYxSn4d9qi9pdN1np8ubK4` |
+
+Not: erken çağrı reddi simülasyonda geri döndüğü için zincire imza bırakmaz;
+kanıtı yukarıdaki `TriggerArmed` event'i ile `fire_trigger` işleminin slotudur.
 
 ```bash
 solana confirm -v <imza> --url devnet
@@ -248,26 +256,20 @@ hareketinin mutlak değerini topluyor. Sonuç: iki kontrol arasında yapılan
 gidip-gelme işlemleri eksik sayılır. Kontrol izinsiz ve ucuz olduğu için sık
 çağıran biri doğruluğu istediği kadar artırabilir.
 
-### Doğrulanan / doğrulanamayan
-Son tam koşu **15/17**. Devnet'te kanıtlanan:
+### Devnet'te kanıtlananlar
+Son tam koşu **17/17**.
+
 - hacim tetikleyicisi kuruldu (`kind=1`), tutar havuzun tam %1'i
-- gecikme dolduktan sonra ateşlendi, tutar `pending`'e geçti
+- **rastgele gecikme gerçekten uygulandı:** `TriggerArmed` event'i çözüldü —
+  `armed_slot=496602909`, `fire_slot=496603034` → **125 slot (~50 sn)**
+  gecikme, 150 slotluk pencerenin içinde
+- **erken çağrı reddedildi:** hedeften 115 slot önce (slot 496602919) yapılan
+  `fire_trigger` çağrısı `TooEarly (0x1780)` ile geri döndü
+- gecikme dolunca ateşlendi: işlem slot **496603055** ≥ 496603034, durum Ok,
+  1.842.700.303.291 token `pending`'e geçti
 - `open_round` yetkilendirilenden fazlasını reddetti
-- kilometre taşı kuruldu (`kind=2`), tutar havuzun %5'i, taş
-  2,058 → 4,920 SOL'e çıktı ve **geri gitmedi**
-
-Henüz doğrulanamayan iki şey:
-1. **Erken çağrının reddi.** O koşuda rastgele gecikme çok küçük çıktı, dal hiç
-   çalışmadı (log: *"gecikme 0 çıktı, erken çağrı denenmedi"*). Test penceresini
-   40 → 150 slot'a çıkardım ki erken çağrı güvenilir şekilde erken olsun.
-2. **4c/4d iddiaları.** Temeli launch'ın hemen ardına aldığım için, o testlere
-   gelindiğinde buyback'ler zaten hacim üretmiş oluyordu; tetikleyici beklediğim
-   testte değil bir öncekinde kuruluyordu. İddiaları gerçeğe göre düzelttim.
-   **Program davranışı doğruydu**, hatalı olan testin beklentisiydi.
-
-Bu üçü de kodda düzeltildi ama **yeniden koşturulamadı: devnet cüzdanında SOL
-bitti** (0,875 SOL kaldı, tam koşu ~1,5 SOL istiyor; faucet limitli).
-Cüzdana SOL gelince tek komutla doğrulanır.
+- kilometre taşı kuruldu (`kind=2`), tutar havuzun %5'i; taş
+  2,369 → **4,920 SOL**'e çıktı ve sonraki kontrolde **geri gitmedi**
 
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
