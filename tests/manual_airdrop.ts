@@ -72,6 +72,8 @@ describe("manual airdrop (devnet)", () => {
   const leaves = list.map((k, i) => manualLeaf(i, k.publicKey, BPS[i]));
   const { root, layers } = buildTree(leaves);
 
+  // deliberately NOT the dev: intervention is a separate authority
+  const platform = Keypair.generate();
   const MANUAL_BPS = 5000;               // half the dev's own allocation
   const AMOUNT = new BN(20_000_000).mul(new BN(10 ** 6));
   const ESCROW_BPS = 3000;
@@ -119,7 +121,7 @@ describe("manual airdrop (devnet)", () => {
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
               ESCROW_BPS, AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
-              [...root], MANUAL_BPS)
+              [...root], MANUAL_BPS, platform.publicKey)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta,
@@ -139,6 +141,7 @@ describe("manual airdrop (devnet)", () => {
     sigs.launch = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st.platform.toBase58(), platform.publicKey.toBase58(), "platform authority recorded");
     const devShare = AMOUNT.sub(AMOUNT.muln(ESCROW_BPS).divn(10000));
     const expected = devShare.muln(MANUAL_BPS).divn(10000);
     assert.equal(Buffer.from(st.manualRoot).toString("hex"), root.toString("hex"),
@@ -240,5 +243,125 @@ describe("manual airdrop (devnet)", () => {
     } catch { inflated = true; }
     assert.isTrue(inflated, "a changed percentage must break the proof");
     console.log("  listede olmayan ve yuzdesini buyuten denemeler reddedildi");
+  });
+  it("the full list is published on chain so the root can be checked", async () => {
+    const entries = list.map((k, i) => ({ index: i, wallet: k.publicKey, bps: BPS[i] }));
+    const sig = await program.methods
+      .publishManualList(entries)
+      .accountsPartial({ dev: dev.publicKey, escrow })
+      .rpc({ commitment: "confirmed" });
+    sigs.publishList = sig;
+
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st.manualPublished, entries.length, "all rows published");
+
+    // what an outsider would do: read the rows back out of the log, rebuild the
+    // tree, and check it against the root the program committed at launch
+    const logs = (await conn.getTransaction(sig, {
+      commitment: "confirmed", maxSupportedTransactionVersion: 0,
+    }))!.meta!.logMessages!;
+    const dataLine = [...logs].reverse().find((l) => l.startsWith("Program data: "))!;
+    const buf = Buffer.from(dataLine.slice("Program data: ".length), "base64");
+    let o = 8 + 32 + 32 + 2;                       // disc, escrow, root, published_total
+    const n = buf.readUInt32LE(o); o += 4;
+    const readBack: Buffer[] = [];
+    for (let i = 0; i < n; i++) {
+      const idx = buf.readUInt16LE(o); o += 2;
+      const w = new PublicKey(buf.subarray(o, o + 32)); o += 32;
+      const bps = buf.readUInt16LE(o); o += 2;
+      readBack.push(manualLeaf(idx, w, bps));
+    }
+    assert.equal(n, entries.length, "log carries every row");
+    const rebuilt = buildTree(readBack).root;
+    assert.equal(rebuilt.toString("hex"), Buffer.from(st.manualRoot).toString("hex"),
+      "root rebuilt from the published rows matches the committed root");
+    console.log(`  ${n} satir yayinlandi, kok zincirden yeniden kuruldu ve tuttu`);
+  });
+
+  it("intervention is refused before the 30 day lock, and to non-platform callers", async () => {
+    const common = {
+      escrow, manualAuthority: manualPda, mint,
+      manualTokenAccount: manualAta, escrowTokenAccount: escrowTa,
+      devTokenAccount: baseAta(dev.publicKey), dev: dev.publicKey,
+      baseTokenProgram: TOKEN_2022,
+    };
+    await send([SystemProgram.transfer({
+      fromPubkey: dev.publicKey, toPubkey: platform.publicKey, lamports: 0.02 * LAMPORTS_PER_SOL,
+    })]);
+
+    // still locked, even for the platform
+    let locked = false, detail = "";
+    try {
+      await program.methods.intervene(0, 0)
+        .accountsPartial({ platform: platform.publicKey, ...common })
+        .signers([platform]).rpc({ commitment: "confirmed" });
+    } catch (e: any) { locked = true; detail = String(e?.message ?? e); }
+    assert.isTrue(locked, "manual funds are locked for 30 days");
+    assert.match(detail, /StillLocked|0x[0-9a-f]+/i);
+
+    // and the dev cannot do it either — only the platform key can
+    let notPlatform = false;
+    try {
+      await program.methods.intervene(0, 0)
+        .accountsPartial({ platform: dev.publicKey, ...common })
+        .rpc({ commitment: "confirmed" });
+    } catch { notPlatform = true; }
+    assert.isTrue(notPlatform, "dev is not the platform authority");
+    console.log("  kilit icindeyken ve platform disindan mudahale reddedildi");
+  });
+
+  it("dead coin flag trips after 7 quiet days, and only then may the pool move", async () => {
+    // shrink the day so seven of them fit in the test
+    await program.methods.setDayWindow(new BN(2))
+      .accountsPartial({ dev: dev.publicKey, escrow })
+      .rpc({ commitment: "confirmed" });
+
+    const triggerAccounts = {
+      escrow, bondingCurve: pa.bondingCurve,
+      slotHashes: new PublicKey("SysvarS1otHashes111111111111111111111111111"),
+    };
+    // nothing is trading, so every rolled day counts as quiet
+    let st: any;
+    for (let i = 0; i < 10; i++) {
+      await program.methods.checkTrigger().accountsPartial(triggerAccounts)
+        .rpc({ commitment: "confirmed" });
+      st = await program.account.escrow.fetch(escrow);
+      if (st.dead) break;
+      await sleep(2200);
+    }
+    assert.isTrue(st.dead, "coin should be flagged dead after 7 quiet days");
+    assert.isAtLeast(st.lowVolumeDays, 7);
+    console.log(`  olu coin bayragi acildi (${st.lowVolumeDays} sessiz gun)`);
+
+    const poolBefore = st.escrowed.sub(st.allocated);
+    assert.isTrue(poolBefore.gtn(0), "there is a pool to move");
+    const devBefore = await getAccount(conn, baseAta(dev.publicKey), "confirmed", TOKEN_2022);
+
+    // pool -> pool is meaningless and must be refused
+    let badTarget = false;
+    try {
+      await program.methods.intervene(1, 1)
+        .accountsPartial({
+          platform: platform.publicKey, escrow, manualAuthority: manualPda, mint,
+          manualTokenAccount: manualAta, escrowTokenAccount: escrowTa,
+          devTokenAccount: baseAta(dev.publicKey), dev: dev.publicKey,
+          baseTokenProgram: TOKEN_2022,
+        }).signers([platform]).rpc({ commitment: "confirmed" });
+    } catch { badTarget = true; }
+    assert.isTrue(badTarget, "pool -> pool must be refused");
+
+    const sig = await program.methods.intervene(1, 0)
+      .accountsPartial({
+        platform: platform.publicKey, escrow, manualAuthority: manualPda, mint,
+        manualTokenAccount: manualAta, escrowTokenAccount: escrowTa,
+        devTokenAccount: baseAta(dev.publicKey), dev: dev.publicKey,
+        baseTokenProgram: TOKEN_2022,
+      }).signers([platform]).rpc({ commitment: "confirmed" });
+    sigs.intervene = sig;
+
+    const devAfter = await getAccount(conn, baseAta(dev.publicKey), "confirmed", TOKEN_2022);
+    assert.equal((devAfter.amount - devBefore.amount).toString(), poolBefore.toString(),
+      "the whole free pool went to the dev wallet");
+    console.log(`  olu havuz dev cuzdanina tasindi: ${poolBefore.toString()} token sig=${sig}`);
   });
 });

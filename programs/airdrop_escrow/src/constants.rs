@@ -52,6 +52,20 @@ pub const MAX_MANUAL_ENTRIES: u16 = 50;
 /// Nobody may touch unclaimed manual shares before this has elapsed.
 pub const MANUAL_LOCK_SECONDS: i64 = 30 * 24 * 60 * 60;
 
+/// A coin counts as dead after this many consecutive low-volume days.
+pub const DEAD_COIN_DAYS: u8 = 7;
+/// A day is "low volume" when it trades less than this share of market cap.
+pub const DEAD_VOLUME_BPS: u128 = 10; // 0.1% = binde bir
+/// Length of a volume day. Configurable only so tests need not wait a week.
+pub const DEFAULT_DAY_SECONDS: i64 = 24 * 60 * 60;
+pub const MIN_DAY_SECONDS: i64 = 2;
+
+/// `intervene` sources and targets — deliberately just these.
+pub const SRC_MANUAL: u8 = 0;
+pub const SRC_DEAD_POOL: u8 = 1;
+pub const DST_DEV: u8 = 0;
+pub const DST_POOL: u8 = 1;
+
 pub const TRIGGER_VOLUME: u8 = 1;
 pub const TRIGGER_MILESTONE: u8 = 2;
 

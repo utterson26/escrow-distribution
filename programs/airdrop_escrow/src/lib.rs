@@ -32,6 +32,7 @@ pub mod airdrop_escrow {
         max_sol_cost: u64,
         manual_root: [u8; 32],
         manual_bps: u16,
+        platform: Pubkey,
     ) -> Result<()> {
         require!(manual_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
         require!(escrow_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
@@ -257,6 +258,13 @@ pub mod airdrop_escrow {
             .unix_timestamp
             .saturating_add(MANUAL_LOCK_SECONDS);
         escrow.manual_locked = true;
+        escrow.manual_published = 0;
+        escrow.platform = platform;
+        escrow.day_start_ts = 0;
+        escrow.day_start_volume = 0;
+        escrow.low_volume_days = 0;
+        escrow.dead = false;
+        escrow.day_seconds = DEFAULT_DAY_SECONDS;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -401,6 +409,148 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
+    /// Publish rows of the manual list on chain. The root committed at launch is
+    /// still the authority; this only makes the data available so anyone can
+    /// rebuild the tree and check the root matches. Rows that do not match will
+    /// simply produce a different root, which everybody can see.
+    pub fn publish_manual_list(
+        ctx: Context<PublishManualList>,
+        entries: Vec<ManualEntry>,
+    ) -> Result<()> {
+        require!(!entries.is_empty(), EscrowError::BadManualIndex);
+        for e in entries.iter() {
+            require!(e.index < MAX_MANUAL_ENTRIES, EscrowError::BadManualIndex);
+            require!(e.bps > 0 && e.bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
+        }
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.manual_published = escrow
+            .manual_published
+            .saturating_add(entries.len() as u16);
+
+        emit!(ManualListPublished {
+            escrow: escrow.key(),
+            root: escrow.manual_root,
+            published_total: escrow.manual_published,
+            entries,
+        });
+        Ok(())
+    }
+
+    /// Length of a volume day. Only a test knob: shortening it makes the dead
+    /// coin flag trip in seconds instead of a week.
+    pub fn set_day_window(ctx: Context<SetDelayWindow>, seconds: i64) -> Result<()> {
+        require!(
+            seconds >= MIN_DAY_SECONDS && seconds <= DEFAULT_DAY_SECONDS,
+            EscrowError::BadDayWindow
+        );
+        ctx.accounts.escrow.day_seconds = seconds;
+        Ok(())
+    }
+
+    /// The only way anyone privileged can move tokens that are stuck.
+    /// Two sources, two destinations, nothing else:
+    ///   - unclaimed manual shares, once the 30 day lock has passed
+    ///   - the automatic pool, once the coin is flagged dead
+    /// and the money can only go to the dev wallet or back into the pool.
+    pub fn intervene(ctx: Context<Intervene>, source: u8, target: u8) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.platform.key(),
+            ctx.accounts.escrow.platform,
+            EscrowError::NotPlatform
+        );
+        let now_ts = Clock::get()?.unix_timestamp;
+        let escrow_key = ctx.accounts.escrow.key();
+        let mint_key = ctx.accounts.escrow.mint;
+        let decimals = ctx.accounts.mint.decimals;
+
+        let amount = match source {
+            SRC_MANUAL => {
+                require!(
+                    now_ts >= ctx.accounts.escrow.manual_unlock_ts,
+                    EscrowError::StillLocked
+                );
+                ctx.accounts.manual_token_account.amount
+            }
+            SRC_DEAD_POOL => {
+                require!(ctx.accounts.escrow.dead, EscrowError::NotDead);
+                // only what is not already committed to an open round
+                ctx.accounts
+                    .escrow
+                    .escrowed
+                    .saturating_sub(ctx.accounts.escrow.allocated)
+            }
+            _ => return err!(EscrowError::BadInterventionTarget),
+        };
+        require!(amount > 0, EscrowError::NothingToMove);
+
+        // Moving the pool into itself is meaningless.
+        require!(
+            !(source == SRC_DEAD_POOL && target == DST_POOL),
+            EscrowError::BadInterventionTarget
+        );
+        require!(target == DST_DEV || target == DST_POOL, EscrowError::BadInterventionTarget);
+
+        let to = if target == DST_DEV {
+            ctx.accounts.dev_token_account.to_account_info()
+        } else {
+            ctx.accounts.escrow_token_account.to_account_info()
+        };
+
+        if source == SRC_MANUAL {
+            let bump = ctx.bumps.manual_authority;
+            let seeds: &[&[u8]] = &[MANUAL_SEED, mint_key.as_ref(), &[bump]];
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.base_token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.manual_token_account.to_account_info(),
+                        mint: ctx.accounts.mint.to_account_info(),
+                        to,
+                        authority: ctx.accounts.manual_authority.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                amount,
+                decimals,
+            )?;
+            if target == DST_POOL {
+                let escrow = &mut ctx.accounts.escrow;
+                escrow.escrowed = escrow.escrowed.checked_add(amount).ok_or(EscrowError::Overflow)?;
+            }
+        } else {
+            let bump = ctx.accounts.escrow.bump;
+            let seeds: &[&[u8]] = &[ESCROW_SEED, mint_key.as_ref(), &[bump]];
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.base_token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.escrow_token_account.to_account_info(),
+                        mint: ctx.accounts.mint.to_account_info(),
+                        to,
+                        authority: ctx.accounts.escrow.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                amount,
+                decimals,
+            )?;
+            let escrow = &mut ctx.accounts.escrow;
+            escrow.escrowed = escrow.escrowed.saturating_sub(amount);
+        }
+
+        if source == SRC_MANUAL {
+            ctx.accounts.escrow.manual_locked = false;
+        }
+        emit!(Intervened {
+            escrow: escrow_key,
+            platform: ctx.accounts.platform.key(),
+            source,
+            target,
+            amount,
+        });
+        Ok(())
+    }
+
     /// Narrow or widen the random firing window. A small window makes the
     /// distribution moment predictable, so this is really a test knob;
     /// production should stay at `DEFAULT_MAX_DELAY_SLOTS`.
@@ -435,6 +585,35 @@ pub mod airdrop_escrow {
             escrow.cum_volume = escrow.cum_volume.saturating_add(delta);
             escrow.last_quote_reserves = quote;
         }
+        // Roll the volume day and track how long the coin has been quiet.
+        let now_ts = Clock::get()?.unix_timestamp;
+        if escrow.day_start_ts == 0 {
+            escrow.day_start_ts = now_ts;
+            escrow.day_start_volume = escrow.cum_volume;
+        } else if now_ts.saturating_sub(escrow.day_start_ts) >= escrow.day_seconds {
+            let day_volume = escrow.cum_volume.saturating_sub(escrow.day_start_volume);
+            let quiet_below = mcap
+                .checked_mul(DEAD_VOLUME_BPS)
+                .ok_or(EscrowError::Overflow)?
+                / BPS_DENOM as u128;
+            escrow.low_volume_days = if day_volume < quiet_below {
+                escrow.low_volume_days.saturating_add(1)
+            } else {
+                0
+            };
+            escrow.day_start_ts = now_ts;
+            escrow.day_start_volume = escrow.cum_volume;
+            let was_dead = escrow.dead;
+            escrow.dead = escrow.low_volume_days >= DEAD_COIN_DAYS;
+            if escrow.dead && !was_dead {
+                emit!(DeadCoinFlagged {
+                    escrow: escrow.key(),
+                    quiet_days: escrow.low_volume_days,
+                    mcap: mcap as u64,
+                });
+            }
+        }
+
         // First sight of the coin sets the milestone baseline; no payout for it.
         if escrow.last_milestone_mcap == 0 {
             escrow.last_milestone_mcap = mcap.min(u64::MAX as u128) as u64;
@@ -1051,6 +1230,27 @@ pub struct FeesCollected {
     pub lamports: u64,
 }
 #[event]
+pub struct ManualListPublished {
+    pub escrow: Pubkey,
+    pub root: [u8; 32],
+    pub published_total: u16,
+    pub entries: Vec<ManualEntry>,
+}
+#[event]
+pub struct DeadCoinFlagged {
+    pub escrow: Pubkey,
+    pub quiet_days: u8,
+    pub mcap: u64,
+}
+#[event]
+pub struct Intervened {
+    pub escrow: Pubkey,
+    pub platform: Pubkey,
+    pub source: u8,
+    pub target: u8,
+    pub amount: u64,
+}
+#[event]
 pub struct ManualClaimed {
     pub escrow: Pubkey,
     pub wallet: Pubkey,
@@ -1289,6 +1489,65 @@ pub struct CollectFees<'info> {
     #[account(address = pump::ID)]
     pub pump_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct PublishManualList<'info> {
+    #[account(mut)]
+    pub dev: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump,
+        constraint = escrow.dev == dev.key() @ EscrowError::NotDev
+    )]
+    pub escrow: Account<'info, Escrow>,
+}
+
+#[derive(Accounts)]
+pub struct Intervene<'info> {
+    pub platform: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+    /// CHECK: PDA owning the manual token account
+    #[account(seeds = [MANUAL_SEED, escrow.mint.as_ref()], bump)]
+    pub manual_authority: UncheckedAccount<'info>,
+
+    #[account(address = escrow.mint)]
+    pub mint: Box<InterfaceAccount<'info, anchor_spl::token_interface::Mint>>,
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = manual_authority,
+        associated_token::token_program = base_token_program,
+    )]
+    pub manual_token_account:
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = escrow,
+        associated_token::token_program = base_token_program,
+    )]
+    pub escrow_token_account:
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    /// The only other place tokens may go. Pinned to the dev recorded at launch.
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = dev,
+        associated_token::token_program = base_token_program,
+    )]
+    pub dev_token_account:
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    /// CHECK: must be the dev recorded on the escrow
+    #[account(address = escrow.dev)]
+    pub dev: UncheckedAccount<'info>,
+    pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
 }
 
 #[derive(Accounts)]

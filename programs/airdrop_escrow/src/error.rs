@@ -30,6 +30,18 @@ pub enum EscrowError {
     AlreadyClaimed,
     #[msg("nothing to claim")]
     NothingToClaim,
+    #[msg("only the platform authority may call this")]
+    NotPlatform,
+    #[msg("manual shares are still inside the 30 day lock")]
+    StillLocked,
+    #[msg("coin is not flagged dead")]
+    NotDead,
+    #[msg("that source/target combination is not allowed")]
+    BadInterventionTarget,
+    #[msg("nothing left to move")]
+    NothingToMove,
+    #[msg("day length is below the allowed floor")]
+    BadDayWindow,
     #[msg("manual list index is out of range")]
     BadManualIndex,
     #[msg("manual share already claimed")]

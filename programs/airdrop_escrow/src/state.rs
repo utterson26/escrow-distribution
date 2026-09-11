@@ -65,7 +65,32 @@ pub struct Escrow {
     pub manual_unlock_ts: i64,
     /// Still inside the lock window.
     pub manual_locked: bool,
+    /// Entries the dev has published on chain so far, for public verification.
+    pub manual_published: u16,
+
+    // ---- platform intervention ----
+    /// The only key allowed to call `intervene`. Meant to become a multisig.
+    pub platform: Pubkey,
+    /// Start of the current volume day.
+    pub day_start_ts: i64,
+    /// `cum_volume` when the current day began.
+    pub day_start_volume: u128,
+    /// Consecutive low-volume days seen so far.
+    pub low_volume_days: u8,
+    /// Set once `DEAD_COIN_DAYS` low-volume days have passed in a row.
+    pub dead: bool,
+    /// Length of a volume day in seconds; a test knob, see PROGRESS.md.
+    pub day_seconds: i64,
     pub bump: u8,
+}
+
+/// One row of the manual airdrop list, published on chain so anyone can
+/// recompute the committed root.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+pub struct ManualEntry {
+    pub index: u16,
+    pub wallet: Pubkey,
+    pub bps: u16,
 }
 
 /// One distribution round. The Merkle root is committed first and the

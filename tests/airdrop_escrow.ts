@@ -152,7 +152,7 @@ describe("airdrop_escrow (devnet)", () => {
 
     const ix = await program.methods
       .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost,
-              [...Buffer.alloc(32)], 0)  // manuel airdrop kapali
+              [...Buffer.alloc(32)], 0, dev.publicKey)  // manuel airdrop kapali
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda(mint, program.programId),
