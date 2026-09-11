@@ -63,8 +63,8 @@ export const leafHash = (l: Leaf) =>
 /** Sorted-pair Merkle tree; a lone node on a level is promoted unchanged. */
 export function buildTree(leaves: Leaf[]): { root: Buffer; layers: Buffer[][] } {
   if (leaves.length === 0) return { root: Buffer.alloc(32), layers: [] };
-  let level = leaves.map(leafHash);
-  const layers = [level];
+  let level: Buffer[] = leaves.map(leafHash);
+  const layers: Buffer[][] = [level];
   while (level.length > 1) {
     const next: Buffer[] = [];
     for (let i = 0; i < level.length; i += 2) {
