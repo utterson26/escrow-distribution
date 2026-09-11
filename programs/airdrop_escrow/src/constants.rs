@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
 
 #[constant]
-pub const COUNTER_SEED: &[u8] = b"counter";
-
+pub const ESCROW_SEED: &[u8] = b"escrow";
 #[constant]
-pub const HELLO_WORLD_LAMPORTS: u64 = 1;
+pub const ALLOC_SEED: &[u8] = b"alloc";
 
-#[constant]
-pub const MAX_COUNT: u64 = 10;
+/// Wrapped SOL — quote mint for SOL-paired pump coins.
+pub const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
+/// Max holders processed in one `distribute` call (tx size bound).
+pub const MAX_HOLDERS_PER_CALL: usize = 12;
+pub const BPS_DENOM: u64 = 10_000;

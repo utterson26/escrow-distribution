@@ -1,9 +1,23 @@
 use anchor_lang::prelude::*;
 
 #[error_code]
-pub enum ErrorCode {
-    #[msg("Only the counter authority can update this counter")]
-    Unauthorized,
-    #[msg("Counter has reached the maximum value")]
-    CounterOverflow,
+pub enum EscrowError {
+    #[msg("escrow_bps must be <= 10000")]
+    InvalidBps,
+    #[msg("buy amount must be greater than zero")]
+    ZeroAmount,
+    #[msg("holder list is empty or exceeds the per-call limit")]
+    BadHolderCount,
+    #[msg("holder account list does not match the weight list")]
+    HolderAccountMismatch,
+    #[msg("total weight is zero")]
+    ZeroWeight,
+    #[msg("allocation already claimed")]
+    AlreadyClaimed,
+    #[msg("nothing to claim")]
+    NothingToClaim,
+    #[msg("only the dev authority may call this")]
+    NotDev,
+    #[msg("arithmetic overflow")]
+    Overflow,
 }

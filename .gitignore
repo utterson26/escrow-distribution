@@ -9,3 +9,5 @@ test-ledger
 
 # pump-fun public docs (upstream clone, kendi .git'i var)
 docs/pump/
+node_modules/
+package-lock.json
