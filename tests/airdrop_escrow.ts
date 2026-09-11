@@ -170,6 +170,21 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  escrow=${esc.amount} dev=${devTa.amount} sig=${sig}`);
   });
 
+  it("1b. delay window narrowed, first check only sets the baseline", async () => {
+    await withRetry("set_delay_window", () => program.methods
+      .setDelayWindow(new BN(DELAY_WINDOW))
+      .accountsPartial({ dev: dev.publicKey, escrow })
+      .rpc({ commitment: "confirmed" }));
+
+    const sig = await withRetry("check_trigger", () => program.methods
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    sigs.checkBaseline = sig;
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.isFalse(st.armed, "first sight only records the baseline");
+    assert.isTrue(st.lastMilestoneMcap.gtn(0), "milestone baseline set");
+    console.log(`  baseline mcap=${st.lastMilestoneMcap.toNumber() / 1e9} SOL`);
+  });
+
   it("2. collect_fees: escrow PDA sweeps the pump creator vault via CPI", async () => {
     const before = await conn.getBalance(escrow, "confirmed");
     const sig = await withRetry("collect_fees", () => program.methods
@@ -391,13 +406,116 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  ${snap.leaves.length} uygun holder, root=${snap.root.slice(0, 16)}...`);
   });
 
+  const triggerAccounts = () => ({
+    escrow, bondingCurve: pa.bondingCurve, slotHashes: SLOT_HASHES,
+  });
+  const DELAY_WINDOW = 150; // ~60s: wide enough that an early fire is reliably early
+
+  it("4c. volume arms a trigger, releasing 1% of the pool at that moment", async () => {
+    // the earlier buybacks already moved the curve, which is the volume the
+    // trigger samples; one more check turns that into an armed distribution
+    let st: any = await program.account.escrow.fetch(escrow);
+    if (!st.armed) {
+      await send([SystemProgram.transfer({
+        fromPubkey: dev.publicKey, toPubkey: escrow, lamports: 0.07 * LAMPORTS_PER_SOL,
+      })]);
+      await sendBuyback("volume");
+    }
+    const sig = await withRetry("check_arm", () => program.methods
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    sigs.checkArm = sig;
+
+    st = await program.account.escrow.fetch(escrow);
+    const now = await conn.getSlot("confirmed");
+    assert.isTrue(st.armed, "volume should have armed a trigger");
+    assert.equal(st.armedKind, 1, "volume kind");
+    assert.isAtMost(st.fireSlot.toNumber(), now + DELAY_WINDOW + 5, "delay inside the window");
+    assert.isAtLeast(st.fireSlot.toNumber(), now - 5, "fire slot is not in the past");
+
+    // arming does not move escrowed/allocated, so the pool read now is the pool
+    // the 1% was taken from
+    const pool = st.escrowed.sub(st.allocated);
+    assert.equal(st.authorized.toString(), pool.divn(100).toString(), "1% of the pool");
+    console.log(`  armed: ${st.authorized.toString()} token (havuzun %1'i), fire_slot=${st.fireSlot} (now=${now})`);
+  });
+
+  it("4d. checking again while armed changes nothing", async () => {
+    const before: any = await program.account.escrow.fetch(escrow);
+    const sig = await withRetry("check_noop", () => program.methods
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    sigs.checkNoop = sig;
+    const after: any = await program.account.escrow.fetch(escrow);
+    assert.equal(after.fireSlot.toString(), before.fireSlot.toString(), "fire slot untouched");
+    assert.equal(after.authorized.toString(), before.authorized.toString(), "amount untouched");
+    assert.equal(after.armedKind, before.armedKind);
+    console.log(`  ikinci cagri no-op, hata vermedi sig=${sig}`);
+  });
+
+  it("4e. firing early is rejected; firing after the delay works", async () => {
+    const st: any = await program.account.escrow.fetch(escrow);
+    const fireSlot = st.fireSlot.toNumber();
+    let now = await conn.getSlot("confirmed");
+
+    if (now < fireSlot) {
+      const tooEarly = (program.idl.errors ?? []).find((e: any) => e.name === "TooEarly");
+      let detail = "";
+      // retry through RPC noise so the rejection we assert on is the program's
+      for (let i = 0; i < 6 && (await conn.getSlot("confirmed")) < fireSlot; i++) {
+        try {
+          await program.methods.fireTrigger()
+            .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
+            .rpc({ commitment: "confirmed", skipPreflight: false });
+          detail = "KABUL EDILDI";
+          break;
+        } catch (e: any) {
+          const m = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+          if (/Blockhash not found|429|Too Many Requests/i.test(m)) { await sleep(1200); continue; }
+          detail = m;
+          break;
+        }
+      }
+      assert.notEqual(detail, "KABUL EDILDI", "early fire must not succeed");
+      assert.notEqual(detail, "", "expected a rejection before the fire slot");
+      assert.isTrue(
+        /TooEarly/i.test(detail) || detail.includes(String(tooEarly?.code ?? "6xxx")) ||
+        detail.includes("0x" + Number(tooEarly?.code ?? 0).toString(16)),
+        `expected TooEarly, got: ${detail.slice(0, 300)}`);
+      console.log(`  erken cagri reddedildi (slot ${now} < ${fireSlot}): TooEarly`);
+    } else {
+      console.log(`  not: gecikme 0 cikti (slot ${now} >= ${fireSlot}), erken cagri denenmedi`);
+    }
+
+    while ((await conn.getSlot("confirmed")) < fireSlot) await sleep(400);
+    now = await conn.getSlot("confirmed");
+    const sig = await withRetry("fire", () => program.methods.fireTrigger()
+      .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
+      .rpc({ commitment: "confirmed" }));
+    sigs.fireVolume = sig;
+
+    const after: any = await program.account.escrow.fetch(escrow);
+    assert.isFalse(after.armed, "disarmed after firing");
+    assert.equal(after.pending.toString(), st.authorized.toString(), "released into pending");
+    console.log(`  slot ${now} >= ${fireSlot} -> ${after.pending.toString()} token serbest sig=${sig}`);
+  });
+
   it("5. round is opened: root committed before any randomness exists", async () => {
     const roundIndex = 0;
     const round = roundPda(escrow, roundIndex, program.programId);
     const winners = 8;
     const st: any = await program.account.escrow.fetch(escrow);
-    const free = st.escrowed.sub(st.allocated);
-    const prize = free.divn(winners * 2); // leave headroom
+    assert.isTrue(st.pending.gtn(0), "a trigger must have released funds first");
+    const prize = st.pending.divn(winners);
+
+    // more than the trigger released must be refused
+    let refused = false;
+    try {
+      await program.methods
+        .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
+                   new BN(snap.totalWeight), winners, prize.muln(3))
+        .accountsPartial({ dev: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
+        .rpc({ commitment: "confirmed" });
+    } catch { refused = true; }
+    assert.isTrue(refused, "cannot distribute more than the trigger authorised");
 
     const sig = await withRetry("open_round", () => program.methods
       .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
@@ -509,5 +627,68 @@ describe("airdrop_escrow (devnet)", () => {
     } catch { rejected = true; }
     assert.isTrue(rejected, "someone else's leaf must not pay out");
     console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi");
+  });
+  it("9. milestone: doubling the market cap releases 5% and ratchets", async () => {
+    const before: any = await program.account.escrow.fetch(escrow);
+    const baseline = before.lastMilestoneMcap;
+
+    // Work out exactly how much more buying doubles the cap, instead of guessing.
+    // mcap = supply * vq / vt with vq*vt = k, so mcap = supply*k/vt^2; doubling
+    // the cap means vt -> vt/sqrt(2), and the quote needed is k/vt' - vq.
+    const raw = (await conn.getAccountInfo(pa.bondingCurve, "confirmed"))!.data;
+    const vt = raw.readBigUInt64LE(8);      // virtual_token_reserves
+    const vq = raw.readBigUInt64LE(16);     // virtual_quote_reserves
+    const supply = raw.readBigUInt64LE(40); // token_total_supply
+    const target = BigInt(baseline.toString()) * 2n;
+    const k = vq * vt;
+    // vt' = sqrt(supply * k / target), integer sqrt
+    const inner = (supply * k) / target;
+    let lo = 1n, hi = vt, vtTarget = vt;
+    while (lo <= hi) {
+      const mid = (lo + hi) / 2n;
+      if (mid * mid <= inner) { vtTarget = mid; lo = mid + 1n; } else { hi = mid - 1n; }
+    }
+    const need = k / vtTarget - vq;
+    const fund = Number(need) * 1.05 + 0.025 * LAMPORTS_PER_SOL; // fees + reserve + rent
+    console.log(`  mcap 2x icin ~${(Number(need) / 1e9).toFixed(3)} SOL alim gerekiyor`);
+    assert.isBelow(fund / LAMPORTS_PER_SOL, 2.5, "milestone pump stays affordable");
+
+    await send([SystemProgram.transfer({
+      fromPubkey: dev.publicKey, toPubkey: escrow, lamports: Math.ceil(fund),
+    })]);
+    await sendBuyback("milestone-pump");
+
+    const sig = await withRetry("check_milestone", () => program.methods
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    sigs.checkMilestone = sig;
+
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(st.armed, "milestone should have armed");
+    assert.equal(st.armedKind, 2, "milestone kind, not volume");
+    const pool = st.escrowed.sub(st.allocated);
+    assert.equal(st.authorized.toString(), pool.divn(20).toString(), "5% of the pool");
+    console.log(`  mcap ${baseline.toNumber() / 1e9} -> 2x asildi, ${st.authorized.toString()} token armed`);
+
+    // fire it and confirm the milestone ratchets upward
+    const fireSlot = st.fireSlot.toNumber();
+    while ((await conn.getSlot("confirmed")) < fireSlot) await sleep(400);
+    const fsig = await withRetry("fire_milestone", () => program.methods.fireTrigger()
+      .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
+      .rpc({ commitment: "confirmed" }));
+    sigs.fireMilestone = fsig;
+
+    const after: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(after.lastMilestoneMcap.gte(baseline.muln(2)), "milestone moved up to the new cap");
+    assert.isFalse(after.armed);
+    console.log(`  yeni tas=${after.lastMilestoneMcap.toNumber() / 1e9} SOL sig=${fsig}`);
+
+    // and it never steps back down: a check right after must not re-arm
+    const again = await withRetry("check_after_milestone", () => program.methods
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    const st2: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st2.lastMilestoneMcap.toString(), after.lastMilestoneMcap.toString(),
+      "milestone does not go backwards");
+    assert.equal(st2.armedKind, st2.armed ? 1 : 0, "no second milestone at the same cap");
+    console.log(`  tas geri gitmedi sig=${again}`);
   });
 });

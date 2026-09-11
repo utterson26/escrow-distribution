@@ -30,6 +30,16 @@ pub enum EscrowError {
     AlreadyClaimed,
     #[msg("nothing to claim")]
     NothingToClaim,
+    #[msg("no trigger is armed")]
+    NotArmed,
+    #[msg("a trigger is already armed")]
+    AlreadyArmed,
+    #[msg("the random delay has not elapsed yet")]
+    TooEarly,
+    #[msg("round prize total must equal the amount a fired trigger released")]
+    AmountNotAuthorized,
+    #[msg("delay window is below the allowed floor")]
+    BadDelayWindow,
     #[msg("round does not belong to this escrow")]
     HolderMismatch,
     #[msg("only the dev authority may call this")]

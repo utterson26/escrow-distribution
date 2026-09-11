@@ -27,6 +27,21 @@ pub const BUYBACK_SLIPPAGE_BPS: u64 = 200; // 2%
 /// Minimum position, valued at the bonding curve price, to be eligible for a
 /// prize. Fixed in SOL: a true dollar figure would need a price feed.
 pub const MIN_POSITION_LAMPORTS: u64 = 50_000_000; // 0.05 SOL
+/// Volume since the last distribution must reach this share of market cap.
+pub const VOLUME_TRIGGER_BPS: u128 = 100; // 1%
+/// Share of the remaining pool a volume trigger releases.
+pub const VOLUME_RELEASE_BPS: u64 = 100; // 1%
+/// Share of the remaining pool a milestone trigger releases.
+pub const MILESTONE_RELEASE_BPS: u64 = 500; // 5%
+/// Default random-delay window: 60 minutes at ~400ms per slot.
+pub const DEFAULT_MAX_DELAY_SLOTS: u64 = 9_000;
+/// Floor on the configurable delay window. Anything this small is only for
+/// tests: a narrow window makes the distribution moment predictable again.
+pub const MIN_MAX_DELAY_SLOTS: u64 = 5;
+
+pub const TRIGGER_VOLUME: u8 = 1;
+pub const TRIGGER_MILESTONE: u8 = 2;
+
 /// Winners per round; bounded by the 256-bit claim bitmap on `Round`.
 pub const MAX_WINNERS: u16 = 256;
 /// A round may only be drawn at least this many slots after its root was

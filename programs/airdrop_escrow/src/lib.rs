@@ -195,6 +195,18 @@ pub mod airdrop_escrow {
         escrow.claimed = 0;
         escrow.holder_count = 0;
         escrow.fees_collected = 0;
+        escrow.buyback_spent = 0;
+        escrow.buyback_tokens = 0;
+        escrow.cum_volume = 0;
+        escrow.last_quote_reserves = 0;
+        escrow.volume_at_last_dist = 0;
+        escrow.last_milestone_mcap = 0;
+        escrow.max_delay_slots = DEFAULT_MAX_DELAY_SLOTS;
+        escrow.armed = false;
+        escrow.armed_kind = 0;
+        escrow.fire_slot = 0;
+        escrow.authorized = 0;
+        escrow.pending = 0;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -252,6 +264,152 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
+    /// Narrow or widen the random firing window. A small window makes the
+    /// distribution moment predictable, so this is really a test knob;
+    /// production should stay at `DEFAULT_MAX_DELAY_SLOTS`.
+    pub fn set_delay_window(ctx: Context<SetDelayWindow>, slots: u64) -> Result<()> {
+        require!(
+            slots >= MIN_MAX_DELAY_SLOTS && slots <= DEFAULT_MAX_DELAY_SLOTS,
+            EscrowError::BadDelayWindow
+        );
+        ctx.accounts.escrow.max_delay_slots = slots;
+        Ok(())
+    }
+
+    /// Permissionless. Samples the curve, and if a trigger condition is met arms
+    /// a distribution for a random slot up to `max_delay_slots` from now. Does
+    /// nothing — without failing — when no condition holds, so a keeper can call
+    /// it on a loop.
+    pub fn check_trigger(ctx: Context<CheckTrigger>) -> Result<()> {
+        let curve = &ctx.accounts.bonding_curve;
+        let quote = curve.virtual_quote_reserves;
+        let mcap = (curve.token_total_supply as u128)
+            .checked_mul(quote as u128)
+            .ok_or(EscrowError::Overflow)?
+            / (curve.virtual_token_reserves as u128);
+
+        let escrow = &mut ctx.accounts.escrow;
+
+        // Sample volume: absolute move of the quote reserves since last look.
+        if escrow.last_quote_reserves == 0 {
+            escrow.last_quote_reserves = quote;
+        } else {
+            let delta = quote.abs_diff(escrow.last_quote_reserves) as u128;
+            escrow.cum_volume = escrow.cum_volume.saturating_add(delta);
+            escrow.last_quote_reserves = quote;
+        }
+        // First sight of the coin sets the milestone baseline; no payout for it.
+        if escrow.last_milestone_mcap == 0 {
+            escrow.last_milestone_mcap = mcap.min(u64::MAX as u128) as u64;
+            emit!(TriggerChecked { escrow: escrow.key(), mcap: escrow.last_milestone_mcap,
+                                   cum_volume: escrow.cum_volume, armed: false, kind: 0 });
+            return Ok(());
+        }
+
+        if escrow.armed {
+            emit!(TriggerChecked { escrow: escrow.key(), mcap: mcap as u64,
+                                   cum_volume: escrow.cum_volume, armed: true,
+                                   kind: escrow.armed_kind });
+            return Ok(());
+        }
+
+        let pool = escrow
+            .escrowed
+            .checked_sub(escrow.allocated)
+            .ok_or(EscrowError::Overflow)?;
+
+        // Milestone wins over volume when both are due: it pays more.
+        let doubled = (escrow.last_milestone_mcap as u128).saturating_mul(2);
+        let volume_since = escrow.cum_volume.saturating_sub(escrow.volume_at_last_dist);
+        let volume_needed = mcap
+            .checked_mul(VOLUME_TRIGGER_BPS)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+
+        let (kind, release_bps) = if mcap >= doubled {
+            (TRIGGER_MILESTONE, MILESTONE_RELEASE_BPS)
+        } else if volume_needed > 0 && volume_since >= volume_needed {
+            (TRIGGER_VOLUME, VOLUME_RELEASE_BPS)
+        } else {
+            emit!(TriggerChecked { escrow: escrow.key(), mcap: mcap as u64,
+                                   cum_volume: escrow.cum_volume, armed: false, kind: 0 });
+            return Ok(());
+        };
+
+        let amount = (pool as u128)
+            .checked_mul(release_bps as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        if amount == 0 {
+            emit!(TriggerChecked { escrow: escrow.key(), mcap: mcap as u64,
+                                   cum_volume: escrow.cum_volume, armed: false, kind: 0 });
+            return Ok(());
+        }
+
+        // Random delay so the exact distribution slot cannot be front-run.
+        let data = ctx.accounts.slot_hashes.try_borrow_data()?;
+        require!(data.len() >= 48, EscrowError::NoSlotHash);
+        let now = Clock::get()?.slot;
+        let h = hashv(&[&data[16..48], escrow.key().as_ref(), &now.to_le_bytes()]);
+        let span = escrow.max_delay_slots.saturating_add(1);
+        let delay = u64::from_le_bytes(h.to_bytes()[0..8].try_into().unwrap()) % span;
+
+        escrow.armed = true;
+        escrow.armed_kind = kind;
+        escrow.fire_slot = now.saturating_add(delay);
+        escrow.authorized = amount as u64;
+
+        emit!(TriggerArmed {
+            escrow: escrow.key(),
+            kind,
+            mcap: mcap as u64,
+            amount: escrow.authorized,
+            armed_slot: now,
+            fire_slot: escrow.fire_slot,
+        });
+        Ok(())
+    }
+
+    /// Permissionless. Releases an armed trigger once its delay has passed.
+    /// Calling it early is an error, not a no-op — the caller is asking for
+    /// something specific and should hear that it is not time yet.
+    pub fn fire_trigger(ctx: Context<FireTrigger>) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        require!(escrow.armed, EscrowError::NotArmed);
+        let now = Clock::get()?.slot;
+        require!(now >= escrow.fire_slot, EscrowError::TooEarly);
+
+        let amount = escrow.authorized;
+        escrow.pending = escrow
+            .pending
+            .checked_add(amount)
+            .ok_or(EscrowError::Overflow)?;
+
+        if escrow.armed_kind == TRIGGER_MILESTONE {
+            let curve = &ctx.accounts.bonding_curve;
+            let mcap = (curve.token_total_supply as u128)
+                .checked_mul(curve.virtual_quote_reserves as u128)
+                .ok_or(EscrowError::Overflow)?
+                / (curve.virtual_token_reserves as u128);
+            let mcap = mcap.min(u64::MAX as u128) as u64;
+            // Milestones ratchet: never step back down.
+            if mcap > escrow.last_milestone_mcap {
+                escrow.last_milestone_mcap = mcap;
+            }
+        }
+        escrow.volume_at_last_dist = escrow.cum_volume;
+
+        let kind = escrow.armed_kind;
+        escrow.armed = false;
+        escrow.armed_kind = 0;
+        escrow.authorized = 0;
+        escrow.fire_slot = 0;
+
+        emit!(TriggerFired { escrow: escrow.key(), kind, amount, slot: now,
+                             pending: escrow.pending });
+        Ok(())
+    }
+
     /// Commit the Merkle root of a holder snapshot for one distribution round.
     /// Only the root is stored; the randomness that picks winners is drawn in a
     /// separate, later transaction, so whoever publishes the root cannot know who
@@ -276,6 +434,12 @@ pub mod airdrop_escrow {
         let committed = (winner_count as u64)
             .checked_mul(prize)
             .ok_or(EscrowError::Overflow)?;
+        // The amount is not the publisher's to choose: it is exactly what a
+        // trigger released.
+        require!(
+            committed <= ctx.accounts.escrow.pending,
+            EscrowError::AmountNotAuthorized
+        );
         let free = ctx
             .accounts
             .escrow
@@ -302,6 +466,10 @@ pub mod airdrop_escrow {
         escrow.allocated = escrow
             .allocated
             .checked_add(committed)
+            .ok_or(EscrowError::Overflow)?;
+        escrow.pending = escrow
+            .pending
+            .checked_sub(committed)
             .ok_or(EscrowError::Overflow)?;
 
         emit!(RoundOpened {
@@ -728,6 +896,31 @@ pub struct FeesCollected {
     pub lamports: u64,
 }
 #[event]
+pub struct TriggerChecked {
+    pub escrow: Pubkey,
+    pub mcap: u64,
+    pub cum_volume: u128,
+    pub armed: bool,
+    pub kind: u8,
+}
+#[event]
+pub struct TriggerArmed {
+    pub escrow: Pubkey,
+    pub kind: u8,
+    pub mcap: u64,
+    pub amount: u64,
+    pub armed_slot: u64,
+    pub fire_slot: u64,
+}
+#[event]
+pub struct TriggerFired {
+    pub escrow: Pubkey,
+    pub kind: u8,
+    pub amount: u64,
+    pub slot: u64,
+    pub pending: u64,
+}
+#[event]
 pub struct RoundOpened {
     pub escrow: Pubkey,
     pub index: u32,
@@ -921,6 +1114,54 @@ pub struct CollectFees<'info> {
     #[account(address = pump::ID)]
     pub pump_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetDelayWindow<'info> {
+    pub dev: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump,
+        constraint = escrow.dev == dev.key() @ EscrowError::NotDev
+    )]
+    pub escrow: Account<'info, Escrow>,
+}
+
+/// Anyone may check; the escrow is the only thing written.
+#[derive(Accounts)]
+pub struct CheckTrigger<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(
+        seeds = [b"bonding-curve", escrow.mint.as_ref()],
+        bump,
+        seeds::program = pump::ID
+    )]
+    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
+    /// CHECK: pinned to the sysvar, read as raw bytes.
+    #[account(address = SLOT_HASHES)]
+    pub slot_hashes: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FireTrigger<'info> {
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+    #[account(
+        seeds = [b"bonding-curve", escrow.mint.as_ref()],
+        bump,
+        seeds::program = pump::ID
+    )]
+    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
 }
 
 #[derive(Accounts)]

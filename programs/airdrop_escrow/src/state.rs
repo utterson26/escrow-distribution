@@ -25,6 +25,28 @@ pub struct Escrow {
     pub buyback_spent: u64,
     /// Base tokens bought back into the escrow token account.
     pub buyback_tokens: u64,
+
+    // ---- trigger bookkeeping ----
+    /// Quote volume accumulated by sampling the curve. pump exposes no
+    /// per-coin cumulative volume, so this is the sum of absolute reserve moves
+    /// seen at each `check_trigger`; round trips between checks are missed.
+    pub cum_volume: u128,
+    /// Curve quote reserves at the last sample.
+    pub last_quote_reserves: u64,
+    /// `cum_volume` at the last distribution.
+    pub volume_at_last_dist: u128,
+    /// Market cap of the last milestone reached. Never decreases.
+    pub last_milestone_mcap: u64,
+    /// Upper bound of the random firing delay, in slots.
+    pub max_delay_slots: u64,
+    /// A trigger is armed and waiting for its delay to pass.
+    pub armed: bool,
+    pub armed_kind: u8,
+    pub fire_slot: u64,
+    /// Tokens the armed trigger will release.
+    pub authorized: u64,
+    /// Released by a fired trigger, waiting for a round to be opened with it.
+    pub pending: u64,
     pub bump: u8,
 }
 
