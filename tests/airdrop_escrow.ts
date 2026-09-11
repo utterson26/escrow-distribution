@@ -37,6 +37,11 @@ function decodeBuybackDone(logs: string[]) {
   return { spent, bought, quoted, floor, left };
 }
 
+const manualPda = (mint: PublicKey, program: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("manual"), mint.toBuffer()], program)[0];
+const manualAta = (mint: PublicKey, program: PublicKey) =>
+  getAssociatedTokenAddressSync(mint, manualPda(mint, program), true, TOKEN_2022);
+
 const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
   const b = Buffer.alloc(4); b.writeUInt32LE(index);
   return PublicKey.findProgramAddressSync([Buffer.from("round"), escrow.toBuffer(), b], program)[0];
@@ -121,6 +126,7 @@ describe("airdrop_escrow (devnet)", () => {
       ...Object.values(pa) as PublicKey[],
       ...Object.values(pb) as PublicKey[],
       escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa,
+      manualPda(mint, program.programId), manualAta(mint, program.programId),
       SystemProgram.programId, program.programId,
     ];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
@@ -145,9 +151,12 @@ describe("airdrop_escrow (devnet)", () => {
     const escrowBps = 3000; // 30% to escrow
 
     const ix = await program.methods
-      .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost)
+      .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost,
+              [...Buffer.alloc(32)], 0)  // manuel airdrop kapali
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
+        manualAuthority: manualPda(mint, program.programId),
+        manualTokenAccount: manualAta(mint, program.programId),
         ...pa, systemProgram: SystemProgram.programId,
       })
       .instruction();

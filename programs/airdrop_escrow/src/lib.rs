@@ -30,7 +30,10 @@ pub mod airdrop_escrow {
         escrow_bps: u16,
         amount: u64,
         max_sol_cost: u64,
+        manual_root: [u8; 32],
+        manual_bps: u16,
     ) -> Result<()> {
+        require!(manual_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
         require!(escrow_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
         require!(amount > 0, EscrowError::ZeroAmount);
 
@@ -185,6 +188,44 @@ pub mod airdrop_escrow {
             )?;
         }
 
+        // ---- 5. set aside the dev's manual airdrop list share -----------------
+        let dev_share = amount.saturating_sub(escrow_cut);
+        let manual_total = if manual_bps > 0 && manual_root != [0u8; 32] {
+            let t = (dev_share as u128)
+                .checked_mul(manual_bps as u128)
+                .ok_or(EscrowError::Overflow)?
+                / BPS_DENOM as u128;
+            let t = t as u64;
+            if t > 0 {
+                create_ata_idempotent(
+                    &ctx.accounts.dev,
+                    &ctx.accounts.manual_authority,
+                    &ctx.accounts.manual_token_account,
+                    &ctx.accounts.mint,
+                    &ctx.accounts.base_token_program,
+                    &ctx.accounts.associated_token_program,
+                    &ctx.accounts.system_program,
+                )?;
+                let decimals = read_mint_decimals(&ctx.accounts.mint)?;
+                token_interface::transfer_checked(
+                    CpiContext::new(
+                        ctx.accounts.base_token_program.key(),
+                        TransferChecked {
+                            from: ctx.accounts.associated_base_user.to_account_info(),
+                            mint: ctx.accounts.mint.to_account_info(),
+                            to: ctx.accounts.manual_token_account.to_account_info(),
+                            authority: ctx.accounts.dev.to_account_info(),
+                        },
+                    ),
+                    t,
+                    decimals,
+                )?;
+            }
+            t
+        } else {
+            0
+        };
+
         let escrow = &mut ctx.accounts.escrow;
         escrow.dev = ctx.accounts.dev.key();
         escrow.mint = mint_key;
@@ -207,6 +248,15 @@ pub mod airdrop_escrow {
         escrow.fire_slot = 0;
         escrow.authorized = 0;
         escrow.pending = 0;
+        escrow.manual_root = manual_root;
+        escrow.manual_bps = manual_bps;
+        escrow.manual_total = manual_total;
+        escrow.manual_claimed_bps = 0;
+        escrow.manual_claimed_bits = [0u8; 8];
+        escrow.manual_unlock_ts = Clock::get()?
+            .unix_timestamp
+            .saturating_add(MANUAL_LOCK_SECONDS);
+        escrow.manual_locked = true;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -260,6 +310,93 @@ pub mod airdrop_escrow {
         emit!(FeesCollected {
             escrow: ctx.accounts.escrow.key(),
             lamports: gained,
+        });
+        Ok(())
+    }
+
+    /// Claim a share from the manual list the dev fixed at launch. The list is
+    /// only committed as a root, so the caller proves their own entry. Nothing
+    /// here can be changed after launch, and nobody can add themselves.
+    pub fn claim_manual(
+        ctx: Context<ClaimManual>,
+        index: u16,
+        bps: u16,
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        let escrow = &ctx.accounts.escrow;
+        require!(escrow.manual_total > 0, EscrowError::NoManualAirdrop);
+        require!(index < MAX_MANUAL_ENTRIES, EscrowError::BadManualIndex);
+        require!(bps > 0 && bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
+
+        let byte = (index / 8) as usize;
+        let bit = 1u8 << (index % 8);
+        require!(
+            escrow.manual_claimed_bits[byte] & bit == 0,
+            EscrowError::ManualAlreadyClaimed
+        );
+        // The root alone cannot prove the list sums to 100%, so the cap is
+        // enforced as claims come in.
+        let total_bps = escrow
+            .manual_claimed_bps
+            .checked_add(bps)
+            .ok_or(EscrowError::Overflow)?;
+        require!(total_bps as u64 <= BPS_DENOM, EscrowError::ManualOverAllocated);
+
+        let wallet = ctx.accounts.wallet.key();
+        let mut node = hashv(&[
+            b"manual",
+            &index.to_le_bytes(),
+            wallet.as_ref(),
+            &bps.to_le_bytes(),
+        ])
+        .to_bytes();
+        for sibling in proof.iter() {
+            node = if node <= *sibling {
+                hashv(&[b"node", &node, sibling]).to_bytes()
+            } else {
+                hashv(&[b"node", sibling, &node]).to_bytes()
+            };
+        }
+        require!(node == escrow.manual_root, EscrowError::BadProof);
+
+        let amount = (escrow.manual_total as u128)
+            .checked_mul(bps as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        require!(amount > 0, EscrowError::ZeroAmount);
+
+        let mint_key = escrow.mint;
+        let auth_bump = ctx.bumps.manual_authority;
+        let seeds: &[&[u8]] = &[MANUAL_SEED, mint_key.as_ref(), &[auth_bump]];
+        token_interface::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.base_token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.manual_token_account.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    to: ctx.accounts.wallet_token_account.to_account_info(),
+                    authority: ctx.accounts.manual_authority.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount as u64,
+            ctx.accounts.mint.decimals,
+        )?;
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.manual_claimed_bits[byte] |= bit;
+        escrow.manual_claimed_bps = total_bps;
+        if Clock::get()?.unix_timestamp >= escrow.manual_unlock_ts {
+            escrow.manual_locked = false;
+        }
+
+        emit!(ManualClaimed {
+            escrow: escrow.key(),
+            wallet,
+            index,
+            bps,
+            amount: amount as u64,
+            claimed_bps_total: total_bps,
         });
         Ok(())
     }
@@ -914,6 +1051,15 @@ pub struct FeesCollected {
     pub lamports: u64,
 }
 #[event]
+pub struct ManualClaimed {
+    pub escrow: Pubkey,
+    pub wallet: Pubkey,
+    pub index: u16,
+    pub bps: u16,
+    pub amount: u64,
+    pub claimed_bps_total: u16,
+}
+#[event]
 pub struct TriggerChecked {
     pub escrow: Pubkey,
     pub mcap: u64,
@@ -1011,6 +1157,15 @@ pub struct Launch<'info> {
     /// CHECK: address checked by the ATA program
     #[account(mut)]
     pub escrow_token_account: UncheckedAccount<'info>,
+
+    /// Holds the manual airdrop shares. No data of its own; it only signs for
+    /// its token account.
+    /// CHECK: PDA, seeds checked here
+    #[account(seeds = [MANUAL_SEED, mint.key().as_ref()], bump)]
+    pub manual_authority: UncheckedAccount<'info>,
+    /// CHECK: ATA, opened in-handler
+    #[account(mut)]
+    pub manual_token_account: UncheckedAccount<'info>,
 
     // ---- pump: shared ----
     /// CHECK: pump PDA
@@ -1134,6 +1289,41 @@ pub struct CollectFees<'info> {
     #[account(address = pump::ID)]
     pub pump_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimManual<'info> {
+    #[account(mut)]
+    pub wallet: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+    /// CHECK: PDA that owns the manual token account
+    #[account(seeds = [MANUAL_SEED, escrow.mint.as_ref()], bump)]
+    pub manual_authority: UncheckedAccount<'info>,
+
+    #[account(address = escrow.mint)]
+    pub mint: Box<InterfaceAccount<'info, anchor_spl::token_interface::Mint>>,
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = manual_authority,
+        associated_token::token_program = base_token_program,
+    )]
+    pub manual_token_account:
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    #[account(
+        mut,
+        associated_token::mint = mint,
+        associated_token::authority = wallet,
+        associated_token::token_program = base_token_program,
+    )]
+    pub wallet_token_account:
+        Box<InterfaceAccount<'info, anchor_spl::token_interface::TokenAccount>>,
+    pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
 }
 
 #[derive(Accounts)]

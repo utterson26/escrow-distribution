@@ -6,6 +6,8 @@ pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const ROUND_SEED: &[u8] = b"round";
 #[constant]
 pub const BUYER_SEED: &[u8] = b"buyer";
+#[constant]
+pub const MANUAL_SEED: &[u8] = b"manual";
 
 /// SlotHashes sysvar. Not re-exported by anchor-lang 1.2, so pinned by address.
 pub const SLOT_HASHES: Pubkey = pubkey!("SysvarS1otHashes111111111111111111111111111");
@@ -43,6 +45,12 @@ pub const DEFAULT_MAX_DELAY_SLOTS: u64 = 9_000;
 /// Floor on the configurable delay window. Anything this small is only for
 /// tests: a narrow window makes the distribution moment predictable again.
 pub const MIN_MAX_DELAY_SLOTS: u64 = 5;
+
+/// Manual airdrop list size. The list itself never goes on chain — only its
+/// root — but the index is bounded so the claim bitmap stays fixed.
+pub const MAX_MANUAL_ENTRIES: u16 = 50;
+/// Nobody may touch unclaimed manual shares before this has elapsed.
+pub const MANUAL_LOCK_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 pub const TRIGGER_VOLUME: u8 = 1;
 pub const TRIGGER_MILESTONE: u8 = 2;

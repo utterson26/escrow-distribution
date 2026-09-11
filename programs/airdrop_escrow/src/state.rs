@@ -47,6 +47,24 @@ pub struct Escrow {
     pub authorized: u64,
     /// Released by a fired trigger, waiting for a round to be opened with it.
     pub pending: u64,
+
+    // ---- manual airdrop ----
+    /// Merkle root of the (wallet, bps) list the dev fixed at launch. The list
+    /// is too big for the launch transaction, so only its root is committed;
+    /// that still makes it immutable from launch onward.
+    pub manual_root: [u8; 32],
+    /// Share of the dev's own allocation set aside for the manual list.
+    pub manual_bps: u16,
+    /// Tokens moved into the manual airdrop account at launch.
+    pub manual_total: u64,
+    /// Basis points claimed so far; can never exceed 10000.
+    pub manual_claimed_bps: u16,
+    /// One bit per list index.
+    pub manual_claimed_bits: [u8; 8],
+    /// Before this timestamp nobody may touch what is unclaimed.
+    pub manual_unlock_ts: i64,
+    /// Still inside the lock window.
+    pub manual_locked: bool,
     pub bump: u8,
 }
 

@@ -30,6 +30,14 @@ pub enum EscrowError {
     AlreadyClaimed,
     #[msg("nothing to claim")]
     NothingToClaim,
+    #[msg("manual list index is out of range")]
+    BadManualIndex,
+    #[msg("manual share already claimed")]
+    ManualAlreadyClaimed,
+    #[msg("manual shares would exceed the dev allocation")]
+    ManualOverAllocated,
+    #[msg("manual airdrop is not configured for this escrow")]
+    NoManualAirdrop,
     #[msg("no trigger is armed")]
     NotArmed,
     #[msg("a trigger is already armed")]
