@@ -33,6 +33,9 @@ pub struct Allocation {
     pub amount: u64,
     /// Weight this allocation was computed from (balance x held_secs, jittered).
     pub weight: u128,
+    /// Set once `distribute` has written a share for this holder. Makes
+    /// `distribute` idempotent: a holder is never allocated twice.
+    pub distributed: bool,
     pub claimed: bool,
     pub bump: u8,
 }

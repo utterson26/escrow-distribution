@@ -267,6 +267,49 @@ pub mod airdrop_escrow {
             EscrowError::HolderAccountMismatch
         );
 
+        let escrow_key = ctx.accounts.escrow.key();
+        let slot = Clock::get()?.slot;
+
+        // ---- pass 0: which holders have not been allocated yet? ---------------
+        // A holder already carrying `distributed` is skipped everywhere below —
+        // including the weight denominator — so re-sending a batch is a no-op and
+        // a partially-new batch still splits the whole remaining pool.
+        let mut fresh: Vec<usize> = Vec::with_capacity(n);
+        for i in 0..n {
+            let alloc_ai = &ctx.remaining_accounts[i * 2];
+            let holder = ctx.remaining_accounts[i * 2 + 1].key();
+            let (expected, _) = Pubkey::find_program_address(
+                &[ALLOC_SEED, escrow_key.as_ref(), holder.as_ref()],
+                ctx.program_id,
+            );
+            require_keys_eq!(*alloc_ai.key, expected, EscrowError::HolderAccountMismatch);
+
+            let already = if alloc_ai.data_is_empty() {
+                false
+            } else {
+                let data = alloc_ai.try_borrow_data()?;
+                if data.len() < 8 || data[..8] == [0u8; 8] {
+                    false
+                } else {
+                    Allocation::try_deserialize(&mut &data[..])?.distributed
+                }
+            };
+            if !already {
+                fresh.push(i);
+            }
+        }
+
+        // Every holder in this batch already has a share: nothing to do.
+        if fresh.is_empty() {
+            emit!(Distributed {
+                escrow: escrow_key,
+                holders: 0,
+                skipped: n as u32,
+                amount: 0,
+            });
+            return Ok(());
+        }
+
         let pool = ctx
             .accounts
             .escrow
@@ -275,23 +318,17 @@ pub mod airdrop_escrow {
             .ok_or(EscrowError::Overflow)?;
         require!(pool > 0, EscrowError::NothingToClaim);
 
-        let slot = Clock::get()?.slot;
-        let escrow_key = ctx.accounts.escrow.key();
-
-        // pass 1 — jittered weights
-        let mut jittered: Vec<u128> = Vec::with_capacity(n);
+        // ---- pass 1: jittered weights, fresh holders only ---------------------
+        let mut jittered: Vec<u128> = Vec::with_capacity(fresh.len());
         let mut total: u128 = 0;
-        for (i, w) in weights.iter().enumerate() {
+        for &i in &fresh {
+            let w = &weights[i];
             let holder = ctx.remaining_accounts[i * 2 + 1].key();
             let base = (w.balance as u128)
                 .checked_mul(w.held_secs as u128)
                 .ok_or(EscrowError::Overflow)?;
             // hash -> [1.0, 2.0) multiplier in fixed point over u32::MAX
-            let h = hashv(&[
-                escrow_key.as_ref(),
-                holder.as_ref(),
-                &slot.to_le_bytes(),
-            ]);
+            let h = hashv(&[escrow_key.as_ref(), holder.as_ref(), &slot.to_le_bytes()]);
             let r = u32::from_le_bytes(h.to_bytes()[0..4].try_into().unwrap()) as u128;
             let jw = base
                 .checked_mul(u32::MAX as u128 + r)
@@ -302,22 +339,22 @@ pub mod airdrop_escrow {
         }
         require!(total > 0, EscrowError::ZeroWeight);
 
-        // pass 2 — write allocation PDAs
+        // ---- pass 2: create + write the allocation PDAs ------------------------
         let mut written: u64 = 0;
-        for (i, jw) in jittered.iter().enumerate() {
+        for (k, &i) in fresh.iter().enumerate() {
             let alloc_ai = &ctx.remaining_accounts[i * 2];
             let holder = ctx.remaining_accounts[i * 2 + 1].key();
+            let jw = jittered[k];
 
             let share = ((pool as u128)
-                .checked_mul(*jw)
+                .checked_mul(jw)
                 .ok_or(EscrowError::Overflow)?
                 / total) as u64;
 
-            let (expected, bump) = Pubkey::find_program_address(
+            let (_, bump) = Pubkey::find_program_address(
                 &[ALLOC_SEED, escrow_key.as_ref(), holder.as_ref()],
                 ctx.program_id,
             );
-            require_keys_eq!(*alloc_ai.key, expected, EscrowError::HolderAccountMismatch);
 
             let space = 8 + Allocation::INIT_SPACE;
             if alloc_ai.data_is_empty() {
@@ -339,29 +376,15 @@ pub mod airdrop_escrow {
                 )?;
             }
 
-            let mut alloc: Allocation = if alloc_ai.try_borrow_data()?[..8] == [0u8; 8] {
-                Allocation {
-                    escrow: escrow_key,
-                    holder,
-                    amount: 0,
-                    weight: 0,
-                    claimed: false,
-                    bump,
-                }
-            } else {
-                let data = alloc_ai.try_borrow_data()?;
-                Allocation::try_deserialize(&mut &data[..])?
+            let alloc = Allocation {
+                escrow: escrow_key,
+                holder,
+                amount: share,
+                weight: jw,
+                distributed: true,
+                claimed: false,
+                bump,
             };
-            require!(!alloc.claimed, EscrowError::AlreadyClaimed);
-            alloc.escrow = escrow_key;
-            alloc.holder = holder;
-            alloc.weight = *jw;
-            alloc.amount = alloc
-                .amount
-                .checked_add(share)
-                .ok_or(EscrowError::Overflow)?;
-            alloc.bump = bump;
-
             let mut data = alloc_ai.try_borrow_mut_data()?;
             let mut cursor = &mut data[..];
             alloc.try_serialize(&mut cursor)?;
@@ -376,12 +399,13 @@ pub mod airdrop_escrow {
             .ok_or(EscrowError::Overflow)?;
         escrow.holder_count = escrow
             .holder_count
-            .checked_add(n as u32)
+            .checked_add(fresh.len() as u32)
             .ok_or(EscrowError::Overflow)?;
 
         emit!(Distributed {
             escrow: escrow_key,
-            holders: n as u32,
+            holders: fresh.len() as u32,
+            skipped: (n - fresh.len()) as u32,
             amount: written,
         });
         Ok(())
@@ -487,7 +511,10 @@ pub struct FeesCollected {
 #[event]
 pub struct Distributed {
     pub escrow: Pubkey,
+    /// Holders newly allocated by this call.
     pub holders: u32,
+    /// Holders skipped because they already carried `distributed`.
+    pub skipped: u32,
     pub amount: u64,
 }
 #[event]

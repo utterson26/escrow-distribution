@@ -10,21 +10,22 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 |---|------|-------|
 | 1 | launch — create_v2 + buy_v2 CPI, tek atomik tx | ✅ |
 | 2 | collect_creator_fee_v2 CPI (escrow PDA creator) | ✅ |
-| 3 | distribute — ağırlıklı pay | ✅ |
+| 3 | distribute — ağırlıklı pay, **idempotent** | ✅ |
 | 4 | claim | ✅ |
-| 5 | Anchor testleri, devnet'te koşuyor | ✅ 5/5 passing |
+| 5 | Anchor testleri, devnet'te koşuyor | ✅ 6/6 passing |
 
 ## Devnet'te doğrulanabilir imzalar
 
-Test koşusu — coin `CwPUGHhCXrEM3FXAv19ssiy1C4ECftUT9PFiuH9m9Ejm`,
-escrow PDA `H62E3DqhLWcZzpk64oLjznRMQ33QSuZg1nVdJcwtp7Kg`:
+Son koşu — coin `FGrSZYhQQbU8PXoAuFxELnEw9bsbeHS5o8iFc7rA2b7T`,
+escrow PDA `2jDQQ3AVwQyGh8jd8n6CwiXufwKeaM4h1rbcrVdw2Ht9`:
 
 | Adım | İmza |
 |------|------|
-| launch | `2ciVyE1XtNe62kTHuyAobeSWFkD5TV6swG2yDBVqJHBmUJwQiHJB7Je9A52FTTuFVvxu39TXh8jzpbLDAhFcPQua` |
-| collect_fees | `2JttpNyemmY9KiwVtJRca8aia9tBFe8jaRnJvj7WcqqA5QZ3fLxKpa5AhYQN7Zj5ZfbtzhqaBdta1Ga37Bs5fJb3` |
-| distribute | `2GR2cgHvkMTthpzMBQxkUuyUtdTB9Bj5NHkqr1SV12xPZaPpXR6SMKw7KGqZWgqsyYKenk3uT19ZNxngck2Aur9` |
-| claim | `oYn4DakkA4Xj5y9ipWrLaERxoRizi44ZGTp1RpstN7jgw1jSMAELeVU5WdyUey6Yy2aZximD5CxX9iyW1U4Z4gp` |
+| launch | `2fkxerRJYNrvVEBM4hm8WZFJcCGuZ7Gc7LP8a8mrP7S8X8ysk2f9iXKfjmRsJ6aSYigK2zk46kowajPLiRgsgrmD` |
+| collect_fees | `2xtuZZTmadRCHzCt459NGyGMuh3p2GtAFCiwa8yQDRW8RzYYqBxpgRThWr6XKFrkvT6ijd8t5b4GyUNyxDLjnfxw` |
+| distribute | `aQzugzv2baDJyo9GhEUH2NaXrw333Hkj6urWNBeS4ymFwzmTCq2Hk2DhqTCnYRFXTRNkY5sxSRTP69xxfa9Mwd9` |
+| distribute (tekrar, no-op) | `5F4KytABnDLFbiZM2KbNCyXXiFr8utduAY2dRXMaTPgCKMtKuybNX5H4LGg5oPYc4EiXMnhoHxmfsd27BhEdSkb4` |
+| claim | `fS6BCgevRgn7DuUVUYibra3AWRTQnMkNt7ejEYSyRvBraqLoqDxKVh6vRRFHRkz7UWsatwwuJ9AZVeAwyPHZqsq` |
 
 ```bash
 solana confirm -v <imza> --url devnet
@@ -33,10 +34,12 @@ solana confirm -v <imza> --url devnet
 ### Zincir üstünde doğrulanan gerçekler
 - launch tx log sırası: `Launch → CreateV2 → BuyV2 → TransferChecked` — **tek instruction,
   tek tx**, 300.890 CU, tx boyutu 490 bayt (ALT ile).
-- `bonding_curve.creator` = `H62E3Dqh…p7Kg` = **escrow PDA** (istenen davranış).
-- Bölüşüm: escrow ATA 300.000.000.000 (%30), dev ATA 700.000.000.000 (%70) — escrow_bps=3000.
-- collect_fees log: `CollectFees → CollectCreatorFeeV2`; escrow lamports 1.254.760 → 1.257.559
-  (+2.799 lamport creator fee).
+- `bonding_curve.creator` = escrow PDA (istenen davranış).
+- Bölüşüm: escrow ATA %30, dev ATA %70 — escrow_bps=3000.
+- collect_fees log: `CollectFees → CollectCreatorFeeV2`; escrow lamports +2.799.
+- **İdempotentlik kanıtı:** ilk `distribute` 3 adet System `create_account` CPI'ı yapıp
+  32.644 CU harcadı; aynı batch'in tekrarı **hiç CPI yapmadan** 14.562 CU'da erken döndü,
+  `allocated` ve `holder_count` değişmedi.
 
 ## Ne çalıştı, nasıl
 
@@ -53,6 +56,13 @@ Not: bu instruction pump tarafında **permissionless** (COLLECT_CREATOR_FEE.md),
 ile [1.0, 2.0) arası jitter. Pay = `pool × w_i / Σw`. Allocation PDA'ları
 `["alloc", escrow, holder]`. Dev-only (`escrow.dev` kontrolü).
 
+**İdempotent.** `Allocation.distributed` bayrağı taşıyan holder üç yerde birden atlanıyor:
+ağırlık hesabı, payda (`Σw`) ve yazma döngüsü. Payda önemli — atlanan holder'ı sadece
+yazma döngüsünde eleseydim, kalanlar hâlâ onun ağırlığını içeren paydayla bölünür ve
+havuzun bir kısmı dağıtılmadan kalırdı. Batch'teki herkes zaten dağıtılmışsa instruction
+`Ok(())` ile erken dönüyor (hesap yaratmıyor, `allocated`'ı değiştirmiyor).
+Böylece hem aynı batch'in tekrarı, hem de kısmen yeni bir batch doğru davranıyor.
+
 **4. claim** — holder imzalar, escrow ATA'dan kendi ATA'sına `transfer_checked`,
 allocation `claimed=true`.
 
@@ -62,9 +72,11 @@ allocation `claimed=true`.
    Address Lookup Table + v0 tx ile 490 bayta iniyor. Testte LUT her koşuda kuruluyor.
    `extendLookupTable` de tek tx'e sığmıyor — 18'erli parçalara böldüm.
 
-2. **Public devnet RPC kararsız.** "Blockhash not found" rastgele geliyor;
-   `withRetry` sarmalayıcısı eklendi (finalized blockhash + 5 deneme). Kendi RPC'n varsa
-   `ANCHOR_PROVIDER_URL` ile geçersiz kıl, testler belirgin şekilde hızlanır.
+2. **Public devnet RPC kararsız.** Kendi verdiği blockhash'te preflight simülasyonunu
+   "Blockhash not found" ile reddediyor. `withRetry` (finalized blockhash + 5 deneme) ve
+   yardımcı tx'lerde `skipPreflight: true` ile çözüldü — bu tx'ler basit ve deterministik,
+   simüle etmek yerine düşen tx onaylanıyor. Kendi RPC'n varsa `ANCHOR_PROVIDER_URL` ile
+   geçersiz kıl, testler belirgin şekilde hızlanır.
 
 3. **Anchor 1.2 API farkları** (dokümanda yok, derleyiciden çıkardım):
    `CpiContext::new` ilk argüman olarak `AccountInfo` değil **`Pubkey`** alıyor;
@@ -78,14 +90,17 @@ allocation `claimed=true`.
 5. **`mayhem_token_vault` IDL'de PDA taşımıyor.** COIN_CREATION.md'den çıkardım:
    ATA(sol_vault, mint, Token-2022).
 
-6. **Dust:** distribute 300.000.000.000 havuzdan 299.999.999.998 dağıttı — tamsayı
-   bölmesinden 2 base unit artıyor. Escrow'da kalıyor, kayıp değil.
+6. **Dust:** distribute havuzdan 1-2 base unit eksik dağıtıyor (tamsayı bölmesi).
+   Escrow'da kalıyor, kayıp değil.
+
+7. **`Allocation` layout değişti** (`distributed` alanı eklendi). Bayraktan önceki
+   koşulardan kalan allocation hesapları eski düzende; yeni kodla deserialize edilemez.
+   Devnet'te her koşu yeni coin bastığı için sorun değil, ama eski bir escrow'a
+   dönmeyi planlıyorsan bunu bil.
 
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
-- **distribute idempotent değil** — aynı holder'a ikinci kez çağırırsan payı üstüne ekler.
-  Gerçek kullanımda bir `distributed` bayrağı gerekir.
 - `collect_fees` sonrası escrow'daki SOL'ü çekecek bir instruction yok.
 - Holder listesi/ağırlıkları zincir dışından geliyor; program doğrulamıyor.
 - Test her koşuda yeni coin basıyor (~0.02 SOL/koşu).

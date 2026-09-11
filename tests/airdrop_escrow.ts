@@ -58,7 +58,12 @@ describe("airdrop_escrow (devnet)", () => {
     return withRetry("tx", async () => {
       const bh = await conn.getLatestBlockhash("finalized");
       const tx = new anchor.web3.Transaction({ ...bh, feePayer: dev.publicKey }).add(...ixs);
-      return await provider.sendAndConfirm(tx, signers, { commitment: "confirmed" });
+      // skipPreflight: the public devnet RPC routinely fails simulation with
+      // "Blockhash not found" on a blockhash it just handed out. These txs are
+      // simple and deterministic, so confirm the landed tx instead of simulating.
+      return await provider.sendAndConfirm(tx, signers, {
+        commitment: "confirmed", skipPreflight: true, maxRetries: 5,
+      });
     });
   }
 
@@ -160,20 +165,21 @@ describe("airdrop_escrow (devnet)", () => {
     assert.isAtLeast(after, before, "escrow must not lose lamports");
   });
 
-  it("3. distribute: weighted allocations (balance x held_secs, hash-jittered)", async () => {
-    const weights = [
+  const weights = [
       { balance: new BN(1000), heldSecs: new BN(3600) },
       { balance: new BN(2000), heldSecs: new BN(1800) },
-      { balance: new BN(500),  heldSecs: new BN(7200) },
-    ];
-    const remaining = holders.flatMap((h) => [
-      { pubkey: allocPda(escrow, h.publicKey, program.programId), isWritable: true, isSigner: false },
-      { pubkey: h.publicKey, isWritable: false, isSigner: false },
-    ]);
+    { balance: new BN(500),  heldSecs: new BN(7200) },
+  ];
+  const remaining = () => holders.flatMap((h) => [
+    { pubkey: allocPda(escrow, h.publicKey, program.programId), isWritable: true, isSigner: false },
+    { pubkey: h.publicKey, isWritable: false, isSigner: false },
+  ]);
+
+  it("3. distribute: weighted allocations (balance x held_secs, hash-jittered)", async () => {
     const sig = await withRetry("distribute", () => program.methods
       .distribute(weights)
       .accountsPartial({ dev: dev.publicKey, escrow, systemProgram: SystemProgram.programId })
-      .remainingAccounts(remaining)
+      .remainingAccounts(remaining())
       .rpc({ commitment: "confirmed" }));
     sigs.distribute = sig;
 
@@ -188,6 +194,34 @@ describe("airdrop_escrow (devnet)", () => {
     assert.equal(sum.toString(), st.allocated.toString(), "sum of allocations == escrow.allocated");
     assert.isTrue(st.allocated.lte(st.escrowed), "cannot allocate more than escrowed");
     console.log(`  allocated=${st.allocated} of escrowed=${st.escrowed} sig=${sig}`);
+  });
+
+  it("3b. distribute is idempotent: resending the same batch is a no-op", async () => {
+    const before: any = await program.account.escrow.fetch(escrow);
+    const allocBefore = await Promise.all(holders.map((h) =>
+      program.account.allocation.fetch(allocPda(escrow, h.publicKey, program.programId))));
+    allocBefore.forEach((a: any, i) =>
+      assert.isTrue(a.distributed, `holder ${i} must carry the distributed flag`));
+
+    const sig = await withRetry("distribute-again", () => program.methods
+      .distribute(weights)
+      .accountsPartial({ dev: dev.publicKey, escrow, systemProgram: SystemProgram.programId })
+      .remainingAccounts(remaining())
+      .rpc({ commitment: "confirmed" }));
+    sigs.distributeAgain = sig;
+
+    const after: any = await program.account.escrow.fetch(escrow);
+    assert.equal(after.allocated.toString(), before.allocated.toString(), "allocated unchanged");
+    assert.equal(after.holderCount, before.holderCount, "holder_count unchanged");
+    for (let i = 0; i < holders.length; i++) {
+      const a: any = await program.account.allocation.fetch(
+        allocPda(escrow, holders[i].publicKey, program.programId));
+      assert.equal(a.amount.toString(), (allocBefore[i] as any).amount.toString(),
+        `holder ${i} amount unchanged`);
+      assert.equal(a.weight.toString(), (allocBefore[i] as any).weight.toString(),
+        `holder ${i} weight unchanged`);
+    }
+    console.log(`  no-op confirmed, allocated still ${after.allocated} sig=${sig}`);
   });
 
   it("4. claim: a holder pulls their allocation", async () => {
