@@ -38,7 +38,8 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 10 | buyback parçalama (çağrı başına %0,5) | ✅ |
 | 11 | manuel airdrop modu | 🟡 kod tamam, devnet'e çıkamadı |
 | 12 | Switchboard rastgelelik | 🟡 uyumlu, entegre edilmedi |
-| 13 | localnet (pump klonlu test agi) | 🟡 kuruldu, bu makinede ayakta kalmiyor |
+| 13 | localnet (pump klonlu test ağı) | ✅ |
+| 14 | manuel airdrop + müdahale + ölü coin — localnet'te | ✅ 7/7 |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -386,23 +387,48 @@ cd programs/airdrop_escrow && cargo-build-sbf --arch v0
 Bu bilgiyle devnet maliyeti de güncellendi: v0 çıktısı 531.096 bayt, buffer rent'i
 **2,70 SOL** (v3'teki 2,33 değil), üstüne program alanını genişletme.
 
-### Neden bitmedi
-Validator bu makinede ayakta kalmıyor. Sistemde toplam **3,9 GB RAM** var ve swap
-tamamen dolmuş durumda; `solana-test-validator` gerçekçi olarak 4-8 GB ister.
-Validator bir kez başarıyla çalıştı (deploy + test koşusu yapıldı, yukarıdaki iki hata
-böyle bulundu), sonra slot üretmeyi bıraktı ve süreç kayboldu — OOM. Next.js sunucusunu
-kapatıp 400 MB boşalttım, yetmedi.
+### Validator neden ayakta kalmıyordu — teşhisim yanlıştı
+Önce belleğe (3,9 GB RAM, dolu swap) yordum. Gerçek sebep **süreçlerin tool çağrısı
+bitince toplanması**; ilk koşuda da kendi koyduğum `timeout 180` validator'ı
+öldürüyordu, ben onu "slot üretmeyi bıraktı" diye okumuştum. Kalıcı arka plan
+mekanizmasıyla başlatılınca sorunsuz çalışıyor (~1,3 GB kullanıyor, makinede yer var).
 
-**Çözüm sende:** Windows tarafında `%USERPROFILE%\\.wslconfig` dosyasına
+### Yerel ağa özgü iki ayar
+- **Lookup table beklemesi.** Devnet'te 2 saniye yetiyordu; yerelde tablonun tüm
+  adresleriyle görünür olmasını yoklamak gerekiyor. Test artık iki ortamda da yokluyor.
+- **v0 işlemler provider üzerinden gönderiliyor.** Bu validator'ın RPC'sindeki
+  ileti servisi TPU'ya hiçbir şey göndermiyor (`successfully_sent=0i`), bu yüzden
+  `conn.sendTransaction` ile atılan lookup-table'lı işlem sessizce düşüyordu.
+  `provider.sendAndConfirm` yolu çalışıyor.
 
-```ini
-[wsl2]
-memory=8GB
-swap=4GB
+## Adım 14 — manuel airdrop localnet'te doğrulandı ✅
+
+```
+7 passing (44s)
 ```
 
-yazıp `wsl --shutdown` ile WSL'i yeniden başlatman gerekiyor. Sonrasında
-`./scripts/localnet.sh` tek komutla çalışır ve geliştirme localnet'e taşınır.
+- liste launch anında kilitleniyor: kök zincire yazıldı, ayrılan pay 7.000.000 token
+  (dev payının %50'si), 30 günlük kilit `2026-10-11` olarak kaydedildi
+- 6 cüzdanın her biri kendi payını çekti, toplam **%100** (`claimed_bps=10000`)
+- aynı cüzdanın ikinci claim'i reddedildi
+- listede olmayan bir cüzdanın başkasının satırıyla denemesi ve gerçek bir üyenin
+  yüzdesini büyütmesi reddedildi (ikisi de ispatı bozuyor)
+- **liste yayını:** 6 satır zincire yazıldı, satırlar log'dan geri okunup ağaç
+  yeniden kuruldu ve launch'ta işlenen kökle **tuttu**
+- **müdahale:** kilit içindeyken ve platform dışından çağrıldığında reddedildi
+- **ölü coin:** 7 sessiz günün ardından bayrak açıldı (`dead=true`,
+  `low_volume_days=7`), ardından havuz platform yetkilisince dev cüzdanına
+  taşındı (6.000.000.000.000 token)
+
+Platform yetkilisi dev'den farklı bir anahtar (`5iw2oj8jgetU…` vs
+`4RycArC9Gap3…`) — yani yetki ayrımı gerçekten sınanmış oldu.
+
+## Bundan sonra
+Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak) →
+`cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
+`solana program deploy … --url http://127.0.0.1:8899` →
+`ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npx ts-mocha …`.
+Devnet yalnızca son doğrulama için; oraya çıkarken **v0 derlemesi şart**.
 
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için

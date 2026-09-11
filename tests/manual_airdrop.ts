@@ -46,7 +46,7 @@ function proofFor(layers: Buffer[][], index: number) {
   return proof;
 }
 
-describe("manual airdrop (devnet)", () => {
+describe("manual airdrop (localnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
     commitment: "confirmed", preflightCommitment: "confirmed",
@@ -116,7 +116,15 @@ describe("manual airdrop (devnet)", () => {
         addresses: uniq.slice(i, i + 18),
       })]);
     }
-    await sleep(2000);
+    // A lookup table is only usable once the cluster can see all of its
+    // addresses. On a local validator this lands much sooner than on devnet, but
+    // polling for it is what makes the test work on both.
+    for (let i = 0; i < 60; i++) {
+      const acc = (await conn.getAddressLookupTable(addr)).value;
+      if (acc && acc.state.addresses.length >= uniq.length) break;
+      await sleep(500);
+    }
+    await sleep(1000);
 
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
@@ -129,15 +137,18 @@ describe("manual airdrop (devnet)", () => {
       }).instruction();
 
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
-    const bh = await conn.getLatestBlockhash("finalized");
+    const bh = await conn.getLatestBlockhash("confirmed");
     const msg = new TransactionMessage({
       payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
       instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
     }).compileToV0Message([lutAcc]);
     const tx = new VersionedTransaction(msg);
-    tx.sign([dev, mintKp]);
-    const sig = await conn.sendTransaction(tx, { skipPreflight: false, maxRetries: 5 });
-    await conn.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+    // Go through the provider, the same path the plain transactions above use.
+    // On this local validator the RPC's own send-transaction-service never
+    // forwards anything to the TPU (successfully_sent stays at 0).
+    const sig = await provider.sendAndConfirm(tx, [mintKp], {
+      commitment: "confirmed", skipPreflight: true, maxRetries: 10,
+    });
     sigs.launch = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
