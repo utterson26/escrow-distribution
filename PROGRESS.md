@@ -1,7 +1,7 @@
 # airdrop_escrow — gece çalışması raporu
 
 Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
-Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 3.500902745 SOL)
+Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 1.65634171 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
 ## Sonuç: 6 adımın 6'sı da devnet'te çalışıyor ✅
@@ -70,6 +70,13 @@ havuzun bir kısmı dağıtılmadan kalırdı. Batch'teki herkes zaten dağıtı
 `Ok(())` ile erken dönüyor (hesap yaratmıyor, `allocated`'ı değiştirmiyor).
 Böylece hem aynı batch'in tekrarı, hem de kısmen yeni bir batch doğru davranıyor.
 
+**6. buyback** — izinsiz. Escrow'un rent-exempt tabanının üstündeki SOL'ü pump'tan
+coin almaya çevirip escrow token hesabına ekliyor; alınan token distribute havuzuna
+(`escrow.escrowed`) dahil oluyor. `MIN_BUYBACK_LAMPORTS` (0,01 SOL)
+altındaysa hata vermeden `Ok(())` dönüyor — keeper'ın zamanlanmış çağrıları
+hata yönetmek zorunda kalmasın diye. Eşik argüman değil **program sabiti**: instruction
+izinsiz olduğu için çağıran toz miktarlı alım zorlayıp escrow'un SOL'ünü ücrete yakamamalı.
+
 **4. claim** — holder imzalar, escrow ATA'dan kendi ATA'sına `transfer_checked`,
 allocation `claimed=true`.
 
@@ -105,12 +112,41 @@ allocation `claimed=true`.
    Devnet'te her koşu yeni coin bastığı için sorun değil, ama eski bir escrow'a
    dönmeyi planlıyorsan bunu bil.
 
+### buyback'te iki tasarım kararı
+
+**`buy_exact_quote_in_v2` kullandım, `buy_v2` değil.** İkisi de birebir
+aynı 27 hesabı ve aynı bayrakları alıyor, tek fark argümanlar. `buy_v2` girdi olarak
+token miktarı ister; elimizde SOL olduğu için pump'ın ücret matematiğini programda yeniden
+yazmak gerekirdi ve pump ücretleri değiştirdiğinde sessizce kayardı. `buy_v2`'ye
+geçmek isterseniz tek satırlık değişiklik.
+
+**Escrow PDA alıcı olamıyor.** Pump, alıcının SOL'ünü System transfer ile çekiyor; System
+transfer kaynağın System Program'a ait ve verisiz olmasını şart koşuyor. Escrow PDA veri
+tutuyor ve bu programa ait. Bu yüzden araya verisiz bir `["buyer", mint]` PDA'sı
+koydum: çağıran SOL'ü öne sürüyor, escrow aynı işlemde geri ödüyor.
+
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
 - `collect_fees` sonrası escrow'daki SOL'ü çekecek bir instruction yok.
 - Holder listesi/ağırlıkları zincir dışından geliyor; program doğrulamıyor.
+- **buyback'te `min_tokens_out` çağırana ait.** İzinsiz olduğu için 0 geçen bir
+  çağıran alımı sandviçleyebilir. Üretimde tabanın bonding curve'den zincir üstünde
+  türetilmesi gerekir.
 - Test her koşuda yeni coin basıyor (~0.02 SOL/koşu).
+
+8. **Elle lamport aritmetiği CPI'dan ÖNCE yapılamıyor.** `try_borrow_mut_lamports`
+   ile escrow'dan düşüp buyer'a eklemek — toplamı korumasına rağmen — runtime'ın CPI
+   sınırındaki denge doğrulamasına takılıyor (`sum of account balances ... do not match`).
+   Çözüm: tüm CPI'lardan **sonra** yapmak; orada yalnızca üst seviye kontrol kalıyor ve netleşiyor.
+   Bunu bulmam uzun sürdü, çünkü araya eklediğim debug bloğu testin `tx.sign([dev])`
+   satırını düşürmüştü; araya giren "signature verification" hataları bisect'i geçersiz
+   kıldı ve beni yanlış yöne sürükledi — kendi hatam.
+
+9. **Zincir üstü IDL yazımı patlıyor** (`Failed to initialize IDL`). Program
+   yükseltmesi sorunsuz; sadece IDL hesabı büyüyen IDL'e göre yeniden boyutlanmıyor.
+   Testler yerel `target/idl/airdrop_escrow.json` dosyasını kullandığı için engel
+   değil, ama `anchor idl fetch` şu an eski IDL'i döndürür.
 
 ## Çalıştırma
 ```bash
