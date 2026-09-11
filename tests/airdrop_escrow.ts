@@ -6,6 +6,7 @@ import {
 } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction, getAccount,
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { assert } from "chai";
 import {
@@ -14,10 +15,27 @@ import {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function withRetry<T>(label: string, fn: () => Promise<T>, tries = 5): Promise<T> {
+  let last: any;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch (e: any) {
+      last = e;
+      const m = String(e?.message ?? e);
+      if (!/Blockhash not found|block height exceeded|429|Too Many Requests|timed out/i.test(m)) throw e;
+      console.log(`  retry ${label} (${i + 1}/${tries}): ${m.slice(0, 80)}`);
+      await sleep(2000 * (i + 1));
+    }
+  }
+  throw last;
+}
+
 describe("airdrop_escrow (devnet)", () => {
-  const provider = anchor.AnchorProvider.env();
+  const base = anchor.AnchorProvider.env();
+  const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
+    commitment: "confirmed", preflightCommitment: "confirmed",
+  });
   anchor.setProvider(provider);
-  const program = anchor.workspace.airdropEscrow as Program;
+  const program = anchor.workspace.airdropEscrow as any;
   const conn = provider.connection;
   const dev = (provider.wallet as anchor.Wallet).payer;
 
@@ -26,10 +44,23 @@ describe("airdrop_escrow (devnet)", () => {
   const escrow = escrowPda(mint, program.programId);
   const pa = pumpAccounts(mint, dev.publicKey, escrow);
   const escrowTa = escrowAta(escrow, mint);
+  const baseAta = (owner: PublicKey) =>
+    getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022);
+  const quoteAta = (owner: PublicKey) =>
+    getAssociatedTokenAddressSync(WSOL, owner, true, TOKEN);
 
   const holders = [Keypair.generate(), Keypair.generate(), Keypair.generate()];
   let lut: PublicKey;
   const sigs: Record<string, string> = {};
+
+  /** send a legacy tx built from `ixs`, retrying transient RPC failures */
+  async function send(ixs: any[], signers: Keypair[] = []): Promise<string> {
+    return withRetry("tx", async () => {
+      const bh = await conn.getLatestBlockhash("finalized");
+      const tx = new anchor.web3.Transaction({ ...bh, feePayer: dev.publicKey }).add(...ixs);
+      return await provider.sendAndConfirm(tx, signers, { commitment: "confirmed" });
+    });
+  }
 
   after(() => {
     console.log("\n=== devnet signatures ===");
@@ -48,13 +79,16 @@ describe("airdrop_escrow (devnet)", () => {
       SystemProgram.programId, program.programId,
     ];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
-    const extendIx = AddressLookupTableProgram.extendLookupTable({
-      payer: dev.publicKey, authority: dev.publicKey, lookupTable: addr, addresses: uniq,
-    });
-    const sig = await provider.sendAndConfirm(
-      new anchor.web3.Transaction().add(createIx, extendIx), [], { commitment: "confirmed" });
-    sigs.lut = sig;
-    console.log(`  LUT ${addr.toBase58()} (${uniq.length} addrs) ${sig}`);
+
+    sigs.lut = await send([createIx]);
+    // one extend per chunk: 32 bytes/address does not fit in a single legacy tx
+    for (let i = 0; i < uniq.length; i += 18) {
+      await send([AddressLookupTableProgram.extendLookupTable({
+        payer: dev.publicKey, authority: dev.publicKey,
+        lookupTable: addr, addresses: uniq.slice(i, i + 18),
+      })]);
+    }
+    console.log(`  LUT ${addr.toBase58()} (${uniq.length} addrs) ${sigs.lut}`);
     // a lookup table is only usable one slot after it is extended
     await sleep(2000);
   });
@@ -73,18 +107,21 @@ describe("airdrop_escrow (devnet)", () => {
       .instruction();
 
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
-    const bh = await conn.getLatestBlockhash("confirmed");
-    const msg = new TransactionMessage({
-      payerKey: dev.publicKey,
-      recentBlockhash: bh.blockhash,
-      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
-    }).compileToV0Message([lutAcc]);
-    const tx = new VersionedTransaction(msg);
-    tx.sign([dev, mintKp]);
-    console.log(`  tx size: ${tx.serialize().length} bytes`);
-
-    const sig = await conn.sendTransaction(tx, { skipPreflight: false });
-    await conn.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+    assert.isNotNull(lutAcc, "lookup table must be fetchable");
+    const sig = await withRetry("launch", async () => {
+      const bh = await conn.getLatestBlockhash("finalized");
+      const msg = new TransactionMessage({
+        payerKey: dev.publicKey,
+        recentBlockhash: bh.blockhash,
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
+      }).compileToV0Message([lutAcc]);
+      const tx = new VersionedTransaction(msg);
+      tx.sign([dev, mintKp]);
+      console.log(`  tx size: ${tx.serialize().length} bytes`);
+      const s = await conn.sendTransaction(tx, { skipPreflight: false, maxRetries: 5 });
+      await conn.confirmTransaction({ signature: s, ...bh }, "confirmed");
+      return s;
+    });
     sigs.launch = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
@@ -103,19 +140,19 @@ describe("airdrop_escrow (devnet)", () => {
 
   it("2. collect_fees: escrow PDA sweeps the pump creator vault via CPI", async () => {
     const before = await conn.getBalance(escrow, "confirmed");
-    const sig = await program.methods
+    const sig = await withRetry("collect_fees", () => program.methods
       .collectFees()
       .accountsPartial({
         payer: dev.publicKey, escrow,
-        creatorTokenAccount: pa.associatedCreatorVault,
+        creatorTokenAccount: quoteAta(escrow),
         creatorVault: pa.creatorVault,
-        creatorVaultTokenAccount: pa.associatedCreatorVault,
+        creatorVaultTokenAccount: quoteAta(pa.creatorVault),
         quoteMint: WSOL, quoteTokenProgram: TOKEN,
         associatedTokenProgram: pa.associatedTokenProgram,
         eventAuthority: pa.eventAuthority, pumpProgram: pa.pumpProgram,
         systemProgram: SystemProgram.programId,
       })
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed" }));
     sigs.collectFees = sig;
     const after = await conn.getBalance(escrow, "confirmed");
     const st: any = await program.account.escrow.fetch(escrow);
@@ -133,11 +170,11 @@ describe("airdrop_escrow (devnet)", () => {
       { pubkey: allocPda(escrow, h.publicKey, program.programId), isWritable: true, isSigner: false },
       { pubkey: h.publicKey, isWritable: false, isSigner: false },
     ]);
-    const sig = await program.methods
+    const sig = await withRetry("distribute", () => program.methods
       .distribute(weights)
       .accountsPartial({ dev: dev.publicKey, escrow, systemProgram: SystemProgram.programId })
       .remainingAccounts(remaining)
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed" }));
     sigs.distribute = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
@@ -156,22 +193,20 @@ describe("airdrop_escrow (devnet)", () => {
   it("4. claim: a holder pulls their allocation", async () => {
     const h = holders[0];
     // fund the holder so it can pay its own fees, and open its ATA
-    const fund = new anchor.web3.Transaction().add(
+    await send([
       SystemProgram.transfer({
         fromPubkey: dev.publicKey, toPubkey: h.publicKey, lamports: 0.02 * LAMPORTS_PER_SOL,
       }),
       createAssociatedTokenAccountIdempotentInstruction(
         dev.publicKey,
-        anchor.utils.token.associatedAddress({ mint, owner: h.publicKey } as any),
-        h.publicKey, mint, TOKEN_2022),
-    );
-    await provider.sendAndConfirm(fund, [], { commitment: "confirmed" });
+        baseAta(h.publicKey), h.publicKey, mint, TOKEN_2022),
+    ]);
 
-    const holderTa = anchor.utils.token.associatedAddress({ mint, owner: h.publicKey } as any);
+    const holderTa = baseAta(h.publicKey);
     const alloc = allocPda(escrow, h.publicKey, program.programId);
     const a: any = await program.account.allocation.fetch(alloc);
 
-    const sig = await program.methods
+    const sig = await withRetry("claim", () => program.methods
       .claim()
       .accountsPartial({
         holder: h.publicKey, escrow, allocation: alloc, mint,
@@ -179,7 +214,7 @@ describe("airdrop_escrow (devnet)", () => {
         baseTokenProgram: TOKEN_2022,
       })
       .signers([h])
-      .rpc({ commitment: "confirmed" });
+      .rpc({ commitment: "confirmed" }));
     sigs.claim = sig;
 
     const bal = await getAccount(conn, holderTa, "confirmed", TOKEN_2022);
