@@ -4,7 +4,7 @@ Oturum: https://claude.ai/code/session_01W57hFssDx25ikysWKKjgDs
 Ağ: **yalnızca devnet**. Cüzdan: `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` (kalan: 4.13377459 SOL)
 Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 
-## Sonuç: 8 adımın 8'i de devnet'te çalışıyor ✅
+## Sonuç: 8 adım tamam, 9. adım kısmen doğrulandı 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -16,6 +16,7 @@ Program ID: `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`
 | 6 | buyback — escrow SOL'ünü coin'e çevirir, izinsiz | ✅ |
 | 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
 | 8 | holder listesi doğrulaması — (c) hibrit, deterministik indexer | ✅ |
+| 9 | tetikleyiciler (hacim + kilometre taşı, rastgele gecikme) | 🟡 15/17 |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -219,6 +220,55 @@ deterministik olarak türetiliyor ve snapshot dosyasındaki `excluded`
 alanına yazılıyor, böylece yeniden üretim aynı listeyi kullanır. Bu koşuda dev
 cüzdanı da hazine olduğu için elle dışlandı — o da dosyada görünür.
 
+## Tetikleyiciler (adım 9)
+
+Dağıtım artık elle çağrılmıyor. İki koşul var, ikisi de izinsiz kontrol edilir:
+
+- **Hacim:** son dağıtımdan bu yana hacim, piyasa değerinin %1'ine ulaşırsa
+  havuzun kalanının **%1'i** serbest kalır.
+- **Kilometre taşı:** piyasa değeri son taşın 2 katına çıkarsa havuzun kalanının
+  **%5'i**. Taş yalnızca yukarı gider, geri inmez.
+
+İkisi birden olursa kilometre taşı kazanır (daha çok öder).
+
+**Eşik dolunca hemen dağıtılmaz.** `check_trigger` tetikleyiciyi kurar ve slot
+hash'inden türetilen **0–60 dk** arası rastgele bir slot belirler. `fire_trigger`
+o slottan önce çağrılırsa `TooEarly` ile **reddedilir**; sonra çağrılırsa tutarı
+serbest bırakır. Böylece dağıtım anı önceden bilinemez.
+
+**Tutarı artık dev seçemiyor.** `open_round` yalnızca tetikleyicinin serbest
+bıraktığı kadarını dağıtabilir; fazlasını istemek reddedilir.
+
+### Önemli sınır: kümülatif hacim zincirde yok
+pump, coin başına kümülatif hacim yayınlamıyor. `GlobalVolumeAccumulator`
+30 günlük **global** bir pencere (devnet'te tamamen sıfır), bonding curve'de ise
+hacim alanı yok — rezervler net, satışta geri düşüyor. Bu yüzden hacmi program
+kendisi **örnekleyerek** tutuyor: her `check_trigger` çağrısında rezerv
+hareketinin mutlak değerini topluyor. Sonuç: iki kontrol arasında yapılan
+gidip-gelme işlemleri eksik sayılır. Kontrol izinsiz ve ucuz olduğu için sık
+çağıran biri doğruluğu istediği kadar artırabilir.
+
+### Doğrulanan / doğrulanamayan
+Son tam koşu **15/17**. Devnet'te kanıtlanan:
+- hacim tetikleyicisi kuruldu (`kind=1`), tutar havuzun tam %1'i
+- gecikme dolduktan sonra ateşlendi, tutar `pending`'e geçti
+- `open_round` yetkilendirilenden fazlasını reddetti
+- kilometre taşı kuruldu (`kind=2`), tutar havuzun %5'i, taş
+  2,058 → 4,920 SOL'e çıktı ve **geri gitmedi**
+
+Henüz doğrulanamayan iki şey:
+1. **Erken çağrının reddi.** O koşuda rastgele gecikme çok küçük çıktı, dal hiç
+   çalışmadı (log: *"gecikme 0 çıktı, erken çağrı denenmedi"*). Test penceresini
+   40 → 150 slot'a çıkardım ki erken çağrı güvenilir şekilde erken olsun.
+2. **4c/4d iddiaları.** Temeli launch'ın hemen ardına aldığım için, o testlere
+   gelindiğinde buyback'ler zaten hacim üretmiş oluyordu; tetikleyici beklediğim
+   testte değil bir öncekinde kuruluyordu. İddiaları gerçeğe göre düzelttim.
+   **Program davranışı doğruydu**, hatalı olan testin beklentisiydi.
+
+Bu üçü de kodda düzeltildi ama **yeniden koşturulamadı: devnet cüzdanında SOL
+bitti** (0,875 SOL kaldı, tam koşu ~1,5 SOL istiyor; faucet limitli).
+Cüzdana SOL gelince tek komutla doğrulanır.
+
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
   aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
@@ -231,6 +281,11 @@ cüzdanı da hazine olduğu için elle dışlandı — o da dosyada görünür.
   tutma sürelerinde ölçek küçültmek gerekir.
 - **Kapanmış token hesapları gözden kaçar** — ama zaten tamamen satmış demektir,
   eleneceklerdi.
+- **Gecikme penceresi dev tarafından daraltılabilir** (`set_delay_window`).
+  Dar pencere dağıtım anını yeniden tahmin edilebilir yapar; bu bir test kolaylığı,
+  üretimde varsayılan 9.000 slot (60 dk) kalmalı.
+- **Hacim örnekleme ile tutuluyor** (yukarıdaki sınır) — kontroller arası
+  gidip-gelmeler sayılmaz.
 - **Slippage toleransı sabit (%2), escrow başına ayarlanamıyor.** Çok sığ curve'lerde dar,
   çok derinlerde gereksiz geniş kalabilir.
 - **Taban, alımın gerçekleştiği curve durumundan türüyor.** Aynı blokta önden koşan biri
