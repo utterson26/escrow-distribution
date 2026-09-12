@@ -58,10 +58,10 @@ npm run crank:sim
 (cd web && npm run dev:local)      # http://localhost:3000
 ```
 
-Step 3 launches the coins, sets your wallet as the platform authority via
-`set_platform` (only the upgrade authority may), starts the crank with its own
-freshly funded wallet, trades for five minutes and checks every crank action
-against what the chain says. To claim from the site with your own wallet, add
+Step 3 launches the coins, generates a wallet for the crank and makes it the
+platform authority via `set_platform` (signed by your wallet, the upgrade
+authority), trades for five minutes and checks every crank action against
+what the chain says. To claim from the site with your own wallet, add
 it to the run and it will leave the draws it wins unclaimed:
 
 ```bash

@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 10 adım devnet'te çalışıyor, 2 adım fon bekliyor 🟡
+## Sonuç: 21 adım — 10'u devnet'te, 11–21 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
