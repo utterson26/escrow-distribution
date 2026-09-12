@@ -40,7 +40,8 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 git clone … && cd airdrop-launchpad
 npm install && (cd web && npm install)
 
-# 1. local validator with the pump world (leave it running; ~1 min to clone)
+# 1. local validator with the pump world (leave it running; ~1 min to clone).
+#    Resets the ledger; `RESET=0 ./scripts/localnet.sh` restarts on the old one.
 ./scripts/localnet.sh &
 
 # 2. build for the v0 loader — `anchor build` produces SBPFv3, which neither

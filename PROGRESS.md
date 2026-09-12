@@ -498,6 +498,14 @@ formatıyla geçersiz, onları kullanma):
 claim, snapshot'taki 60M token'ı hâlâ tutmanı şart koşar; önce satarsan
 `HoldingBelowSnapshot` alırsın.
 
+**12 Eylül 17:00 — disk dolunca (ledger 18 GB + 666 MB validator log) makine
+kapandı; validator `RESET=0 ./scripts/localnet.sh` ile eski ledger'dan geri
+kaldırıldı** (bozuk 0 baytlık 22900 snapshot'ı silindi, 22800'den yüklendi).
+Tek doğrulama: `/api/claim` iki coin için de aynı 7 çekilişi veriyor
+(HOT r0d5, r0d7, r1d7; SLOW r0d1, d3, d6, d7), cüzdan 4 SOL. Web
+http://localhost:3000 ayakta. `localnet.sh` artık `--limit-ledger-size 50000000`
+kullanıyor ve `RESET=0` ile mevcut ledger'ı korur.
+
 Validator `--reset` ile yeniden başlatılırsa bunlar silinir; o zaman
 `DEMO_WALLET=2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K npm run crank:sim` ile
 yeniden üret. Phantom ayarı: `crank/README.md` → "Phantom ile localnet".
@@ -611,7 +619,8 @@ Web'i localnet'e bağlamak: `cd web && npm run dev:local` → http://localhost:3
 Config/set_platform, draw_slot, leaf'te balance) henüz devnet'te yok;
 `cargo-build-sbf --arch v0` + deploy + `anchor idl build` + `set_platform` şart.
 Kurulum sıfırdan: `README.md`.
-Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak) →
+Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak; ledger
+50M shred ile sınırlı, `RESET=0` mevcut ledger'ı korur) →
 `cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
 `solana program deploy … --url http://127.0.0.1:8899` →
 `ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npx ts-mocha …`.

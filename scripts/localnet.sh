@@ -8,6 +8,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEDGER="${LEDGER:-$HERE/.localnet}"
+# RESET=0 keeps the existing ledger (pending rounds/claims survive a restart)
+RESET="${RESET:-1}"
 # Helius if configured, plain devnet otherwise — cloning hits a lot of accounts
 [ -f "$HOME/.airdrop-launchpad.env" ] && . "$HOME/.airdrop-launchpad.env"
 SRC="${CLONE_URL:-${HELIUS_RPC_URL:-https://api.devnet.solana.com}}"
@@ -31,8 +33,9 @@ ACCOUNTS=(
   HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i  # buyback recipient wSOL
 )
 
-args=(--ledger "$LEDGER" --url "$SRC" --reset --quiet
-      --limit-ledger-size 100000000)
+# 50M shreds ≈ a few GB; the default (200M) filled an 18 GB disk in three hours
+args=(--ledger "$LEDGER" --url "$SRC" --quiet --limit-ledger-size 50000000)
+[ "$RESET" = 1 ] && args+=(--reset)
 for p in "${PROGRAMS[@]}"; do args+=(--clone-upgradeable-program "$p"); done
 for a in "${ACCOUNTS[@]}"; do args+=(--clone "$a"); done
 
