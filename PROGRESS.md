@@ -506,6 +506,21 @@ Tek doğrulama: `/api/claim` iki coin için de aynı 7 çekilişi veriyor
 http://localhost:3000 ayakta. `localnet.sh` artık `--limit-ledger-size 50000000`
 kullanıyor ve `RESET=0` ile mevcut ledger'ı korur.
 
+### HOT'un 3 çekilişi Phantom'la claim edildi ✅ (12 Eylül 13:29–13:32 UTC)
+
+Üçü de `2xfs…q36K` imzalı, `ClaimPrize → TransferChecked`, hata yok, 80.000 lamport ücret:
+
+| Çekiliş | Slot | İmza | Token |
+|---|---|---|---|
+| round 0 draw 5 | 24259 | `2kwXG5RHaVZ4kNm4KGE92jp2n8HRjLSehoBn5a5yp6pMLKPgLKHLKQAoroVgozgWsMQvD8SKkFpGoeCtU5B2T48n` | +116.247.042.419 |
+| round 0 draw 7 | 24360 | `1PefWuz3QAJKhjaE7AMyHm7kScP6MPW6aTSNntbaQEbhixZdpjrEhrSbW2L4c7tQe17Y8apPgz6Ep9h1BFmHTSs` | +116.247.042.419 |
+| round 1 draw 7 | 24407 | `2kngYVcGdbXZBK2zpXeu39ZCdxqpvWazEJzUwAyprJCkmUkhNwZwwWYuSGVRz41Tckh9nsMyiFizTgNxn9FR1ZNA` | +602.815.006.333 |
+
+HOT bakiyesi 60.000.000.000.000 → 60.835.309.091.171 (toplam +835.309.091.171 =
+üç ödülün tamı). Escrow `claimed` = `allocated` = 5.752.496.390.016, yani HOT'ta
+dağıtılan her şey alındı. `/api/claim` HOT için artık boş, SLOW'un 4 çekilişi
+(round 0 draw 1, 3, 6, 7) hâlâ bekliyor.
+
 Validator `--reset` ile yeniden başlatılırsa bunlar silinir; o zaman
 `DEMO_WALLET=2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K npm run crank:sim` ile
 yeniden üret. Phantom ayarı: `crank/README.md` → "Phantom ile localnet".
