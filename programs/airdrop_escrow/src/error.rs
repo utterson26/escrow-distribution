@@ -68,6 +68,14 @@ pub enum EscrowError {
     NotPublisher,
     #[msg("snapshot slot is in the future")]
     SnapshotInFuture,
+    #[msg("only the program upgrade authority may set the platform")]
+    NotUpgradeAuthority,
+    #[msg("the draw slot fell out of the SlotHashes window; re-targeted, call draw again")]
+    DrawRetargeted,
+    #[msg("holder no longer holds the balance the snapshot credited them for")]
+    HoldingBelowSnapshot,
+    #[msg("bonding curve reserves are zero")]
+    EmptyCurve,
     #[msg("arithmetic overflow")]
     Overflow,
     #[msg("bonding curve is complete; the coin has migrated")]

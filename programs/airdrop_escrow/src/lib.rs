@@ -19,6 +19,17 @@ declare_program!(pump);
 pub mod airdrop_escrow {
     use super::*;
 
+    /// Set the platform authority. Only the program's upgrade authority may do
+    /// this, so a launcher cannot name themselves platform: the platform is the
+    /// key that opens rounds, intervenes on stuck tokens and turns the test knobs.
+    pub fn set_platform(ctx: Context<SetPlatform>, platform: Pubkey) -> Result<()> {
+        require_keys_neq!(platform, Pubkey::default(), EscrowError::NotPlatform);
+        let config = &mut ctx.accounts.config;
+        config.platform = platform;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
     /// Atomically create a pump coin whose `creator` is this program's escrow PDA,
     /// buy `amount` base tokens with the dev's SOL, and split the proceeds:
     /// `escrow_bps` to the escrow token account, the remainder stays with the dev.
@@ -32,7 +43,6 @@ pub mod airdrop_escrow {
         max_sol_cost: u64,
         manual_root: [u8; 32],
         manual_bps: u16,
-        platform: Pubkey,
     ) -> Result<()> {
         require!(manual_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
         require!(escrow_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
@@ -163,7 +173,8 @@ pub mod airdrop_escrow {
             .saturating_add(MANUAL_LOCK_SECONDS);
         escrow.manual_locked = true;
         escrow.manual_published = 0;
-        escrow.platform = platform;
+        // not the launcher's to choose
+        escrow.platform = ctx.accounts.config.platform;
         escrow.day_start_ts = 0;
         escrow.day_start_volume = 0;
         escrow.low_volume_days = 0;
@@ -341,7 +352,9 @@ pub mod airdrop_escrow {
     }
 
     /// Length of a volume day. Only a test knob: shortening it makes the dead
-    /// coin flag trip in seconds instead of a week.
+    /// coin flag trip in seconds instead of a week. Platform-only: in the dev's
+    /// hands it would let them flag their own coin dead in seconds and ask for
+    /// the pool back.
     pub fn set_day_window(ctx: Context<SetDelayWindow>, seconds: i64) -> Result<()> {
         require!(
             seconds >= MIN_DAY_SECONDS && seconds <= DEFAULT_DAY_SECONDS,
@@ -457,7 +470,7 @@ pub mod airdrop_escrow {
 
     /// Narrow or widen the random firing window. A small window makes the
     /// distribution moment predictable, so this is really a test knob;
-    /// production should stay at `DEFAULT_MAX_DELAY_SLOTS`.
+    /// production should stay at `DEFAULT_MAX_DELAY_SLOTS`. Platform-only.
     pub fn set_delay_window(ctx: Context<SetDelayWindow>, slots: u64) -> Result<()> {
         require!(
             slots >= MIN_MAX_DELAY_SLOTS && slots <= DEFAULT_MAX_DELAY_SLOTS,
@@ -473,6 +486,7 @@ pub mod airdrop_escrow {
     /// it on a loop.
     pub fn check_trigger(ctx: Context<CheckTrigger>) -> Result<()> {
         let curve = &ctx.accounts.bonding_curve;
+        require!(curve.virtual_token_reserves > 0, EscrowError::EmptyCurve);
         let quote = curve.virtual_quote_reserves;
         let mcap = (curve.token_total_supply as u128)
             .checked_mul(quote as u128)
@@ -607,6 +621,7 @@ pub mod airdrop_escrow {
 
         if escrow.armed_kind == TRIGGER_MILESTONE {
             let curve = &ctx.accounts.bonding_curve;
+            require!(curve.virtual_token_reserves > 0, EscrowError::EmptyCurve);
             let mcap = (curve.token_total_supply as u128)
                 .checked_mul(curve.virtual_quote_reserves as u128)
                 .ok_or(EscrowError::Overflow)?
@@ -689,6 +704,7 @@ pub mod airdrop_escrow {
         round.claimed_count = 0;
         round.bump = ctx.bumps.round;
         round.snapshot_slot = snapshot_slot;
+        round.draw_slot = now_slot.saturating_add(DRAW_DELAY_SLOTS);
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.allocated = escrow
@@ -713,28 +729,58 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
-    /// Draw the randomness for a round. Permissionless, and only valid at least
-    /// `DRAW_DELAY_SLOTS` after the root was committed.
+    /// Draw the randomness for a round. Permissionless. The seed is the hash of
+    /// the slot fixed at commit time (`draw_slot`), looked up in the SlotHashes
+    /// sysvar — not "the most recent slot", which would let whoever calls this
+    /// wait for a hash they like. If nobody drew for ~512 slots and the hash has
+    /// fallen out of the sysvar, the round is re-targeted to a fresh future slot
+    /// and the call must be repeated.
     pub fn draw(ctx: Context<Draw>) -> Result<()> {
         let round = &mut ctx.accounts.round;
         require!(!round.drawn, EscrowError::AlreadyDrawn);
         let now = Clock::get()?.slot;
-        require!(
-            now >= round.commit_slot.saturating_add(DRAW_DELAY_SLOTS),
-            EscrowError::DrawTooEarly
-        );
+        require!(now > round.draw_slot, EscrowError::DrawTooEarly);
 
-        // The SlotHashes sysvar is far too big to deserialize; read the newest
-        // entry straight out of its buffer: u64 count, then (slot, hash) pairs.
+        // SlotHashes: u64 count, then (slot u64, hash [u8;32]) pairs, newest first.
         let data = ctx.accounts.slot_hashes.try_borrow_data()?;
         require!(data.len() >= 8 + 40, EscrowError::NoSlotHash);
-        let mut recent = [0u8; 32];
-        recent.copy_from_slice(&data[16..48]);
-        let recent_slot = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        let count = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+        require!(data.len() >= 8 + count * 40, EscrowError::NoSlotHash);
+
+        // The first slot at or after draw_slot that actually produced a block:
+        // walk from newest to oldest and keep the last entry still >= draw_slot.
+        let mut pick: Option<usize> = None;
+        let mut older_exists = false;
+        for i in 0..count {
+            let off = 8 + i * 40;
+            let slot = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
+            if slot >= round.draw_slot {
+                pick = Some(i);
+            } else {
+                older_exists = true;
+                break;
+            }
+        }
+        let Some(i) = pick else {
+            // draw_slot itself was skipped and nothing after it has landed yet
+            return err!(EscrowError::DrawTooEarly);
+        };
+        let off = 8 + i * 40;
+        let seed_slot = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
+        // Only deterministic if we can see that nothing between draw_slot and
+        // the pick has scrolled out of the window.
+        if seed_slot != round.draw_slot && !older_exists {
+            round.draw_slot = now.saturating_add(DRAW_DELAY_SLOTS);
+            emit!(RoundRetargeted { escrow: round.escrow, index: round.index,
+                                    draw_slot: round.draw_slot });
+            return err!(EscrowError::DrawRetargeted);
+        }
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&data[off + 8..off + 40]);
 
         round.seed = hashv(&[
-            &recent,
-            &recent_slot.to_le_bytes(),
+            &hash,
+            &seed_slot.to_le_bytes(),
             round.key().as_ref(),
             &round.root,
         ])
@@ -745,7 +791,7 @@ pub mod airdrop_escrow {
             escrow: round.escrow,
             index: round.index,
             seed: round.seed,
-            slot: recent_slot,
+            slot: seed_slot,
         });
         Ok(())
     }
@@ -758,6 +804,7 @@ pub mod airdrop_escrow {
         ctx: Context<ClaimPrize>,
         draw_index: u16,
         leaf_index: u32,
+        balance: u64,
         weight: u64,
         cum_start: u128,
         proof: Vec<[u8; 32]>,
@@ -787,12 +834,14 @@ pub mod airdrop_escrow {
             EscrowError::TicketOutOfRange
         );
 
-        // The leaf binds holder, weight and position on that line together.
+        // The leaf binds holder, snapshot balance, weight and position on that
+        // line together.
         let holder = ctx.accounts.holder.key();
         let mut node = hashv(&[
             b"leaf",
             &leaf_index.to_le_bytes(),
             holder.as_ref(),
+            &balance.to_le_bytes(),
             &weight.to_le_bytes(),
             &cum_start.to_le_bytes(),
         ])
@@ -808,10 +857,19 @@ pub mod airdrop_escrow {
 
         // Independent of the snapshot: is this holder still in, right now, and
         // big enough? The publisher cannot fake either of these.
-        let balance = ctx.accounts.holder_token_account.amount;
-        require!(balance > 0, EscrowError::PositionTooSmall);
+        let held_now = ctx.accounts.holder_token_account.amount;
+        require!(held_now > 0, EscrowError::PositionTooSmall);
+        // ...and did they keep what the snapshot credited them for? Weight is
+        // balance × time, so a position sold right after the snapshot would
+        // otherwise still collect.
+        let must_hold = (balance as u128)
+            .checked_mul(CLAIM_HOLD_BPS as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        require!(held_now as u128 >= must_hold, EscrowError::HoldingBelowSnapshot);
         let curve = &ctx.accounts.bonding_curve;
-        let value = (balance as u128)
+        require!(curve.virtual_token_reserves > 0, EscrowError::EmptyCurve);
+        let value = (held_now as u128)
             .checked_mul(curve.virtual_quote_reserves as u128)
             .ok_or(EscrowError::Overflow)?
             / (curve.virtual_token_reserves as u128);
@@ -1312,6 +1370,12 @@ pub struct RoundOpened {
     pub snapshot_slot: u64,
 }
 #[event]
+pub struct RoundRetargeted {
+    pub escrow: Pubkey,
+    pub index: u32,
+    pub draw_slot: u64,
+}
+#[event]
 pub struct RoundDrawn {
     pub escrow: Pubkey,
     pub index: u32,
@@ -1370,6 +1434,9 @@ pub struct Launch<'info> {
         bump
     )]
     pub escrow: Box<Account<'info, Escrow>>,
+    /// Program-wide platform authority, copied onto the escrow.
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
     /// Escrow's ATA for the coin; opened in-handler once the mint exists.
     /// CHECK: address checked by the ATA program
     #[account(mut)]
@@ -1602,16 +1669,40 @@ pub struct ClaimManual<'info> {
     pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
 }
 
+/// Test knobs. Signed by the platform, never the dev.
 #[derive(Accounts)]
 pub struct SetDelayWindow<'info> {
-    pub dev: Signer<'info>,
+    pub platform: Signer<'info>,
     #[account(
         mut,
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump,
-        constraint = escrow.dev == dev.key() @ EscrowError::NotDev
+        constraint = escrow.platform == platform.key() @ EscrowError::NotPlatform
     )]
     pub escrow: Box<Account<'info, Escrow>>,
+}
+
+#[derive(Accounts)]
+pub struct SetPlatform<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + Config::INIT_SPACE,
+        seeds = [CONFIG_SEED],
+        bump
+    )]
+    pub config: Account<'info, Config>,
+    /// This program; its ProgramData account names the upgrade authority.
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()))]
+    pub program: Program<'info, crate::program::AirdropEscrow>,
+    #[account(
+        constraint = program_data.upgrade_authority_address == Some(authority.key())
+            @ EscrowError::NotUpgradeAuthority
+    )]
+    pub program_data: Account<'info, ProgramData>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Anyone may check; the escrow is the only thing written.

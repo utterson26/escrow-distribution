@@ -33,7 +33,7 @@ async function snapshotForRound(mint: string, r: Round): Promise<Snapshot | null
 
 export interface Claimable {
   roundIndex: number; drawIndex: number; leafIndex: number;
-  weight: string; cumStart: string; proof: string[]; prize: string;
+  balance: string; weight: string; cumStart: string; proof: string[]; prize: string;
 }
 export interface ClaimReport {
   rounds: number;
@@ -72,7 +72,7 @@ export async function claimableFor(mint: string, escrowAddr: string, wallet: str
       if (!leaf || leaf.holder !== wallet) continue;
       out.push({
         roundIndex: r.index, drawIndex: k, leafIndex: leaf.index,
-        weight: leaf.weight, cumStart: leaf.cumStart,
+        balance: leaf.balance, weight: leaf.weight, cumStart: leaf.cumStart,
         proof: proofFor(layers, leaf.index).map((b) => b.toString("hex")),
         prize: r.prize.toString(),
       });

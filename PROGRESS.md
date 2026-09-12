@@ -44,6 +44,9 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 16 | crank uçtan uca: fire → snapshot → open_round → draw → claim — localnet 5 dk | ✅ 12/12 |
 | 17 | web localnet'te, Phantom ile claim | ✅ çalışıyor |
 | 18 | web: coin adı/sembolü, "how it works", ağ rozeti | ✅ |
+| 19 | Switchboard on-demand localnet'te | ❌ oracle gerektiriyor, slot hash kaldı (not aşağıda) |
+| 20 | güvenlik öz-denetimi: 5 bulgu düzeltildi + 4 regresyon testi | ✅ `SECURITY_REVIEW.md` |
+| 21 | README (10 dakikada localnet) | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -482,12 +485,18 @@ ama pump hesap eklerse ALT gerekir.
 ## Seni bekleyen claim (Phantom, localnet)
 
 Cüzdan `2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K` — localnet'te 2 SOL ve her
-coin'den 60M token var; 5 çekiliş claim edilmeden bırakıldı:
+coin'den 60M token var; **7 çekiliş** claim edilmeden bırakıldı (güvenlik
+düzeltmelerinden sonraki koşu, 08:05 UTC; eski koşunun round'ları yeni leaf
+formatıyla geçersiz, onları kullanma):
 
 | Coin | Sayfa | Çekilişler | Ödül |
 |---|---|---|---|
-| **Crank Hot (HOT)** `2pL4…T3ea` | http://localhost:3000/coin/2pL4vX5HN4d3vEwp5ok8jxSCLX9SwpFqy9ebyozmT3ea | round 0 draw 5, round 1 draw 5 | 116,2B + 602,8B token |
-| **Crank Slow (SLOW)** `Wpmx…HaaX` | http://localhost:3000/coin/WpmxALKWy5N4h72YuCMN14F6aSRA5LBA3iv291iHaaX | round 0 draw 0, 5, 6 | 3 × 112,5B token |
+| **Crank Hot (HOT)** `FG2F…B3pb` | http://localhost:3000/coin/FG2FGH2yQbXMwGhyyfb7uKotQiJvD7YMRgagFtnCB3pb | round 0 draw 5, 7; round 1 draw 7 | 2 × 116,2B + 602,8B token |
+| **Crank Slow (SLOW)** `LXEG…DPsq` | http://localhost:3000/coin/LXEGQSXWEirUBVukL2thfqf8RkV2UGi2VNGNDoYDPsq | round 0 draw 1, 3, 6, 7 | 4 × 112,5B token |
+
+`/api/claim` ikisini de görüyor (`reproducible 2/2`, `1/1`). **Dikkat (F4):**
+claim, snapshot'taki 60M token'ı hâlâ tutmanı şart koşar; önce satarsan
+`HoldingBelowSnapshot` alırsın.
 
 Validator `--reset` ile yeniden başlatılırsa bunlar silinir; o zaman
 `DEMO_WALLET=2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K npm run crank:sim` ile
@@ -559,11 +568,49 @@ kazandığı çekilişleri ispatlar → claim_prize öder. Arada insan yok.
   edilmeden bırakılır; web'de Phantom'la claim edilir. Phantom ayarı:
   `crank/README.md` → "Phantom ile localnet".
 
+## Adım 19 — Switchboard localnet'te: yapılamadı, slot hash kaldı ❌
+
+Denendi, 30 dk sınırında bırakıldı. Sebep yapısal: Switchboard on-demand'da
+`reveal`'i **oracle** yapar — commit'teki `seed_slot`'un slot hash'ini kendi
+izlediği zincirden okur, imzalar; Switchboard programı bu hash'i zincirdeki
+SlotHashes sysvar'ıyla karşılaştırır. Yerel validator'ı izleyen bir oracle
+yok, dolayısıyla reveal asla gelmez (crate `switchboard-on-demand 0.13.0`,
+`RandomnessAccountData::get_value` ayrıca `reveal_slot == clock.slot` ister,
+yani reveal ile `draw` aynı işlemde olmalı). "Localnet'te kendi altyapısını
+kurar" denen `solana-randomness-service` eski SGX servisi, on-demand değil.
+Dokümanda localnet yok, yalnızca devnet.
+
+Devnet'e geçince yol: `Randomness.create` (rent) → `commitIx` ile `open_round`
+aynı tx'te → crank oracle'dan `revealIx` alıp `draw` ile aynı tx'te gönderir;
+program `seed_slot ≥ round.draw_slot` ve `get_value(clock.slot)` kontrol eder.
+Bu arada F3 (aşağıda) slot hash'in kullanıcı tarafından grind edilmesini
+kapattı; kalan tek etki `draw_slot`'un lideri.
+
+## Adım 20 — güvenlik öz-denetimi ✅ (`SECURITY_REVIEW.md`)
+
+Program baştan sona okundu. Düzeltilen bulgular (her biri `tests/security.ts`'de
+regresyon testiyle, 4/4; `manual_airdrop.ts` 7/7 yeniden koştu):
+
+| # | Önem | Bulgu | Düzeltme |
+|---|---|---|---|
+| F1 | YÜKSEK | `platform` yetkilisini **launch eden seçiyordu** → dev kendini platform yapıp müdahale edebilirdi | `Config` PDA; yalnızca **program upgrade authority** `set_platform` ile yazar; launch kopyalar, argüman kalktı |
+| F2 | YÜKSEK | `set_day_window`/`set_delay_window` dev'deydi → 2 sn'lik günle 14 saniyede "ölü coin", F1 ile birleşince havuz dev'e | iki knob da **platform-only** |
+| F3 | ORTA | `draw` "en son slot hash"i kullanıyordu → herkes uygun slotu bekleyip çağırarak seed'i seçebilirdi | `draw_slot = commit + 2` commit'te sabitlenir; seed o slotun hash'i, ne zaman çağrıldığı fark etmez; pencere kaçarsa yeniden hedefleme |
+| F4 | ORTA | snapshot sonrası dump: claim yalnızca "hâlâ ≥0,05 SOL" istiyordu | leaf'e `balance` girdi; claim `held_now ≥ balance × CLAIM_HOLD_BPS/10000` (şu an %100) — **politika sabiti, sen karar ver** |
+| F5 | DÜŞÜK | curve rezervine bölme | `EmptyCurve` guard |
+
+Program localnet'e deploy edildi; **devnet'te yok**. Leaf formatı ve `Round`
+düzeni değiştiği için eski round'lar/snapshot'lar geçersiz (devnet'te sıfırdan
+koşulacak). Doğrulama koşusu: `DEMO_WALLET` ile tek sim, 12/12, 17/24 claim +
+7 çekiliş Phantom'a bırakıldı.
+
 ## Bundan sonra
 Crank simülasyonu tek komut: `npm run crank:sim` (validator yoksa başlatır, deploy eder).
 Web'i localnet'e bağlamak: `cd web && npm run dev:local` → http://localhost:3000.
-**Devnet'e çıkarken:** adım 16'daki iki program değişikliği (publisher, snapshot_slot)
-henüz devnet'te yok; `cargo-build-sbf --arch v0` + deploy + `anchor idl build` şart.
+**Devnet'e çıkarken:** adım 16 ve 20'deki program değişiklikleri (publisher, snapshot_slot,
+Config/set_platform, draw_slot, leaf'te balance) henüz devnet'te yok;
+`cargo-build-sbf --arch v0` + deploy + `anchor idl build` + `set_platform` şart.
+Kurulum sıfırdan: `README.md`.
 Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak) →
 `cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
 `solana program deploy … --url http://127.0.0.1:8899` →
@@ -629,20 +676,27 @@ Devnet yalnızca son doğrulama için; oraya çıkarken **v0 derlemesi şart**.
 
 Aşağıdakiler kapandı; yeniden açılmayacak.
 
-1. **Devnet SOL** bugün geliyor. Devnet doğrulaması (adım 11 deploy + tam koşu)
-   fon gelince yapılacak; sıraya alındı, tıkanma değil. Deploy'da **v0 derlemesi
-   şart** (`cargo-build-sbf --arch v0`).
+1. **Devnet SOL** bugün geliyor. Devnet doğrulaması fon gelince; sıraya alındı.
+   Deploy'da **v0 derlemesi şart** (`cargo-build-sbf --arch v0`).
 2. **Manuel liste Merkle kökü olarak işleniyor — onaylı.** Liste
-   `publish_manual_list` ile zincirde yayınlanıyor (log'dan geri okunup kök
-   doğrulanabiliyor); bu yeterli, listenin kendisi hesapta durmayacak.
-3. **30 gün sonrası müdahale:** yalnızca **platform yetkilisi** çağırabilir,
-   yalnızca **iki hedef** var — dev cüzdanı veya otomatik airdrop havuzu.
-   Mevcut `intervene` (source: manuel/ölü havuz, target: dev/havuz) tam bu;
-   başka hak eklenmeyecek.
-4. **Buyback sınırı %0,5/çağrı üretimde kalır.** Yavaşlık kabul edildi; sandviç
-   caydırıcılığı öncelikli.
-5. **Switchboard beklemede.** Uyumluluk doğrulandı, entegrasyon yapılmayacak;
-   slot hash şimdilik kalıyor.
+   `publish_manual_list` ile zincirde yayınlanıyor; yeterli.
+3. **30 gün sonrası müdahale:** yalnızca **platform yetkilisi**, yalnızca
+   **iki hedef** (dev cüzdanı / otomatik havuz). `intervene` tam bu.
+4. **Buyback sınırı %0,5/çağrı üretimde kalır.**
+5. **Switchboard beklemede** (localnet'te mümkün değil — adım 19).
+
+## Senden karar bekleyenler (yeni)
+
+1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**
+   Güvenlik denetiminde ekledim: snapshot'tan sonra satan ödül alamıyor. Ürün
+   olarak istediğin bu mu? Seçenekler: %100 (şimdiki), %50 gibi bir eşik, ya da
+   0 (eski davranış: sadece ≥0,05 SOL). Tek sabit, `constants.rs`.
+2. **Platform anahtarı kim?** Artık program config'inde ve yalnızca upgrade
+   authority yazabiliyor. Devnet'e çıkarken `set_platform` ile gerçek platform
+   anahtarını (ideali multisig) belirlemen gerekecek; şu an localnet'te crank'in
+   geçici anahtarı.
+3. **Upgrade authority'yi multisig'e taşıma** (mainnet öncesi). Config'i de
+   koruyor artık.
 
 ## Web sitesi — durum
 

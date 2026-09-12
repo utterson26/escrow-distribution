@@ -108,6 +108,7 @@ export interface Round {
   claimedBits: Buffer; claimedCount: number;
   /** slot the snapshot was taken at; absent on rounds from before it was recorded */
   snapshotSlot?: bigint;
+  drawSlot?: bigint;
 }
 export function decodeRound(address: string, data: Buffer): Round {
   const r = new R(data);
@@ -119,6 +120,7 @@ export function decodeRound(address: string, data: Buffer): Round {
   };
   r.u8(); // bump
   if (r.left() >= 8) round.snapshotSlot = r.u64();
+  if (r.left() >= 8) round.drawSlot = r.u64();
   return round;
 }
 

@@ -96,6 +96,17 @@ async function main() {
       { commitment: "confirmed", skipPreflight: true, maxRetries: 5 });
   }
 
+  // The platform authority lives in the program config and only the upgrade
+  // authority (the dev wallet here — it deployed the program) may set it.
+  const configPda = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId)[0];
+  const programData = PublicKey.findProgramAddressSync(
+    [program.programId.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0];
+  await program.methods.setPlatform(crankKp.publicKey).accountsPartial({
+    authority: dev.publicKey, config: configPda, program: program.programId, programData,
+    systemProgram: SystemProgram.programId,
+  }).rpc({ commitment: "confirmed" });
+  note("-", "platform set", `config.platform = crank ${crankKp.publicKey.toBase58()}`);
+
   /** create_v2 + buy_v2 through our program, the way tests do it (needs a LUT). */
   async function launch(name: string, symbol: string, amountTokens: number) {
     const mintKp = Keypair.generate();
@@ -111,7 +122,7 @@ async function main() {
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint, dev.publicKey,
-                  manualPda, manualAta, SystemProgram.programId, program.programId];
+                  manualPda, manualAta, configPda, SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
     await send([createIx]);
     for (let i = 0; i < uniq.length; i += 18) {
@@ -130,9 +141,9 @@ async function main() {
     const ix = await program.methods
       .launch(name, symbol, `https://example.com/${symbol.toLowerCase()}.json`,
               3000, new BN(amountTokens).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL),
-              [...Buffer.alloc(32)], 0, crankKp.publicKey)   // platform = the crank
+              [...Buffer.alloc(32)], 0)
       .accountsPartial({
-        dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
+        dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
@@ -147,7 +158,7 @@ async function main() {
       commitment: "confirmed", skipPreflight: true, maxRetries: 10,
     });
     await program.methods.setDelayWindow(new BN(DELAY_WINDOW))
-      .accountsPartial({ dev: dev.publicKey, escrow }).rpc({ commitment: "confirmed" });
+      .accountsPartial({ platform: crankKp.publicKey, escrow }).signers([crankKp]).rpc({ commitment: "confirmed" });
     note(symbol, "launch", `mint=${mint.toBase58()} escrow=${escrow.toBase58()} sig=${sig}`);
     return { symbol, mint, escrow, pa };
   }
@@ -311,7 +322,7 @@ async function main() {
         try {
           const before = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
           const sig = await program.methods
-            .claimPrize(k, leaf.index, new BN(leaf.weight), new BN(leaf.cumStart),
+            .claimPrize(k, leaf.index, new BN(leaf.balance), new BN(leaf.weight), new BN(leaf.cumStart),
                         proofFor(layers, leaf.index).map((b) => [...b]))
             .accountsPartial({
               holder: winner.publicKey, escrow: c.escrow, round: roundAddr, mint: c.mint,
@@ -395,7 +406,7 @@ async function main() {
   const report = [
     `# Crank simülasyonu — ${new Date(t0).toISOString()}`, "",
     `Localnet, ${SIM_MINUTES} dk, crank aralığı ${CRANK_INTERVAL_MS / 1000} sn, gecikme penceresi ${DELAY_WINDOW} slot.`,
-    `Crank cüzdanı \`${crankKp.publicKey.toBase58()}\` (dev değil; launch'ta platform yetkilisi olarak yazıldı), trader \`${trader.publicKey.toBase58()}\`, sabit holder'lar ${holders.map((h) => "`" + h.publicKey.toBase58() + "`").join(", ")}.`, "",
+    `Crank cüzdanı \`${crankKp.publicKey.toBase58()}\` (dev değil; program config'inde platform yetkilisi), trader \`${trader.publicKey.toBase58()}\`, sabit holder'lar ${holders.map((h) => "`" + h.publicKey.toBase58() + "`").join(", ")}.`, "",
     ...coins.map((c) => `- ${c.symbol}: mint \`${c.mint.toBase58()}\`, escrow \`${c.escrow.toBase58()}\``), "",
     `## Sonuç: ${allOk ? "✅ hepsi geçti" : "❌ eksik var"}`, "",
     "| Kontrol | Durum | Detay |", "|---|---|---|",

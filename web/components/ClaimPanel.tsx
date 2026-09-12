@@ -50,7 +50,7 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
       const proof = c.proof.map((h: string) => Buffer.from(h, "hex"));
       const data = Buffer.concat([
         CLAIM_PRIZE, u16(c.drawIndex), u32(c.leafIndex),
-        u64(BigInt(c.weight)), u128(BigInt(c.cumStart)),
+        u64(BigInt(c.balance)), u64(BigInt(c.weight)), u128(BigInt(c.cumStart)),
         u32(proof.length), ...proof,
       ]);
       const ro = (pubkey: PublicKey) => ({ pubkey, isWritable: false, isSigner: false });

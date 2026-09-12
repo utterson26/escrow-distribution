@@ -8,6 +8,8 @@ pub const ROUND_SEED: &[u8] = b"round";
 pub const BUYER_SEED: &[u8] = b"buyer";
 #[constant]
 pub const MANUAL_SEED: &[u8] = b"manual";
+#[constant]
+pub const CONFIG_SEED: &[u8] = b"config";
 
 /// SlotHashes sysvar. Not re-exported by anchor-lang 1.2, so pinned by address.
 pub const SLOT_HASHES: Pubkey = pubkey!("SysvarS1otHashes111111111111111111111111111");
@@ -71,6 +73,14 @@ pub const TRIGGER_MILESTONE: u8 = 2;
 
 /// Winners per round; bounded by the 256-bit claim bitmap on `Round`.
 pub const MAX_WINNERS: u16 = 256;
-/// A round may only be drawn at least this many slots after its root was
-/// committed, so the publisher cannot know the randomness in advance.
-pub const DRAW_DELAY_SLOTS: u64 = 1;
+/// The randomness of a round is the hash of the slot this many slots after the
+/// commit. Two rather than one: the hash of slot N is only in the sysvar from
+/// slot N+1, and a one-slot gap makes the first eligible call land reliably.
+pub const DRAW_DELAY_SLOTS: u64 = 2;
+/// SlotHashes keeps this many recent slots. A round whose draw slot has fallen
+/// out of the window is re-targeted instead of stuck.
+pub const SLOT_HASHES_WINDOW: u64 = 512;
+/// A winner must still hold at least this share of their snapshot balance when
+/// claiming. 10000 = the whole position; a holder who dumped after the
+/// snapshot forfeits the prize. Lower it to soften the rule, 0 disables it.
+pub const CLAIM_HOLD_BPS: u64 = 10_000;

@@ -149,17 +149,29 @@ async function main() {
     }));
   }
 
-  /** `draw` for a round: waits out the one-slot delay after its commit. */
-  async function drawRound(tick: number, coin: string, round: PublicKey, commitSlot: number, index: number) {
-    for (let i = 0; i < 30 && (await conn.getSlot("confirmed")) <= commitSlot; i++) await sleep(400);
-    try {
-      const ix = await program.methods.draw().accountsPartial({ round, slotHashes: SLOT_HASHES }).instruction();
-      const { sig, slot } = await send([ix]);
-      const r: any = await program.account.round.fetch(round, "confirmed");
-      log({ tick, coin, action: "draw", result: "ok", round: index, tx_slot: slot,
-            seed: Buffer.from(r.seed).toString("hex").slice(0, 16) + "…", sig });
-    } catch (e) {
-      log({ tick, coin, action: "draw", result: "error", round: index, error: errName(e) });
+  /** `draw` for a round: waits until the slot whose hash seeds it has landed.
+   *  If the window was missed the program re-targets and asks for another call. */
+  async function drawRound(tick: number, coin: string, round: PublicKey, drawSlot: number, index: number) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (let i = 0; i < 40 && (await conn.getSlot("confirmed")) <= drawSlot; i++) await sleep(400);
+      try {
+        const ix = await program.methods.draw().accountsPartial({ round, slotHashes: SLOT_HASHES }).instruction();
+        const { sig, slot } = await send([ix]);
+        const r: any = await program.account.round.fetch(round, "confirmed");
+        log({ tick, coin, action: "draw", result: "ok", round: index, draw_slot: drawSlot, tx_slot: slot,
+              seed: Buffer.from(r.seed).toString("hex").slice(0, 16) + "…", sig });
+        return;
+      } catch (e) {
+        const name = errName(e);
+        const r: any = await program.account.round.fetch(round, "confirmed").catch(() => null);
+        if (/DrawRetargeted/.test(name) && r) {
+          drawSlot = r.drawSlot.toNumber();
+          log({ tick, coin, action: "draw", result: "retargeted", round: index, draw_slot: drawSlot });
+          continue;
+        }
+        log({ tick, coin, action: "draw", result: "error", round: index, error: name });
+        return;
+      }
     }
   }
 
@@ -300,7 +312,7 @@ async function main() {
     st = await program.account.escrow.fetch(escrow, "confirmed");
     const rounds = await listRounds(escrow);
     for (const r of rounds.filter((x) => !x.state.drawn)) {
-      await drawRound(tick, coin, r.address, r.state.commitSlot.toNumber(), r.state.index);
+      await drawRound(tick, coin, r.address, r.state.drawSlot.toNumber(), r.state.index);
     }
 
     // 6. whatever the triggers released becomes a round: snapshot the holders,
@@ -347,7 +359,7 @@ async function main() {
       return;
     }
     const r: any = await program.account.round.fetch(round, "confirmed");
-    await drawRound(tick, coin, round, r.commitSlot.toNumber(), index);
+    await drawRound(tick, coin, round, r.drawSlot.toNumber(), index);
   }
 
   let tick = 0;

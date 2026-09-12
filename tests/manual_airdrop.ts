@@ -11,6 +11,7 @@ import {
 import { createHash } from "crypto";
 import { assert } from "chai";
 import { pumpAccounts, escrowPda, escrowAta, TOKEN_2022, WSOL, TOKEN } from "./pump";
+import { configPda, setPlatform } from "./config";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha = (...p: Buffer[]) => createHash("sha256").update(Buffer.concat(p)).digest();
@@ -100,13 +101,15 @@ describe("manual airdrop (localnet)", () => {
   }
 
   it("launch fixes the manual list at mint time", async () => {
+    // the platform comes from the program config, set by the upgrade authority
+    await setPlatform(program, dev.publicKey, platform.publicKey);
     const slot = await conn.getSlot("finalized");
     const [createIx, addr] = AddressLookupTableProgram.createLookupTable({
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     lut = addr;
     const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint,
-                  dev.publicKey, manualPda, manualAta,
+                  dev.publicKey, manualPda, manualAta, configPda(program.programId),
                   SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
     await send([createIx]);
@@ -129,9 +132,9 @@ describe("manual airdrop (localnet)", () => {
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
               ESCROW_BPS, AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
-              [...root], MANUAL_BPS, platform.publicKey)
+              [...root], MANUAL_BPS)
       .accountsPartial({
-        dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
+        dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
@@ -152,7 +155,7 @@ describe("manual airdrop (localnet)", () => {
     sigs.launch = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
-    assert.equal(st.platform.toBase58(), platform.publicKey.toBase58(), "platform authority recorded");
+    assert.equal(st.platform.toBase58(), platform.publicKey.toBase58(), "platform authority copied from config");
     const devShare = AMOUNT.sub(AMOUNT.muln(ESCROW_BPS).divn(10000));
     const expected = devShare.muln(MANUAL_BPS).divn(10000);
     assert.equal(Buffer.from(st.manualRoot).toString("hex"), root.toString("hex"),
@@ -324,8 +327,8 @@ describe("manual airdrop (localnet)", () => {
   it("dead coin flag trips after 7 quiet days, and only then may the pool move", async () => {
     // shrink the day so seven of them fit in the test
     await program.methods.setDayWindow(new BN(2))
-      .accountsPartial({ dev: dev.publicKey, escrow })
-      .rpc({ commitment: "confirmed" });
+      .accountsPartial({ platform: platform.publicKey, escrow })
+      .signers([platform]).rpc({ commitment: "confirmed" });
 
     const triggerAccounts = {
       escrow, bondingCurve: pa.bondingCurve,

@@ -55,10 +55,11 @@ const u128 = (n: bigint) => {
   return b;
 };
 
-/** Leaf hash — byte-for-byte identical to the program's. */
+/** Leaf hash — byte-for-byte identical to the program's. The snapshot balance
+ *  is part of the leaf so a claim can prove what the holder had at the time. */
 export const leafHash = (l: Leaf) =>
   sha256(Buffer.from("leaf"), u32(l.index), new PublicKey(l.holder).toBuffer(),
-         u64(BigInt(l.weight)), u128(BigInt(l.cumStart)));
+         u64(BigInt(l.balance)), u64(BigInt(l.weight)), u128(BigInt(l.cumStart)));
 
 /** Sorted-pair Merkle tree; a lone node on a level is promoted unchanged. */
 export function buildTree(leaves: Leaf[]): { root: Buffer; layers: Buffer[][] } {

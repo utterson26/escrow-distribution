@@ -15,6 +15,7 @@ import {
   TOKEN_2022, WSOL, TOKEN,
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
+import { configPda, setPlatform } from "./config";
 import { createHash } from "crypto";
 
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
@@ -117,6 +118,8 @@ describe("airdrop_escrow (devnet)", () => {
   });
 
   it("sets up an address lookup table", async () => {
+    // the dev doubles as platform in this run; only the upgrade authority may say so
+    await withRetry("set_platform", () => setPlatform(program, dev.publicKey, dev.publicKey));
     const slot = await conn.getSlot("finalized");
     const [createIx, addr] = AddressLookupTableProgram.createLookupTable({
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
@@ -127,7 +130,7 @@ describe("airdrop_escrow (devnet)", () => {
       ...Object.values(pb) as PublicKey[],
       escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa,
       manualPda(mint, program.programId), manualAta(mint, program.programId),
-      SystemProgram.programId, program.programId,
+      configPda(program.programId), SystemProgram.programId, program.programId,
     ];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
 
@@ -152,9 +155,9 @@ describe("airdrop_escrow (devnet)", () => {
 
     const ix = await program.methods
       .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost,
-              [...Buffer.alloc(32)], 0, dev.publicKey)  // manuel airdrop kapali
+              [...Buffer.alloc(32)], 0)  // manuel airdrop kapali
       .accountsPartial({
-        dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
+        dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda(mint, program.programId),
         manualTokenAccount: manualAta(mint, program.programId),
         ...pa, systemProgram: SystemProgram.programId,
@@ -196,7 +199,7 @@ describe("airdrop_escrow (devnet)", () => {
   it("1b. delay window narrowed, first check only sets the baseline", async () => {
     await withRetry("set_delay_window", () => program.methods
       .setDelayWindow(new BN(DELAY_WINDOW))
-      .accountsPartial({ dev: dev.publicKey, escrow })
+      .accountsPartial({ platform: dev.publicKey, escrow })
       .rpc({ commitment: "confirmed" }));
 
     const sig = await withRetry("check_trigger", () => program.methods
@@ -582,8 +585,8 @@ describe("airdrop_escrow (devnet)", () => {
   it("6. randomness is drawn afterwards, by anyone", async () => {
     const round = roundPda(escrow, 0, program.programId);
     const before: any = await program.account.round.fetch(round);
-    // the draw must be in a later slot than the commit
-    while ((await conn.getSlot("confirmed")) <= before.commitSlot.toNumber()) await sleep(500);
+    // the seed is the hash of draw_slot, which is only in the sysvar once that slot is over
+    while ((await conn.getSlot("confirmed")) <= before.drawSlot.toNumber()) await sleep(500);
 
     const sig = await withRetry("draw", () => program.methods
       .draw()
@@ -622,7 +625,7 @@ describe("airdrop_escrow (devnet)", () => {
       const h = holders.find((x) => x.publicKey.toBase58() === leaf.holder)!;
       const before = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
       const sig = await withRetry(`claim ${k}`, () => program.methods
-        .claimPrize(k, leaf.index, new BN(leaf.weight), new BN(leaf.cumStart),
+        .claimPrize(k, leaf.index, new BN(leaf.balance), new BN(leaf.weight), new BN(leaf.cumStart),
                     proofFor(layers, leaf.index).map((b) => [...b]))
         .accountsPartial({
           holder: h.publicKey, escrow, round, mint,
@@ -646,7 +649,7 @@ describe("airdrop_escrow (devnet)", () => {
     const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
     let again = false;
     try {
-      await program.methods.claimPrize(k0, l0.index, new BN(l0.weight), new BN(l0.cumStart),
+      await program.methods.claimPrize(k0, l0.index, new BN(l0.balance), new BN(l0.weight), new BN(l0.cumStart),
           proofFor(layers, l0.index).map((b) => [...b]))
         .accountsPartial({
           holder: h0.publicKey, escrow, round, mint,
@@ -665,7 +668,7 @@ describe("airdrop_escrow (devnet)", () => {
     const outsider = holders[TOO_SMALL]; // real wallet, but below the minimum
     let rejected = false;
     try {
-      await program.methods.claimPrize(0, victim.index, new BN(victim.weight), new BN(victim.cumStart),
+      await program.methods.claimPrize(0, victim.index, new BN(victim.balance), new BN(victim.weight), new BN(victim.cumStart),
           proofFor(layers, victim.index).map((b) => [...b]))
         .accountsPartial({
           holder: outsider.publicKey, escrow, round, mint,

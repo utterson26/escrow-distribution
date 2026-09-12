@@ -1,5 +1,15 @@
 use anchor_lang::prelude::*;
 
+/// Program-wide settings. One account, written only by the program's upgrade
+/// authority, so no launcher can pick its own "platform".
+#[account]
+#[derive(InitSpace)]
+pub struct Config {
+    /// The key that may open rounds, intervene, and turn the test knobs.
+    pub platform: Pubkey,
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Escrow {
@@ -119,5 +129,9 @@ pub struct Round {
     /// Slot the holder snapshot behind `root` was taken at, so the snapshot
     /// can be rebuilt exactly by anyone.
     pub snapshot_slot: u64,
+    /// The randomness is the hash of this (future, at commit time) slot. Fixed
+    /// when the root is committed, so whoever calls `draw` cannot shop for a
+    /// slot hash they like.
+    pub draw_slot: u64,
 }
 
