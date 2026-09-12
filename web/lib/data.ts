@@ -2,11 +2,34 @@ import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   conn, PROGRAM_ID, anchorDisc, decodeEscrow, decodeRound, decodeCurve,
-  bondingCurve, ata, marketCap, Escrow, Round, Curve,
+  bondingCurve, ata, marketCap, short, Escrow, Round, Curve,
 } from "./chain";
+
+/** Name and symbol from the mint's Token-2022 metadata extension (pump writes it at create). */
+export interface CoinMeta { name: string; symbol: string }
+
+export async function fetchMetadata(mints: string[]): Promise<Record<string, CoinMeta>> {
+  const c = conn();
+  const out: Record<string, CoinMeta> = {};
+  for (let i = 0; i < mints.length; i += 100) {
+    const batch = mints.slice(i, i + 100);
+    const infos = await c.getMultipleParsedAccounts(batch.map((m) => new PublicKey(m)));
+    infos.value.forEach((info, j) => {
+      const parsed: any = info?.data;
+      const ext = parsed?.parsed?.info?.extensions?.find((x: any) => x.extension === "tokenMetadata");
+      if (ext?.state?.name) out[batch[j]] = { name: ext.state.name, symbol: ext.state.symbol };
+    });
+  }
+  return out;
+}
+
+/** "Name (SYM) · 2pL4…T3ea" — the short address stays so two coins with the same name are told apart. */
+export const coinLabel = (mint: string, meta?: CoinMeta) =>
+  meta ? `${meta.name} (${meta.symbol})` : short(mint, 6);
 
 export interface CoinRow {
   escrow: Escrow;
+  meta?: CoinMeta;
   curve: Curve | null;
   marketCapLamports: string;
   poolRemaining: string;      // escrowed - allocated
@@ -84,6 +107,7 @@ export async function buildRows(): Promise<CoinRow[]> {
   const [escrows, rounds, slot] = await Promise.all([
     fetchEscrows(), fetchRounds(), c.getSlot("confirmed"),
   ]);
+  const metas = await fetchMetadata(escrows.map((e) => e.mint));
   // one batched read instead of a round trip per coin
   const curveAddrs = escrows.map((e) => bondingCurve(new PublicKey(e.mint)));
   const curveInfos: (Curve | null)[] = [];
@@ -100,7 +124,7 @@ export async function buildRows(): Promise<CoinRow[]> {
       .sort((a, b) => b.index - a.index);
     const last = mine[0];
     out.push({
-      escrow: e, curve,
+      escrow: e, meta: metas[e.mint], curve,
       marketCapLamports: curve ? marketCap(curve).toString() : "0",
       poolRemaining: (e.escrowed - e.allocated).toString(),
       escrowPct: e.escrowBps / 100,
@@ -127,12 +151,13 @@ for (const n of ["PrizeClaimed", "ManualClaimed", "TriggerFired", "RoundOpened",
 
 export interface FeedItem {
   signature: string; slot: number; blockTime: number | null;
-  kind: string; escrow?: string; amount?: string; holder?: string;
+  kind: string; escrow?: string; mint?: string; amount?: string; holder?: string;
 }
 
 export async function fetchFeed(limit = 30): Promise<FeedItem[]> {
   const c = conn();
   const sigs = await c.getSignaturesForAddress(PROGRAM_ID, { limit: 60 }, "confirmed");
+  const mintOf = new Map((await fetchEscrows()).map((e) => [e.address, e.mint]));
   const items: FeedItem[] = [];
   for (const s of sigs) {
     if (s.err) continue;
@@ -151,6 +176,7 @@ export async function fetchFeed(limit = 30): Promise<FeedItem[]> {
       };
       try {
         item.escrow = new PublicKey(buf.subarray(8, 40)).toBase58();
+        item.mint = mintOf.get(item.escrow);
         if (kind === "PrizeClaimed") {
           item.holder = new PublicKey(buf.subarray(74, 106)).toBase58();
           item.amount = buf.readBigUInt64LE(106).toString();

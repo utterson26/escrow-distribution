@@ -43,6 +43,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 15 | crank botu (check/buyback/fire, izinsiz keeper) — localnet 10 dk simülasyon | ✅ 8/8 |
 | 16 | crank uçtan uca: fire → snapshot → open_round → draw → claim — localnet 5 dk | ✅ 12/12 |
 | 17 | web localnet'te, Phantom ile claim | ✅ çalışıyor |
+| 18 | web: coin adı/sembolü, "how it works", ağ rozeti | ✅ |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -477,6 +478,22 @@ kez denerler; ikincisi `NotArmed`/no-op ile döner, zarar yok ama ücret gider.
 (2) `open_round`/`draw` crank'te yok — kök indexer'dan geliyor, o ayrı iş.
 (3) Legacy tx kullanıyor; buyback 30 hesapla 1232 baytın altında kalıyor,
 ama pump hesap eklerse ALT gerekir.
+
+## Seni bekleyen claim (Phantom, localnet)
+
+Cüzdan `2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K` — localnet'te 2 SOL ve her
+coin'den 60M token var; 5 çekiliş claim edilmeden bırakıldı:
+
+| Coin | Sayfa | Çekilişler | Ödül |
+|---|---|---|---|
+| **Crank Hot (HOT)** `2pL4…T3ea` | http://localhost:3000/coin/2pL4vX5HN4d3vEwp5ok8jxSCLX9SwpFqy9ebyozmT3ea | round 0 draw 5, round 1 draw 5 | 116,2B + 602,8B token |
+| **Crank Slow (SLOW)** `Wpmx…HaaX` | http://localhost:3000/coin/WpmxALKWy5N4h72YuCMN14F6aSRA5LBA3iv291iHaaX | round 0 draw 0, 5, 6 | 3 × 112,5B token |
+
+Validator `--reset` ile yeniden başlatılırsa bunlar silinir; o zaman
+`DEMO_WALLET=2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K npm run crank:sim` ile
+yeniden üret. Phantom ayarı: `crank/README.md` → "Phantom ile localnet".
+Port kontrolü yapıldı: Windows'tan `localhost:8899/health` → `ok`; 0 SOL
+görünüyorsa Phantom'daki seçili hesap/ağ meselesi, ağ değil.
 
 ## Adım 16 — crank uçtan uca: tetikten claim'e kimse dokunmadan ✅ (12/12)
 

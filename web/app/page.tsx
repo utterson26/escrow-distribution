@@ -1,5 +1,5 @@
-import { buildRows } from "@/lib/data";
-import { fmtTokens, fmtSol, short } from "@/lib/chain";
+import { buildRows, coinLabel } from "@/lib/data";
+import { fmtTokens, fmtSol, short, network } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,7 +30,8 @@ export default async function Home() {
   try { rows = await buildRows(); } catch (e: any) { error = String(e?.message ?? e); }
 
   if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
-  if (!rows.length) return <div className="empty">No launches found on devnet yet.</div>;
+  const net = network().name;
+  if (!rows.length) return <div className="empty">No launches found on {net} yet.</div>;
 
   return (
     <>
@@ -48,7 +49,8 @@ export default async function Home() {
             {rows.map((r) => (
               <tr key={r.escrow.address}>
                 <td>
-                  <a className="mono" href={`/coin/${r.escrow.mint}`}>{short(r.escrow.mint, 6)}</a>
+                  <a href={`/coin/${r.escrow.mint}`}><b>{coinLabel(r.escrow.mint, r.meta)}</b></a>
+                  <div className="k mono">{short(r.escrow.mint, 6)}</div>
                 </td>
                 <td>{r.escrowPct}%</td>
                 <td>{r.devPct}%</td>
@@ -66,7 +68,7 @@ export default async function Home() {
         </table>
       </div>
       <div className="note">
-        Every number above is read live from the program on devnet. Percentages are of the
+        Every number above is read live from the program on {net}. Percentages are of the
         launch buy: the locked share went into escrow for airdrops, the rest stayed with the
         dev wallet — which never takes part in the airdrop itself.
       </div>

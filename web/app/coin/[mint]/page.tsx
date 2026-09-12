@@ -1,8 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
 import ClaimPanel from "@/components/ClaimPanel";
-import { fetchEscrows, fetchRounds } from "@/lib/data";
+import { fetchEscrows, fetchRounds, fetchMetadata, coinLabel } from "@/lib/data";
 import {
-  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata,
+  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network,
 } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +22,11 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
   const { mint } = await params;
   const escrows = await fetchEscrows();
   const e = escrows.find((x) => x.mint === mint);
-  if (!e) return <div className="empty">No launch found for this mint on devnet.</div>;
+  const net = network();
+  if (!e) return <div className="empty">No launch found for this mint on {net.name}.</div>;
 
   const rounds = (await fetchRounds(e.address)).sort((a, b) => b.index - a.index);
+  const meta = (await fetchMetadata([mint]))[mint];
   const info = await conn().getAccountInfo(bondingCurve(new PublicKey(mint)));
   const curve = info ? decodeCurve(info.data as Buffer) : null;
   const pool = e.escrowed - e.allocated;
@@ -38,13 +40,35 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
 
   return (
     <>
-      <h2>Coin</h2>
+      <h2>{coinLabel(mint, meta)}</h2>
       <div className="card">
         <div className="mono" style={{ marginBottom: 4 }}>
-          <a href={`https://explorer.solana.com/address/${mint}?cluster=devnet`}
-             target="_blank" rel="noreferrer">{mint}</a>
+          {short(mint, 6)} ·{" "}
+          <a href={net.explorerAddress(mint)} target="_blank" rel="noreferrer">{mint}</a>
         </div>
         <div className="k">escrow {short(e.address, 6)} · dev {short(e.dev, 6)}</div>
+      </div>
+
+      <div className="card">
+        <div className="k">How it works</div>
+        <ol className="note" style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
+          <li><b>Lock.</b> At launch the dev buys the coin and {e.escrowBps / 100}% of that buy is locked in
+            an escrow account owned by the program. Nobody can withdraw it, the dev included.</li>
+          <li><b>Fees.</b> The escrow is the coin&apos;s creator on pump.fun, so every trade&apos;s creator fee
+            lands in the escrow instead of a person&apos;s wallet.</li>
+          <li><b>Buyback.</b> Anyone can turn that SOL into more of the coin. Each call spends at most 0.5% of
+            the curve&apos;s reserves, so front-running it is not worth the gas. The tokens join the pool.</li>
+          <li><b>Trigger.</b> When trading volume since the last airdrop reaches 1% of market cap, 1% of the pool
+            is released; when market cap doubles, 5%. The release fires at a random moment inside the next
+            hour, so nobody knows the distribution slot in advance.</li>
+          <li><b>Draw.</b> A snapshot of holders is taken — weight is balance × time held, the dev and the
+            protocol&apos;s own accounts excluded — and only its Merkle root goes on chain, together with the
+            snapshot slot so anyone can rebuild it. Randomness is drawn one slot <i>later</i>, so whoever
+            publishes the root cannot pick the winners.</li>
+          <li><b>Claim.</b> A winner proves their leaf against the root and that the draw landed in their weight
+            range; the program checks on its own that they still hold at least 0.05 SOL worth. Each draw pays
+            once. Connect a wallet below to see what this coin owes you.</li>
+        </ol>
       </div>
 
       <div className="card grid">

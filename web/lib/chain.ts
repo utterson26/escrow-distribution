@@ -11,6 +11,22 @@ export const rpcUrl = () =>
   process.env.HELIUS_RPC_URL || "https://api.devnet.solana.com";
 export const conn = () => new Connection(rpcUrl(), "confirmed");
 
+/** Which cluster the server reads from, judged by the RPC URL. */
+export function network() {
+  const url = rpcUrl();
+  const local = /localhost|127\.0\.0\.1/.test(url);
+  const name = local ? "localnet" : /mainnet/.test(url) ? "mainnet" : "devnet";
+  // explorer.solana.com can point at a local validator through a custom cluster URL
+  const cluster = local
+    ? `cluster=custom&customUrl=${encodeURIComponent(url)}`
+    : `cluster=${name}`;
+  return {
+    name,
+    explorerAddress: (a: string) => `https://explorer.solana.com/address/${a}?${cluster}`,
+    explorerTx: (s: string) => `https://explorer.solana.com/tx/${s}?${cluster}`,
+  };
+}
+
 export const anchorDisc = (kind: "account" | "global" | "event", name: string) =>
   createHash("sha256").update(`${kind}:${name}`).digest().subarray(0, 8);
 
