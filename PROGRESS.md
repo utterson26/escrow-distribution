@@ -40,6 +40,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 12 | Switchboard rastgelelik | 🟡 uyumlu, entegre edilmedi |
 | 13 | localnet (pump klonlu test ağı) | ✅ |
 | 14 | manuel airdrop + müdahale + ölü coin — localnet'te | ✅ 7/7 |
+| 15 | crank botu (check/buyback/fire, izinsiz keeper) — localnet 10 dk simülasyon | ✅ 8/8 |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -423,7 +424,60 @@ mekanizmasıyla başlatılınca sorunsuz çalışıyor (~1,3 GB kullanıyor, mak
 Platform yetkilisi dev'den farklı bir anahtar (`5iw2oj8jgetU…` vs
 `4RycArC9Gap3…`) — yani yetki ayrımı gerçekten sınanmış oldu.
 
+## Adım 15 — crank botu ✅ (localnet, 10 dk, 8/8)
+
+`crank/crank.ts`: indexer'ın yanında duran küçük keeper. Dakikada bir
+programın çıkardığı **her coin'i** (`getProgramAccounts`, escrow
+discriminator + güncel boyut) tarar ve sırayla `collect_fees` → `buyback` →
+`check_trigger` → `fire_trigger` çağırır. Hepsi izinsiz; cüzdan yalnızca
+ücret öder. Zincirdeki eşikleri **kararı vermek için değil, boşa ücret
+ödememek için** önden kontrol eder: buyback yalnızca harcanabilir SOL ≥ 0,01
+ise (yoksa `BuybackSkipped` duymak için para ödenmez), fire yalnızca slot ≥
+`fire_slot` ise (erken çağrı `TooEarly` yer, o yüzden hiç denenmez).
+Çalıştırma: `npm run crank` (`RPC_URL`, `CRANK_KEYPAIR`, `CRANK_INTERVAL_MS`,
+`CRANK_LOG`; cron için `--once`). Detay `crank/README.md`.
+
+### Simülasyon — `npm run crank:sim` → `crank/sim-report.md`
+
+`crank/simulate.ts` iki coin çıkarıyor, crank'i **ayrı süreç + ayrı cüzdanla**
+başlatıyor (dev değil: `2y2Z72iZ…`), üçüncü bir trader cüzdanı 10 dakika
+piyasa oynatıyor. Alım boyutları gerçek piyasa değerinden türetildi (localnet'te
+pump'ın klonlanmış config'iyle taze coin ≈ 1,8 SOL mcap):
+HOT her 15 sn mcap'in %1,5'i, SLOW her 40 sn %0,25'i; 200. saniyede
+escrow'a 0,05 SOL bağış, 330. saniyede mcap'i 2'ye katlayan balina alımı.
+
+Koşu sonrası crank kaydı beklenenle karşılaştırıldı — **8/8**:
+
+| Kontrol | Sonuç |
+|---|---|
+| her fire `fire_slot`'tan sonra indi | 8 fire, hepsinde `tx_slot ≥ fire_slot` (ör. HOT hacim 1693 ≥ 1577, milestone 2266 ≥ 2208) |
+| erken çağrı yok | 7 "bekle" kararı, 0 `TooEarly` |
+| kurulan her tetikleyici ateşlendi | 7 armed / 8 fired (fazlası önceki koşudan kalan bir milestone) |
+| hacim eşiği ayırt ediyor | HOT tick 2'de, SLOW tick 4'te kuruldu |
+| bağış → buyback | 4 buyback, toplam 38,1M lamport, 28,8T token; her çağrı %0,5 sınırında kaldı, kalan sonraki tick'e devretti |
+| balina → milestone | tick 6'da `kind=milestone`, havuzun %5'i (4,93T token) |
+| hata | 0 |
+| atlanan tick | 0 / 11 |
+
+Zincir üstü gerçekler: crank cüzdanı 10 dakikada **0,0023 SOL** harcadı
+(60 işlem, 4 coin). Creator ücreti gerçekten biriktikçe süpürüldü (launch alımından
+1.164.295 lamport, sonra 1,2–1,3M'lik dilimler) ve buyback bunu coine çevirdi.
+HOT, her fire'dan sonra bir sonraki tick'te yeniden kuruldu — %1 hacim eşiği
+bu alım temposunda her dakika doluyor; SLOW'un her kurulumu ~4 alım (=%1) aldı.
+
+**Yan bulgu — crank tüm coinleri gerçekten tarıyor:** localnet'te önceki
+2 dakikalık prova koşusundan kalan iki coin de vardı; crank ilk tick'te
+onlardan birinde yarım kalmış milestone tetikleyicisini (fire_slot 1202) slot
+1404'te ateşledi. Rapor bu yüzden 4 coin gösteriyor.
+
+Bilinen sınırlar: (1) Birden fazla crank aynı anda çalışırsa aynı işlemi iki
+kez denerler; ikincisi `NotArmed`/no-op ile döner, zarar yok ama ücret gider.
+(2) `open_round`/`draw` crank'te yok — kök indexer'dan geliyor, o ayrı iş.
+(3) Legacy tx kullanıyor; buyback 30 hesapla 1232 baytın altında kalıyor,
+ama pump hesap eklerse ALT gerekir.
+
 ## Bundan sonra
+Crank simülasyonu tek komut: `npm run crank:sim` (validator yoksa başlatır, deploy eder).
 Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak) →
 `cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
 `solana program deploy … --url http://127.0.0.1:8899` →
@@ -485,32 +539,33 @@ Devnet yalnızca son doğrulama için; oraya çıkarken **v0 derlemesi şart**.
 13. **Coin'de transfer hook yok ve ekleyemeyiz** (mint'i pump yaratıyor). Bu yüzden
    tutma süresi zincir üstü takip edilemiyor; (a) şıkkı bu yüzden elendi.
 
-## Senden beklediğim kararlar
+## Kesin kararlar (2026-09-12)
 
-1. **Devnet SOL.** Tıkanma burada. Deploy buffer'ı ~1,97 SOL, tam test koşusu
-   ~1,3 SOL. Rahat etmek için **~5 SOL** iyi olur:
-   [faucet.solana.com](https://faucet.solana.com) →
-   `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ`.
-   Gelince adım 11 tek deploy + tek koşuyla kapanır.
+Aşağıdakiler kapandı; yeniden açılmayacak.
 
-2. **Manuel liste kök olarak işleniyor — onaylıyor musun?** "Dev bir liste verir"
-   dedin; 50 satır launch işlemine sığmadığı için listenin özetini işliyorum.
-   Sonuç aynı (launch'ta kilitli, değiştirilemez) ama liste zincirde durmuyor:
-   dağıtımı yapan tarafın listeyi yayınlaması gerekir, yoksa kimse kendi payını
-   ispatlayamaz. Alternatif: listeyi ayrı bir instruction'la parça parça zincire
-   yazmak (daha pahalı, ve "launch'ta kilitli" garantisi zayıflar).
+1. **Devnet SOL** bugün geliyor. Devnet doğrulaması (adım 11 deploy + tam koşu)
+   fon gelince yapılacak; sıraya alındı, tıkanma değil. Deploy'da **v0 derlemesi
+   şart** (`cargo-build-sbf --arch v0`).
+2. **Manuel liste Merkle kökü olarak işleniyor — onaylı.** Liste
+   `publish_manual_list` ile zincirde yayınlanıyor (log'dan geri okunup kök
+   doğrulanabiliyor); bu yeterli, listenin kendisi hesapta durmayacak.
+3. **30 gün sonrası müdahale:** yalnızca **platform yetkilisi** çağırabilir,
+   yalnızca **iki hedef** var — dev cüzdanı veya otomatik airdrop havuzu.
+   Mevcut `intervene` (source: manuel/ölü havuz, target: dev/havuz) tam bu;
+   başka hak eklenmeyecek.
+4. **Buyback sınırı %0,5/çağrı üretimde kalır.** Yavaşlık kabul edildi; sandviç
+   caydırıcılığı öncelikli.
+5. **Switchboard beklemede.** Uyumluluk doğrulandı, entegrasyon yapılmayacak;
+   slot hash şimdilik kalıyor.
 
-3. **30 gün dolunca ne olacak?** Şu an sadece zaman kilidi ve bayrak var, doğru.
-   Müdahale instruction'ını yazarken kime ne hak vereceğini söylemen gerekecek:
-   dev geri alabilsin mi, escrow havuzuna mı dönsün, yoksa süresiz mi beklesin.
+## Web sitesi — durum
 
-4. **%0,5 buyback sınırı üretim için doğru mu?** Sandviçi caydırıyor ama
-   buyback'i yavaşlatıyor: %0,5'lik adımlarla fiyatı %41 oynatmak ~70 çağrı
-   eder. Sayı ayarlanabilir; sen karar ver.
-
-5. **Switchboard'a geçelim mi?** Uyumluluk doğrulandı. Geçersek her çekiliş
-   Randomness hesabı + oracle reveal + crank gerektirir; slot hash bedava ama
-   blok üreticisi sınırlı ölçüde oynayabilir.
+`web/` Next.js 15, üç sayfa (`/`, `/coin/<mint>`, `/feed`) + üç API rotası
+(`/api/escrows`, `/api/feed`, `/api/claim/[mint]`). Veriler devnet'ten canlı,
+mock yok. Bugün doğrulandı: `tsc --noEmit` temiz, `next build` hatasız
+(7 rota). Helius anahtarı `web/.env.local`'de, gitignore'da. Devnet'e bağlı
+olduğu için localnet'teki coinleri göstermez; `HELIUS_RPC_URL` yerel RPC'ye
+çevrilirse gösterir. Çalıştırma: `cd web && npm run dev`.
 
 ## Çalıştırma
 ```bash
