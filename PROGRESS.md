@@ -41,6 +41,8 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 13 | localnet (pump klonlu test ağı) | ✅ |
 | 14 | manuel airdrop + müdahale + ölü coin — localnet'te | ✅ 7/7 |
 | 15 | crank botu (check/buyback/fire, izinsiz keeper) — localnet 10 dk simülasyon | ✅ 8/8 |
+| 16 | crank uçtan uca: fire → snapshot → open_round → draw → claim — localnet 5 dk | ✅ 12/12 |
+| 17 | web localnet'te, Phantom ile claim | ✅ çalışıyor |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -476,8 +478,75 @@ kez denerler; ikincisi `NotArmed`/no-op ile döner, zarar yok ama ücret gider.
 (3) Legacy tx kullanıyor; buyback 30 hesapla 1232 baytın altında kalıyor,
 ama pump hesap eklerse ALT gerekir.
 
+## Adım 16 — crank uçtan uca: tetikten claim'e kimse dokunmadan ✅ (12/12)
+
+Crank artık fire'dan sonra `pending > 0` gördüğünde **indexer'la snapshot alır,
+kökü `open_round` ile yazar ve bir slot sonra `draw` çağırır**. Ayrıca her
+tick'te çekilişi yapılmamış round varsa (önceki tick çökmüş ya da dev elle
+açmış) onu da çeker. Snapshot dosyası `crank/snapshots/<mint>-<round>.json`
+olarak kalır (gitignore'da).
+
+### İki program değişikliği (localnet'e deploy edildi, devnet bekliyor)
+
+1. **`open_round` imzacısı `publisher` = dev *veya* platform yetkilisi.**
+   Eskiden yalnızca dev'di; crank kendi cüzdanıyla imzaladığı için kökü
+   yazamazdı. Platform zaten launch'ta yazılan bir yetki (`escrow.platform`,
+   müdahale için kullanılıyor); crank'i platform çalıştırır. Kök güven noktası
+   olduğu için bu adım **izinsiz yapılmadı** — herkes kök yazabilseydi kendi
+   listesini yazıp `pending`'in tamamını alabilirdi. Crank'in cüzdanı ikisinden
+   biri değilse adımı atlar ve loglar (`not dev or platform`); simülasyonda
+   önceki koşulardan kalan 4 coin için tam olarak bu görüldü.
+2. **`Round.snapshot_slot` eklendi**, `open_round` argümanı. Web eskiden
+   commit slot'undan geriye `{0,2,5,10,20,40}` slot deneyerek kökü tutturmaya
+   çalışıyordu; ağırlık `bakiye × slot` olduğu için her slot farklı kök
+   verir ve open_round'un indiği slot ile snapshot slotu arasındaki fark
+   listede yoksa round "opaque" kalıyordu. Şimdi snapshot slotu zincirde;
+   web ve simülasyon doğrudan o slottan yeniden üretiyor. Alan `Round`'un
+   sonuna eklendi, eski round'lar (devnet) hâlâ çözülüyor (web'de
+   `snapshotSlot` yoksa eski geri yürüme yöntemi kalıyor).
+
+Ayrıca **indexer dev cüzdanını otomatik eler:** `snapshot()` escrow hesabından
+`dev`'i okuyup `excluded`'a ekliyor. Eskiden `--exclude` ile elle veriliyordu ve
+web'in yeniden üretimi bunu bilmediği için kök tutmazdı. Politika aynı
+(PROGRESS'in başındaki karar), artık zincirden türetiliyor.
+
+### Simülasyon (5 dk, 60 sn tick, 8 çekiliş/round)
+İki coin (platform = crank cüzdanı), trader + 2 sabit holder. Sonuç 12/12:
+
+| Kontrol | Sonuç |
+|---|---|
+| fire'lar `fire_slot` sonrası | 3/3 (HOT hacim 5179≥5064, SLOW hacim 5454≥5393, HOT milestone 5464≥5396) |
+| erken çağrı | 0 TooEarly |
+| SLOW HOT'tan sonra kuruldu | HOT tick 2, SLOW tick 4 |
+| bağış → buyback | 3 buyback |
+| balina → milestone | tick 4, havuzun %5'i |
+| **her fire'dan sonra snapshot + open_round** | 3 round: HOT#0 8×116,2B, SLOW#0 8×112,5B, HOT#1 8×602,8B token |
+| **her round çekildi** | 3/3, commit'ten 1–3 slot sonra |
+| **snapshot `snapshot_slot`'tan yeniden üretildi, kök tuttu** | 3/3 |
+| **kazananlar claim etti** | **24/24 çekiliş ödendi**, her ödeme tam `prize` kadar |
+| hata / atlanan tick | 0 / 0 |
+
+Uçtan uca zincir: trade → check_trigger (armed) → fire (pending) →
+snapshot → open_round (kök + slot) → draw (seed) → holder kökü yeniden kurar,
+kazandığı çekilişleri ispatlar → claim_prize öder. Arada insan yok.
+
+## Adım 17 — web localnet'te, Phantom ile claim ✅
+
+- Tarayıcı tarafı RPC'si `NEXT_PUBLIC_RPC_URL` ile ayarlanabilir (varsayılan
+  devnet). Sunucu tarafı zaten `HELIUS_RPC_URL`. `cd web && npm run dev:local`
+  ikisini de `http://127.0.0.1:8899`'a çevirip 3000'de açar.
+- `/api/claim/<mint>` crank'in açtığı round'u `snapshot_slot`'tan yeniden
+  üretip (`reproducible: 1`) demo cüzdanın kazandığı çekilişleri listeledi.
+- `DEMO_WALLET=<Phantom adresi> npm run crank:sim`: o cüzdan da holder olur
+  (2 SOL airdrop + dev'den 60M token/coin) ve kazandığı çekilişler claim
+  edilmeden bırakılır; web'de Phantom'la claim edilir. Phantom ayarı:
+  `crank/README.md` → "Phantom ile localnet".
+
 ## Bundan sonra
 Crank simülasyonu tek komut: `npm run crank:sim` (validator yoksa başlatır, deploy eder).
+Web'i localnet'e bağlamak: `cd web && npm run dev:local` → http://localhost:3000.
+**Devnet'e çıkarken:** adım 16'daki iki program değişikliği (publisher, snapshot_slot)
+henüz devnet'te yok; `cargo-build-sbf --arch v0` + deploy + `anchor idl build` şart.
 Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak) →
 `cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
 `solana program deploy … --url http://127.0.0.1:8899` →

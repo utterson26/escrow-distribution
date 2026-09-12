@@ -116,5 +116,8 @@ pub struct Round {
     pub claimed_bits: [u8; 32],
     pub claimed_count: u16,
     pub bump: u8,
+    /// Slot the holder snapshot behind `root` was taken at, so the snapshot
+    /// can be rebuilt exactly by anyone.
+    pub snapshot_slot: u64,
 }
 

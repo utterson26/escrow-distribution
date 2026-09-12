@@ -134,7 +134,9 @@ async function historyFor(c: Connection, acct: PublicKey, snapshotSlot: number) 
 /**
  * Accounts that hold the coin but are not holders: the curve itself, the mayhem
  * vault, and this program's own escrow and buyer PDAs. All derived from the mint,
- * so every reproducer computes the same set.
+ * so every reproducer computes the same set. The dev wallet is excluded too
+ * (see PROGRESS.md, "dev cüzdanı airdrop'a katılmaz"); it is read from the
+ * escrow account by `snapshot`, since it is not derivable from the mint.
  */
 export function protocolOwners(mint: PublicKey, escrowProgram: PublicKey): string[] {
   const pda = (seeds: Buffer[], prog: PublicKey) =>
@@ -166,7 +168,12 @@ export async function snapshot(
     filters: [{ memcmp: { offset: 0, bytes: mint.toBase58() } }],
   });
 
-  const excluded = [...new Set([...protocolOwners(mint, escrowProgram), ...extraExcluded])].sort();
+  // the dev is the first field of the escrow account, right after the discriminator
+  const escrowAddr = PublicKey.findProgramAddressSync([Buffer.from("escrow"), mint.toBuffer()], escrowProgram)[0];
+  const escrowAcc = await c.getAccountInfo(escrowAddr, "confirmed");
+  const devWallet = escrowAcc ? [new PublicKey(escrowAcc.data.subarray(8, 40)).toBase58()] : [];
+
+  const excluded = [...new Set([...protocolOwners(mint, escrowProgram), ...devWallet, ...extraExcluded])].sort();
   const skip = new Set(excluded);
 
   type Row = { holder: string; tokenAccount: string; balance: bigint; streak: number };

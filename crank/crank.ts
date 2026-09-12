@@ -9,15 +9,22 @@
  *   buyback        when the escrow's spendable SOL clears the program threshold
  *   check_trigger  always — it samples volume, which is what the triggers run on
  *   fire_trigger   when a trigger is armed and its random delay has passed
+ *   open_round     when a fired trigger left tokens pending: take the holder
+ *                  snapshot with the indexer, commit its root
+ *   draw           one slot later, for every round without randomness yet
  *
- * Nothing here decides anything: every threshold and delay is enforced on chain,
- * the crank only avoids paying for calls that would obviously be no-ops.
+ * open_round is the one step that is not permissionless — the root is the
+ * trust point of the whole scheme — so it runs only when this wallet is the
+ * coin's dev or its platform authority. Everything else the crank does is
+ * enforced on chain; the pre-checks only avoid paying for obvious no-ops.
  *
- *   RPC_URL          default ANCHOR_PROVIDER_URL, else http://127.0.0.1:8899
- *   CRANK_KEYPAIR    default ANCHOR_WALLET, else ~/.config/solana/id.json
- *   CRANK_INTERVAL_MS default 60000
- *   CRANK_LOG        optional JSONL file, one event per line
- *   --once           run a single tick and exit (for cron)
+ *   RPC_URL            default ANCHOR_PROVIDER_URL, else http://127.0.0.1:8899
+ *   CRANK_KEYPAIR      default ANCHOR_WALLET, else ~/.config/solana/id.json
+ *   CRANK_INTERVAL_MS  default 60000
+ *   CRANK_WINNERS      draws per round, default 8 (max 256)
+ *   CRANK_SNAPSHOT_DIR where snapshots are written, default crank/snapshots
+ *   CRANK_LOG          optional JSONL file, one event per line
+ *   --once             run a single tick and exit (for cron)
  */
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
@@ -32,6 +39,7 @@ import * as path from "path";
 import {
   pumpAccounts, escrowAta, buyerPda, baseAtaOf, TOKEN_2022, WSOL, TOKEN,
 } from "../tests/pump";
+import { snapshot } from "../indexer/snapshot";
 
 // Mirrors of the program constants the crank pre-checks against. The chain is
 // the authority; these only save the fee of a call that would be a no-op.
@@ -42,9 +50,16 @@ const MIN_COLLECT_LAMPORTS = 1_000_000n;
 
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
 const KIND = ["none", "volume", "milestone"];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
+  const b = Buffer.alloc(4); b.writeUInt32LE(index);
+  return PublicKey.findProgramAddressSync([Buffer.from("round"), escrow.toBuffer(), b], program)[0];
+};
 
 const RPC_URL = process.env.RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
 const INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? 60_000);
+const WINNERS = Math.min(256, Math.max(1, Number(process.env.CRANK_WINNERS ?? 8)));
+const SNAPSHOT_DIR = process.env.CRANK_SNAPSHOT_DIR ?? path.join(__dirname, "snapshots");
 const ONCE = process.argv.includes("--once");
 
 function loadKeypair(): Keypair {
@@ -86,6 +101,8 @@ async function main() {
   const program = new Program(idl, provider) as any;
   const escrowSize: number = program.account.escrow.size;
   const escrowRent = BigInt(await conn.getMinimumBalanceForRentExemption(escrowSize));
+  const roundSize: number = program.account.round.size;
+  fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
 
   log({ event: "start", rpc: RPC_URL, wallet: keypair.publicKey.toBase58(),
         interval_ms: INTERVAL_MS, once: ONCE });
@@ -113,6 +130,37 @@ async function main() {
       state: program.coder.accounts.decode("escrow", a.account.data) as any,
       lamports: BigInt(a.account.lamports),
     }));
+  }
+
+  /** Rounds of one escrow, current layout only. */
+  async function listRounds(escrow: PublicKey) {
+    const disc = program.coder.accounts.memcmp("round");
+    const raw = await conn.getProgramAccounts(program.programId, {
+      commitment: "confirmed",
+      filters: [
+        { dataSize: roundSize },
+        { memcmp: { offset: disc.offset, bytes: disc.bytes } },
+        { memcmp: { offset: 8, bytes: escrow.toBase58() } },
+      ],
+    });
+    return raw.map((a) => ({
+      address: a.pubkey,
+      state: program.coder.accounts.decode("round", a.account.data) as any,
+    }));
+  }
+
+  /** `draw` for a round: waits out the one-slot delay after its commit. */
+  async function drawRound(tick: number, coin: string, round: PublicKey, commitSlot: number, index: number) {
+    for (let i = 0; i < 30 && (await conn.getSlot("confirmed")) <= commitSlot; i++) await sleep(400);
+    try {
+      const ix = await program.methods.draw().accountsPartial({ round, slotHashes: SLOT_HASHES }).instruction();
+      const { sig, slot } = await send([ix]);
+      const r: any = await program.account.round.fetch(round, "confirmed");
+      log({ tick, coin, action: "draw", result: "ok", round: index, tx_slot: slot,
+            seed: Buffer.from(r.seed).toString("hex").slice(0, 16) + "…", sig });
+    } catch (e) {
+      log({ tick, coin, action: "draw", result: "error", round: index, error: errName(e) });
+    }
   }
 
   async function crankCoin(tick: number, esc: { address: PublicKey; state: any; lamports: bigint }) {
@@ -246,10 +294,70 @@ async function main() {
         log({ tick, coin, action: "fire_trigger", result: "error", error: errName(e) });
       }
     }
+
+    // 5. rounds left without randomness (a crashed earlier tick, or a round the
+    //    dev opened by hand) get their draw; anyone may do that.
+    st = await program.account.escrow.fetch(escrow, "confirmed");
+    const rounds = await listRounds(escrow);
+    for (const r of rounds.filter((x) => !x.state.drawn)) {
+      await drawRound(tick, coin, r.address, r.state.commitSlot.toNumber(), r.state.index);
+    }
+
+    // 6. whatever the triggers released becomes a round: snapshot the holders,
+    //    commit the root, then draw. Only the dev or the platform may commit.
+    const pending = BigInt(st.pending.toString());
+    if (pending === 0n) return;
+    const me = keypair.publicKey;
+    if (!me.equals(st.dev) && !me.equals(st.platform)) {
+      log({ tick, coin, action: "open_round", result: "skip", reason: "not dev or platform", pending });
+      return;
+    }
+    const prize = pending / BigInt(WINNERS);
+    if (prize === 0n) return; // integer-division dust from an earlier round, not worth a line
+    const index = rounds.reduce((m, r) => Math.max(m, r.state.index + 1), 0);
+    const snapSlot = await conn.getSlot("confirmed");
+    let snap;
+    try {
+      snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId);
+    } catch (e) {
+      log({ tick, coin, action: "snapshot", result: "error", error: errName(e) });
+      return;
+    }
+    const file = path.join(SNAPSHOT_DIR, `${mint.toBase58()}-${index}.json`);
+    fs.writeFileSync(file, JSON.stringify(snap, null, 2));
+    if (snap.leaves.length === 0) {
+      log({ tick, coin, action: "snapshot", result: "empty", slot: snapSlot, reason: "no eligible holder", pending });
+      return;
+    }
+    log({ tick, coin, action: "snapshot", result: "ok", slot: snapSlot, holders: snap.leaves.length,
+          excluded: snap.excluded.length, root: snap.root.slice(0, 16) + "…", file });
+
+    const round = roundPda(escrow, index, program.programId);
+    try {
+      const ix = await program.methods
+        .openRound(index, [...Buffer.from(snap.root, "hex")], new anchor.BN(snap.totalWeight),
+                   WINNERS, new anchor.BN(prize.toString()), new anchor.BN(snapSlot))
+        .accountsPartial({ publisher: me, escrow, round, systemProgram: SystemProgram.programId })
+        .instruction();
+      const { sig, slot } = await send([ix]);
+      log({ tick, coin, action: "open_round", result: "ok", round: index, winners: WINNERS,
+            prize, committed: prize * BigInt(WINNERS), commit_slot: slot, snapshot_slot: snapSlot, sig });
+    } catch (e) {
+      log({ tick, coin, action: "open_round", result: "error", round: index, error: errName(e) });
+      return;
+    }
+    const r: any = await program.account.round.fetch(round, "confirmed");
+    await drawRound(tick, coin, round, r.commitSlot.toNumber(), index);
   }
 
   let tick = 0;
   let busy = false;
+  let stopping = false;
+  // finish the tick in progress before exiting, so a round is never left
+  // committed but undrawn by a restart
+  const stop = () => { stopping = true; if (!busy) { logFile?.end(); process.exit(0); } };
+  process.on("SIGTERM", stop);
+  process.on("SIGINT", stop);
   async function runTick() {
     if (busy) { log({ event: "tick_skipped", reason: "previous tick still running" }); return; }
     busy = true;
@@ -268,6 +376,7 @@ async function main() {
       log({ event: "tick_error", tick, error: errName(e) });
     } finally {
       busy = false;
+      if (stopping) { logFile?.end(); process.exit(0); }
     }
   }
 

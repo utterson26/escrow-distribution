@@ -18,3 +18,4 @@ package-lock.json
 !*.example.env
 snapshot.json
 .localnet/
+crank/snapshots/

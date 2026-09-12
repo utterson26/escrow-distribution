@@ -1,18 +1,26 @@
 /**
- * Ten-minute localnet rehearsal for the crank.
+ * Localnet rehearsal for the crank, end to end: from trades to a claim.
  *
- * Launches two coins, starts the crank as a separate process with its own
- * freshly funded wallet, and then plays the market for `SIM_MINUTES`:
+ * Launches two coins with the crank's wallet as platform authority, starts the
+ * crank as a separate process, and plays the market for `SIM_MINUTES`:
  *
  *   HOT   a steady stream of buys — should arm the volume trigger fast and
  *         keep re-arming; gets a SOL donation mid-run (buyback) and a whale
  *         buy that doubles the market cap (milestone)
  *   SLOW  small, infrequent buys — should take several minutes to arm
  *
- * Everything the crank logs is checked afterwards against what it should have
- * done: every fire landed at or after the fire slot, nothing was fired early,
- * no tick was skipped while a trigger was due, the buyback happened, and the
- * milestone was seen. The report goes to `crank/sim-report.md`.
+ * Two extra holders buy once at the start so the snapshots have more than one
+ * leaf. Nobody touches the chain by hand: the crank fires, snapshots, commits
+ * the root and draws. Afterwards the script plays the holders: it rebuilds
+ * each round's snapshot from the slot recorded on chain, checks the root,
+ * works out which draws it won and claims them.
+ *
+ * Everything the crank logged is then checked against what it should have
+ * done. The report goes to `crank/sim-report.md`.
+ *
+ * DEMO_WALLET=<pubkey> adds an outside wallet (e.g. your Phantom) as a holder:
+ * it is funded with SOL and a slice of the dev's tokens, and any draw it wins
+ * is left unclaimed so it can be claimed from the web site.
  *
  * Needs a running `scripts/localnet.sh` with the program deployed.
  */
@@ -25,16 +33,20 @@ import {
 } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync,
+  createTransferCheckedInstruction,
 } from "@solana/spl-token";
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { pumpAccounts, escrowPda, escrowAta, directBuyIx, TOKEN_2022, TOKEN, WSOL } from "../tests/pump";
+import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
+import { createHash } from "crypto";
 
 const RPC_URL = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
-const SIM_MINUTES = Number(process.env.SIM_MINUTES ?? 10);
+const SIM_MINUTES = Number(process.env.SIM_MINUTES ?? 5);
 const CRANK_INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? 60_000);
+const DEMO_WALLET = process.env.DEMO_WALLET ? new PublicKey(process.env.DEMO_WALLET) : null;
 /** Narrow firing window so a fire lands inside the rehearsal (~40 s at 400 ms/slot). */
 const DELAY_WINDOW = 100;
 
@@ -67,8 +79,10 @@ async function main() {
   // own key, and the trades come from a third party.
   const crankKp = Keypair.generate();
   const trader = Keypair.generate();
+  const holders = [Keypair.generate(), Keypair.generate()];
   fs.writeFileSync(path.join(workdir, "crank.json"), JSON.stringify([...crankKp.secretKey]));
-  for (const [who, kp, sol] of [["crank", crankKp, 5], ["trader", trader, 100]] as const) {
+  for (const [who, kp, sol] of [["crank", crankKp, 5], ["trader", trader, 100],
+                                ["holder1", holders[0], 2], ["holder2", holders[1], 2]] as const) {
     const sig = await conn.requestAirdrop(kp.publicKey, sol * LAMPORTS_PER_SOL);
     await conn.confirmTransaction(sig, "confirmed");
     note("-", `fund ${who}`, `${kp.publicKey.toBase58()} ${sol} SOL`);
@@ -116,7 +130,7 @@ async function main() {
     const ix = await program.methods
       .launch(name, symbol, `https://example.com/${symbol.toLowerCase()}.json`,
               3000, new BN(amountTokens).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL),
-              [...Buffer.alloc(32)], 0, dev.publicKey)
+              [...Buffer.alloc(32)], 0, crankKp.publicKey)   // platform = the crank
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta,
@@ -152,10 +166,40 @@ async function main() {
       trader.publicKey, WSOL, TOKEN),
   ], trader);
 
-  async function buy(c: typeof hot, sol: number, label: string) {
-    const ix = directBuyIx(c.mint, trader.publicKey, c.escrow, BigInt(Math.round(sol * LAMPORTS_PER_SOL)), 1n);
-    const sig = await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], trader);
-    note(c.symbol, label, `${sol} SOL sig=${sig}`);
+  for (const h of holders) {
+    await send([
+      ...coins.map((c) => createAssociatedTokenAccountIdempotentInstruction(
+        h.publicKey, getAssociatedTokenAddressSync(c.mint, h.publicKey, true, TOKEN_2022),
+        h.publicKey, c.mint, TOKEN_2022)),
+      createAssociatedTokenAccountIdempotentInstruction(
+        h.publicKey, getAssociatedTokenAddressSync(WSOL, h.publicKey, true, TOKEN), h.publicKey, WSOL, TOKEN),
+    ], h);
+  }
+
+  async function buy(c: typeof hot, sol: number, label: string, who: Keypair = trader) {
+    const ix = directBuyIx(c.mint, who.publicKey, c.escrow, BigInt(Math.round(sol * LAMPORTS_PER_SOL)), 1n);
+    const sig = await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], who);
+    note(c.symbol, label, `${sol} SOL by ${who === trader ? "trader" : short(who.publicKey)} sig=${sig}`);
+  }
+  // two positions that just sit there for the whole run — they are the leaves
+  // the trader competes with in every snapshot
+  for (const c of coins) for (const h of holders) await buy(c, 0.1, "holder buy", h);
+
+  // an outside wallet (Phantom) cannot sign here, so it gets its position as a
+  // transfer from the dev: 60M tokens of each coin, comfortably over the 0.05
+  // SOL minimum at launch prices, plus SOL for the claim fees
+  if (DEMO_WALLET) {
+    const sig = await conn.requestAirdrop(DEMO_WALLET, 2 * LAMPORTS_PER_SOL);
+    await conn.confirmTransaction(sig, "confirmed");
+    for (const c of coins) {
+      const to = getAssociatedTokenAddressSync(c.mint, DEMO_WALLET, true, TOKEN_2022);
+      const amount = 60_000_000n * 1_000_000n;
+      const tsig = await send([
+        createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, to, DEMO_WALLET, c.mint, TOKEN_2022),
+        createTransferCheckedInstruction(c.pa.associatedBaseUser, c.mint, to, dev.publicKey, amount, 6, [], TOKEN_2022),
+      ]);
+      note(c.symbol, "demo wallet funded", `${DEMO_WALLET.toBase58()} +${amount} token sig=${tsig}`);
+    }
   }
 
   /** Market cap in SOL off the curve's virtual reserves. */
@@ -223,10 +267,69 @@ async function main() {
     }
     await sleep(1000);
   }
-  // give the crank one last tick to fire anything left over
+  // give the crank one last tick to fire anything left over, then let it
+  // finish whatever tick it is in before it exits
   await sleep(CRANK_INTERVAL_MS + 5_000);
+  const exited = new Promise<void>((r) => crank.once("exit", () => r()));
   crank.kill("SIGTERM");
+  await Promise.race([exited, sleep(120_000)]);
   note("-", "crank stopped");
+
+  // ---- play the holders: rebuild each round from chain, claim what was won ----
+  const le16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+  const leToBig = (b: Buffer) => { let v = 0n; for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]); return v; };
+  const everyone = [trader, ...holders];
+  const claimStats = { rounds: 0, reproduced: 0, draws: 0, claimed: 0, leftForDemo: 0, errors: [] as string[] };
+  for (const c of coins) {
+    const rounds: any[] = await program.account.round.all([
+      { memcmp: { offset: 8, bytes: c.escrow.toBase58() } }]);
+    for (const { publicKey: roundAddr, account: r } of rounds.filter((x: any) => x.account.drawn)) {
+      claimStats.rounds++;
+      const snap = await snapshot(RPC_URL, c.mint.toBase58(), r.snapshotSlot.toNumber(), program.programId);
+      const rootOnChain = Buffer.from(r.root).toString("hex");
+      if (snap.root !== rootOnChain) {
+        note(c.symbol, `round ${r.index} root mismatch`, `chain=${rootOnChain.slice(0, 12)} rebuilt=${snap.root.slice(0, 12)}`);
+        continue;
+      }
+      claimStats.reproduced++;
+      const { layers } = buildTree(snap.leaves);
+      const total = BigInt(snap.totalWeight);
+      const seed = Buffer.from(r.seed);
+      for (let k = 0; k < r.winnerCount; k++) {
+        claimStats.draws++;
+        const h = createHash("sha256").update(Buffer.concat([seed, le16(k)])).digest();
+        const ticket = leToBig(h.subarray(0, 16)) % total;
+        const leaf = snap.leaves.find((l) => BigInt(l.cumStart) <= ticket && ticket < BigInt(l.cumStart) + BigInt(l.weight))!;
+        const winner = everyone.find((w) => w.publicKey.toBase58() === leaf.holder);
+        if (!winner && DEMO_WALLET && leaf.holder === DEMO_WALLET.toBase58()) {
+          claimStats.leftForDemo++;
+          note(c.symbol, `claim round ${r.index} draw ${k}`, `left for the demo wallet (${short(DEMO_WALLET)}) to claim from the web site`);
+          continue;
+        }
+        if (!winner) { claimStats.errors.push(`round ${r.index} draw ${k}: winner ${leaf.holder} is not one of ours`); continue; }
+        const ata = getAssociatedTokenAddressSync(c.mint, winner.publicKey, true, TOKEN_2022);
+        try {
+          const before = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
+          const sig = await program.methods
+            .claimPrize(k, leaf.index, new BN(leaf.weight), new BN(leaf.cumStart),
+                        proofFor(layers, leaf.index).map((b) => [...b]))
+            .accountsPartial({
+              holder: winner.publicKey, escrow: c.escrow, round: roundAddr, mint: c.mint,
+              escrowTokenAccount: escrowAta(c.escrow, c.mint), holderTokenAccount: ata,
+              bondingCurve: c.pa.bondingCurve, baseTokenProgram: TOKEN_2022,
+            }).signers([winner]).rpc({ commitment: "confirmed" });
+          const after = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
+          const got = BigInt(after) - BigInt(before);
+          if (got !== BigInt(r.prize.toString())) claimStats.errors.push(`round ${r.index} draw ${k}: paid ${got}, prize ${r.prize}`);
+          else claimStats.claimed++;
+          note(c.symbol, `claim round ${r.index} draw ${k}`,
+               `${winner === trader ? "trader" : short(winner.publicKey)} +${got} token sig=${sig}`);
+        } catch (e: any) {
+          claimStats.errors.push(`round ${r.index} draw ${k}: ${String(e?.message ?? e).slice(0, 100)}`);
+        }
+      }
+    }
+  }
 
   // ---- verdict ----
   const lines = fs.readFileSync(crankLog, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -261,9 +364,24 @@ async function main() {
     ok: errors.length === 0, detail: errors.map((e) => `${sym(e.coin ?? "-")} ${e.action ?? e.event}: ${e.error}`).join("; ") || "-" });
   checks.push({ name: "hiç tick atlanmadı",
     ok: !lines.some((l) => l.event === "tick_skipped"), detail: `${lines.filter((l) => l.event === "tick").length} tick` });
+  const opened = lines.filter((l) => l.action === "open_round" && l.result === "ok");
+  const drawn = lines.filter((l) => l.action === "draw" && l.result === "ok");
+  checks.push({ name: "her fire'dan sonra crank snapshot alıp round açtı",
+    ok: opened.length > 0 && opened.length >= fires.filter((f) => sym(f.coin) !== f.coin).length,
+    detail: opened.map((o) => `${sym(o.coin)} round ${o.round} ${o.winners}×${o.prize} snap_slot=${o.snapshot_slot}`).join("; ") });
+  checks.push({ name: "her round'un çekilişi yapıldı",
+    ok: drawn.length === opened.length && drawn.length > 0, detail: `${opened.length} açıldı, ${drawn.length} çekildi` });
+  checks.push({ name: "snapshot zincirdeki slot'tan yeniden üretildi, kök tuttu",
+    ok: claimStats.rounds > 0 && claimStats.reproduced === claimStats.rounds,
+    detail: `${claimStats.reproduced}/${claimStats.rounds} round` });
+  checks.push({ name: "kazananlar elle müdahale olmadan claim etti",
+    ok: claimStats.draws > 0 && claimStats.claimed + claimStats.leftForDemo === claimStats.draws && claimStats.errors.length === 0,
+    detail: `${claimStats.claimed}/${claimStats.draws} çekiliş ödendi`
+      + (claimStats.leftForDemo ? `, ${claimStats.leftForDemo} tanesi demo cüzdana (Phantom) bırakıldı` : "")
+      + (claimStats.errors.length ? "; " + claimStats.errors.join("; ") : "") });
 
   const timeline = [
-    ...events.map((e) => ({ ts: e.ts, who: "sim", coin: e.coin, text: `${e.what} ${e.detail}` })),
+    ...events.map((e) => ({ ts: e.ts, who: e.what.startsWith("claim") ? "holder" : "sim", coin: e.coin, text: `${e.what} ${e.detail}` })),
     ...lines.filter((l) => l.action || l.event === "tick").map((l) => ({
       ts: l.ts, who: "crank", coin: l.coin ? sym(l.coin) : "-",
       text: l.event === "tick" ? `tick ${l.tick} slot=${l.slot} coins=${l.coins}`
@@ -277,7 +395,7 @@ async function main() {
   const report = [
     `# Crank simülasyonu — ${new Date(t0).toISOString()}`, "",
     `Localnet, ${SIM_MINUTES} dk, crank aralığı ${CRANK_INTERVAL_MS / 1000} sn, gecikme penceresi ${DELAY_WINDOW} slot.`,
-    `Crank cüzdanı \`${crankKp.publicKey.toBase58()}\` (dev değil), trader \`${trader.publicKey.toBase58()}\`.`, "",
+    `Crank cüzdanı \`${crankKp.publicKey.toBase58()}\` (dev değil; launch'ta platform yetkilisi olarak yazıldı), trader \`${trader.publicKey.toBase58()}\`, sabit holder'lar ${holders.map((h) => "`" + h.publicKey.toBase58() + "`").join(", ")}.`, "",
     ...coins.map((c) => `- ${c.symbol}: mint \`${c.mint.toBase58()}\`, escrow \`${c.escrow.toBase58()}\``), "",
     `## Sonuç: ${allOk ? "✅ hepsi geçti" : "❌ eksik var"}`, "",
     "| Kontrol | Durum | Detay |", "|---|---|---|",

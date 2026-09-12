@@ -90,15 +90,20 @@ export interface Round {
   totalWeight: bigint; winnerCount: number; prize: bigint;
   commitSlot: bigint; seed: string; drawn: boolean;
   claimedBits: Buffer; claimedCount: number;
+  /** slot the snapshot was taken at; absent on rounds from before it was recorded */
+  snapshotSlot?: bigint;
 }
 export function decodeRound(address: string, data: Buffer): Round {
   const r = new R(data);
-  return {
+  const round: Round = {
     address, escrow: r.key(), index: r.u32(), root: r.bytes(32).toString("hex"),
     totalWeight: r.u128(), winnerCount: r.u16(), prize: r.u64(),
     commitSlot: r.u64(), seed: r.bytes(32).toString("hex"), drawn: r.bool(),
     claimedBits: r.bytes(32), claimedCount: r.u16(),
   };
+  r.u8(); // bump
+  if (r.left() >= 8) round.snapshotSlot = r.u64();
+  return round;
 }
 
 export const pda = (seeds: (Buffer | Uint8Array)[], prog = PROGRAM_ID) =>

@@ -634,6 +634,10 @@ pub mod airdrop_escrow {
     /// Only the root is stored; the randomness that picks winners is drawn in a
     /// separate, later transaction, so whoever publishes the root cannot know who
     /// will win and therefore cannot pick them.
+    ///
+    /// `snapshot_slot` is the slot the holder snapshot was taken at. It is
+    /// recorded so anyone can rebuild the exact same snapshot and check the
+    /// root, instead of guessing which slot the publisher used.
     pub fn open_round(
         ctx: Context<OpenRound>,
         index: u32,
@@ -641,11 +645,14 @@ pub mod airdrop_escrow {
         total_weight: u128,
         winner_count: u16,
         prize: u64,
+        snapshot_slot: u64,
     ) -> Result<()> {
         require!(
             winner_count > 0 && winner_count <= MAX_WINNERS,
             EscrowError::BadWinnerCount
         );
+        let now_slot = Clock::get()?.slot;
+        require!(snapshot_slot <= now_slot, EscrowError::SnapshotInFuture);
         require!(total_weight > 0, EscrowError::ZeroWeight);
         require!(prize > 0, EscrowError::ZeroAmount);
         require!(root != [0u8; 32], EscrowError::EmptyRoot);
@@ -675,12 +682,13 @@ pub mod airdrop_escrow {
         round.total_weight = total_weight;
         round.winner_count = winner_count;
         round.prize = prize;
-        round.commit_slot = Clock::get()?.slot;
+        round.commit_slot = now_slot;
         round.seed = [0u8; 32];
         round.drawn = false;
         round.claimed_bits = [0u8; 32];
         round.claimed_count = 0;
         round.bump = ctx.bumps.round;
+        round.snapshot_slot = snapshot_slot;
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.allocated = escrow
@@ -700,6 +708,7 @@ pub mod airdrop_escrow {
             winner_count,
             prize,
             commit_slot: round.commit_slot,
+            snapshot_slot,
         });
         Ok(())
     }
@@ -1300,6 +1309,7 @@ pub struct RoundOpened {
     pub winner_count: u16,
     pub prize: u64,
     pub commit_slot: u64,
+    pub snapshot_slot: u64,
 }
 #[event]
 pub struct RoundDrawn {
@@ -1640,21 +1650,26 @@ pub struct FireTrigger<'info> {
     pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
 }
 
+/// The root may be published by the dev or by the platform authority: the
+/// platform runs the crank that snapshots and opens rounds, so launches do not
+/// depend on the dev staying online. Neither can choose the amount (it is what
+/// a trigger released) nor the winners (the randomness is drawn afterwards).
 #[derive(Accounts)]
 #[instruction(index: u32)]
 pub struct OpenRound<'info> {
     #[account(mut)]
-    pub dev: Signer<'info>,
+    pub publisher: Signer<'info>,
     #[account(
         mut,
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
         bump = escrow.bump,
-        constraint = escrow.dev == dev.key() @ EscrowError::NotDev
+        constraint = escrow.dev == publisher.key() || escrow.platform == publisher.key()
+            @ EscrowError::NotPublisher
     )]
     pub escrow: Box<Account<'info, Escrow>>,
     #[account(
         init,
-        payer = dev,
+        payer = publisher,
         space = 8 + Round::INIT_SPACE,
         seeds = [ROUND_SEED, escrow.key().as_ref(), &index.to_le_bytes()],
         bump

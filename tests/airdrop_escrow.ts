@@ -558,16 +558,16 @@ describe("airdrop_escrow (devnet)", () => {
     try {
       await program.methods
         .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
-                   new BN(snap.totalWeight), winners, prize.muln(3))
-        .accountsPartial({ dev: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
+                   new BN(snap.totalWeight), winners, prize.muln(3), new BN(snap.snapshotSlot))
+        .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
         .rpc({ commitment: "confirmed" });
     } catch { refused = true; }
     assert.isTrue(refused, "cannot distribute more than the trigger authorised");
 
     const sig = await withRetry("open_round", () => program.methods
       .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
-                 new BN(snap.totalWeight), winners, prize)
-      .accountsPartial({ dev: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
+                 new BN(snap.totalWeight), winners, prize, new BN(snap.snapshotSlot))
+      .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
       .rpc({ commitment: "confirmed" }));
     sigs.openRound = sig;
 
@@ -575,6 +575,7 @@ describe("airdrop_escrow (devnet)", () => {
     assert.equal(Buffer.from(r.root).toString("hex"), snap.root, "root stored as committed");
     assert.isFalse(r.drawn, "no randomness at commit time");
     assert.equal(r.winnerCount, winners);
+    assert.equal(r.snapshotSlot.toNumber(), snap.snapshotSlot, "snapshot slot recorded");
     console.log(`  root islendi, ${winners} kazanan x ${prize.toString()} odul sig=${sig}`);
   });
 

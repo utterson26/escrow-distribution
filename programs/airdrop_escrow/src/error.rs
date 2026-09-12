@@ -64,6 +64,10 @@ pub enum EscrowError {
     HolderMismatch,
     #[msg("only the dev authority may call this")]
     NotDev,
+    #[msg("only the dev or the platform authority may open a round")]
+    NotPublisher,
+    #[msg("snapshot slot is in the future")]
+    SnapshotInFuture,
     #[msg("arithmetic overflow")]
     Overflow,
     #[msg("bonding curve is complete; the coin has migrated")]

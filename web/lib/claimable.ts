@@ -15,10 +15,12 @@ async function snapshotForRound(mint: string, r: Round): Promise<Snapshot | null
   const file = path.join(CACHE, `${mint}-${r.index}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
   try {
-    // the snapshot is taken just before the root is committed, so walk back a
-    // little from the commit slot until the rebuilt root matches the committed one
-    for (const back of [0, 2, 5, 10, 20, 40]) {
-      const slot = Number(r.commitSlot) - back;
+    // newer rounds record the snapshot slot; older ones were taken just before
+    // the commit, so walk back a little until the rebuilt root matches
+    const candidates = r.snapshotSlot !== undefined
+      ? [Number(r.snapshotSlot)]
+      : [0, 2, 5, 10, 20, 40].map((back) => Number(r.commitSlot) - back);
+    for (const slot of candidates) {
       const snap = await snapshot(rpcUrl(), mint, slot, PROGRAM_ID);
       if (buildTree(snap.leaves).root.toString("hex") === r.root) {
         fs.writeFileSync(file, JSON.stringify(snap));
