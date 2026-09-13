@@ -24,6 +24,32 @@ function Next({ t }: { t: any }) {
   );
 }
 
+/** The program-wide beta brakes, read from Config: launches paused?, per-coin lock cap, eligibility floor. */
+function BetaStatus({ cfg }: { cfg: Config | null }) {
+  if (!cfg || cfg.paused === undefined) return null;
+  const cap = cfg.maxLockedValueLamports ?? 0n;
+  const floor = cfg.minPositionLamports ?? 0n;
+  const pendingCap = (cfg.lockCapEffectiveSlot ?? 0n) > 0n;
+  const pendingFloor = (cfg.minPositionEffectiveSlot ?? 0n) > 0n;
+  return (
+    <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px", alignItems: "center", padding: "8px 12px", marginBottom: 12 }}>
+      <span className={`pill${cfg.paused ? " warn" : " on"}`}
+            title={cfg.paused ? "the platform paused new launches; claims, triggers and rounds keep running" : "new launches are accepted"}>
+        launches {cfg.paused ? "paused" : "open"}
+      </span>
+      <span className="k">
+        lock cap <b>{fmtSol(cap)} SOL</b> per coin
+        {pendingCap && ` (→ ${fmtSol(cfg.pendingLockCapLamports ?? 0n)} SOL at slot ${cfg.lockCapEffectiveSlot})`}
+      </span>
+      <span className="k">
+        eligibility floor <b>{fmtSol(floor)} SOL</b> per wallet
+        {pendingFloor && ` (→ ${fmtSol(cfg.pendingMinPositionLamports ?? 0n)} SOL at slot ${cfg.minPositionEffectiveSlot})`}
+      </span>
+      {cfg.publishers && <span className="k">rounds opened by {cfg.publishers.length} listed publisher{cfg.publishers.length === 1 ? "" : "s"}</span>}
+    </div>
+  );
+}
+
 export default async function Home() {
   let rows: any[] = [];
   let error: string | null = null;
@@ -32,11 +58,12 @@ export default async function Home() {
 
   if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
   const net = network().name;
-  if (!rows.length) return <div className="empty">No coins have been launched on {net} yet.</div>;
+  if (!rows.length) return <><BetaStatus cfg={cfg} /><div className="empty">No coins have been launched on {net} yet.</div></>;
 
   return (
     <>
       <h2>Coins</h2>
+      <BetaStatus cfg={cfg} />
       <div className="card" style={{ padding: 0, overflowX: "auto" }}>
         <table>
           <thead>
@@ -80,7 +107,10 @@ export default async function Home() {
         there are enough holders. The platform fee is a cut of pump&apos;s creator fee only — it is
         written into each coin&apos;s pump fee-sharing config and never touches the locked pool.
         {cfg && <> Current platform rate for new launches: {cfg.platformFeeBps / 100}%
-          {cfg.feeEffectiveSlot > 0n && ` (change to ${cfg.pendingFeeBps / 100}% pending, effective at slot ${cfg.feeEffectiveSlot})`}.</>}
+          {cfg.feeEffectiveSlot > 0n && ` (change to ${cfg.pendingFeeBps / 100}% pending, effective at slot ${cfg.feeEffectiveSlot})`}.
+          The lock cap and the eligibility floor above are beta brakes in the same config; the platform
+          can change either only through a proposal that takes effect 7 days later, and every round
+          keeps the floor it was built with.</>}
       </div>
     </>
   );

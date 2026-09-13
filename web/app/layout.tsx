@@ -29,9 +29,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </header>
           <div className="wrap">
             <div className="note" style={{ margin: "10px 0 16px", padding: "8px 12px", border: "1px solid var(--line, #ddd)", borderRadius: 8 }}>
-              <b>Beta.</b> This program has not been audited yet. Each coin may lock at most 50 SOL of value
-              at launch, and the platform can pause new launches; claims and distributions never pause.
-              Source, tests and the security review are public.
+              <b>Beta.</b> This program has not been audited yet. Each coin may lock at most a capped value
+              at launch (50 SOL today; the live figure and whether launches are paused are shown on the
+              <a href="/">Coins</a> page), and the platform can pause new launches; claims and distributions
+              never pause. Source, tests and the security review are public.
             </div>
             {children}
           </div>

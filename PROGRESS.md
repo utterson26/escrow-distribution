@@ -1214,7 +1214,10 @@ günü — whitelisted bir quote'a erişim ön koşul.
 - Devnet: **adım 26 sürümü** (frenler yok), bakiye **0,538 SOL**. Bölüm 1
   koşulmadı; gereken ~4 SOL (sell-back ile) / ~6 SOL (sell-back'siz).
 - Web: beta kutusu, explorer linkleri, Config'in yeni alanları decode
-  ediliyor; `cfg.paused` ve tavan listede henüz gösterilmiyor (küçük iş).
+  ediliyor; 14 Eylül: Coins sayfasında `BetaStatus` şeridi — launches
+  open/paused, tavan (bekleyen değişiklikle), taban (bekleyen değişiklikle),
+  listedeki publisher sayısı; layout'taki 50 SOL artık canlı rakama işaret
+  ediyor. `next build` temiz.
 
 ## Adım 29 — iki karar uygulandı (13 Eylül) ✅
 
