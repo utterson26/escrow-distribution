@@ -944,9 +944,13 @@ token grant; demo alımları 0,12 SOL).
   `pending_fee_bps`, `fee_effective_slot`. `set_platform(platform, fee_wallet)`.
   `propose_platform_fee(bps)` platform-only, etkin slot = şimdi + 1.512.000
   (7 gün), `PlatformFeeProposed`; `apply_platform_fee` izinsiz, erken →
-  `FeeChangeTooEarly`, `PlatformFeeApplied`. Test F6 erken reddi doğruluyor;
-  **başarılı apply localnet'te test edilmedi** (7 gün beklemek gerekir, knob
-  koymadım). Oran değişimi yalnızca sonraki `setup_fee_sharing`'lere yansır.
+  `FeeChangeTooEarly`, `PlatformFeeApplied`. `set_fee_delay(slots)` test knob'u (platform-only,
+  taban 5 slot, tavan 7 gün; `Config.fee_delay_slots`): F6 önce 7 günlük
+  öneride erken apply'ı reddettiriyor, sonra gecikmeyi 5 slota indirip
+  %5 öneriyor, bekleyip apply ediyor (oran 500, öneri temizlenir, ikinci
+  apply `NoPendingFee`) ve SEC coin'ini o anda kurunca escrow'a **%5**
+  yazıldığını gösteriyor. Oran değişimi yalnızca sonraki
+  `setup_fee_sharing`'lere yansır.
 - localnet.sh pump AMM programını da klonluyor (`update_fee_shares_v2` hesap
   olarak istiyor). Config düzeni değiştiği için ledger sıfırlandı.
 
@@ -975,9 +979,20 @@ holder-rewards retleri, F6 7 gün gecikme), manual 7/7, allocate birim 6/6.
 sonra alınıyor (12×0,12 SOL alım kilometre taşını tetiklemesin), collect adımı
 escrow/platform bölünmesini gösteriyor. 3/3 temiz (71/73/68 sn).
 
-**Koşulmayan:** crank simülasyonu (`npm run crank:sim`, 10 dk) bu turda
-koşulmadı; crank kodu setup/collect/holder-rewards için güncellendi ama
-uçtan uca denenmedi.
+**Crank simülasyonu (5 dk): 11/11 ✅** (`crank/sim-report.md`). İlk koşuda iki
+sorun çıktı ve düzeltildi: (1) launch v0 işlemi "address table lookup uses an
+invalid index" — LUT'un son extend'inden hemen sonra RPC eski sürümü
+görebiliyor; launch gönderimine kısa retry eklendi. (2) `collect_fees`
+`ShareholdersAndRemainingAccountsMismatch` — crank pay sahiplerini güncel
+`Config.platform_fee_wallet`'tan kuruyordu, oysa her coin'in payı pump'ta
+kurulduğu andaki cüzdanla sabit (testlerin SEC coin'i başka cüzdanla
+kurulmuştu). Şimdi crank pay sahiplerini coin'in **pump'taki sharing
+config'inden okuyor** (`shareholdersFromChain`). Ledger'da kalan test
+coin'leri (SEC vb.) de crank'e giriyor; onların da buyback/collect'i çalıştı.
+
+**Web (holder-rewards):** coin sayfasında "ödüller pump.fun tarafından
+dağıtılır" kutusu ve coin'in pump.fun sayfasına link
+(`https://pump.fun/coin/<mint>`); ücret süpürme/buyback yok notu.
 
 ## Senden karar bekleyenler (yeni)
 
