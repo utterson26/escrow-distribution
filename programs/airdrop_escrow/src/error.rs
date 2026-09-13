@@ -94,6 +94,14 @@ pub enum EscrowError {
     FeeChangeTooEarly,
     #[msg("fee delay is outside the allowed range")]
     BadFeeDelay,
+    #[msg("the value this launch would lock exceeds the platform's per-coin cap")]
+    LockCapExceeded,
+    #[msg("no lock cap change is pending")]
+    NoPendingLockCap,
+    #[msg("the lock cap change is not effective yet")]
+    LockCapChangeTooEarly,
+    #[msg("launches are paused by the platform")]
+    Paused,
     #[msg("bonding curve is complete; the coin has migrated")]
     CurveComplete,
     #[msg("buy returned fewer tokens than the on-chain quote allows")]

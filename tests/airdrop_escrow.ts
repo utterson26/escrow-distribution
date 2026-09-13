@@ -12,7 +12,7 @@ import { assert } from "chai";
 import * as fs from "fs";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
-  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, failureText,
+  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, failureText, sellBackAll,
   TOKEN_2022, WSOL, TOKEN, patchProvider,
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
@@ -133,6 +133,10 @@ describe("airdrop_escrow (devnet)", () => {
         } catch { /* best effort */ }
       }
       console.log(`  swept ${swept / LAMPORTS_PER_SOL} SOL back from the holders`);
+      try {
+        const got = await sellBackAll(conn, dev, mint, sharingConfig);
+        console.log(`  sold the dev's remaining position back: +${got / LAMPORTS_PER_SOL} SOL`);
+      } catch (e: any) { console.log(`  sell-back skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
     }
     console.log("\n=== devnet signatures ===");
     console.log(JSON.stringify({ mint: mint.toBase58(), escrow: escrow.toBase58(), ...sigs }, null, 2));

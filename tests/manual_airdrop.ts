@@ -10,6 +10,8 @@ import {
 } from "@solana/spl-token";
 import { createHash } from "crypto";
 import { assert } from "chai";
+import * as fs from "fs";
+import * as path from "path";
 import { pumpAccounts, escrowPda, escrowAta, TOKEN_2022, WSOL, TOKEN, patchProvider } from "./pump";
 import { configPda, setPlatform } from "./config";
 
@@ -155,15 +157,58 @@ describe("manual airdrop (localnet)", () => {
       const sim = await conn.simulateTransaction(t, { commitment: "confirmed" });
       return (sim.value.logs ?? []).join("\n") + JSON.stringify(sim.value.err ?? "");
     };
+    // a simulated launch's log can be truncated before anchor prints the error
+    // name; the numeric code from the IDL is always in the returned error
+    const errRe = (name: string) => {
+      const idlErrors = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8")).errors ?? [];
+      const code = idlErrors.find((e: any) => e.name === name)?.code;
+      return new RegExp(`${name}|"Custom":${code}\\b`);
+    };
     // the lock rules, checked before the real launch on the same mint:
     //  - both slices zero → nothing locked
     //  - manual slice without a root (and vice versa)
     //  - a lock under 1% of supply: 20M × 0.4% = 80K tokens, far below 10M
-    assert.match(await tryLaunch(0, 0, [...Buffer.alloc(32)], AMOUNT), /BadLockSplit/, "zero split refused");
-    assert.match(await tryLaunch(0, 3000, [...root], AMOUNT), /ManualRootMismatch/, "root without a manual slice refused");
-    assert.match(await tryLaunch(3500, 0, [...Buffer.alloc(32)], AMOUNT), /ManualRootMismatch/, "manual slice without a root refused");
-    assert.match(await tryLaunch(0, 40, [...Buffer.alloc(32)], AMOUNT), /LockTooSmall/, "lock under 1% of supply refused");
+    assert.match(await tryLaunch(0, 0, [...Buffer.alloc(32)], AMOUNT), errRe("BadLockSplit"), "zero split refused");
+    assert.match(await tryLaunch(0, 3000, [...root], AMOUNT), errRe("ManualRootMismatch"), "root without a manual slice refused");
+    assert.match(await tryLaunch(3500, 0, [...Buffer.alloc(32)], AMOUNT), errRe("ManualRootMismatch"), "manual slice without a root refused");
+    assert.match(await tryLaunch(0, 40, [...Buffer.alloc(32)], AMOUNT), errRe("LockTooSmall"), "lock under 1% of supply refused");
     console.log("  kilit kurallari: sifir bolunme, koksuz liste, %1 alti kilit reddedildi (simulasyon)");
+
+    // beta brakes, same simulation trick:
+    //  - paused: launches refuse, nothing else does (claims run below while paused)
+    //  - lock cap: the value a launch locks, at the price it paid, is capped
+    const cfgAddr = configPda(program.programId);
+    const platformOnly = { platform: platform.publicKey, config: cfgAddr };
+    await program.methods.setPaused(true).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    assert.match(await tryLaunch(MANUAL_BPS, ESCROW_BPS, [...root], AMOUNT), errRe("Paused"), "launch refused while paused");
+    await program.methods.setPaused(false).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    // 20M tokens ≈ 0.02 SOL at launch; a 1-lamport cap must refuse, the 50 SOL default must not
+    const cfg0: any = await program.account.config.fetch(cfgAddr);
+    const delayBefore = cfg0.feeDelaySlots.toNumber();
+    await program.methods.setFeeDelay(new BN(5)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    await program.methods.proposeLockCap(new BN(1)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    let cfg: any = await program.account.config.fetch(cfgAddr);
+    assert.equal(cfg.pendingLockCapLamports.toNumber(), 1);
+    if ((await conn.getSlot("confirmed")) < cfg.lockCapEffectiveSlot.toNumber()) {
+      let early = false;
+      try { await program.methods.applyLockCap().accountsPartial({ config: cfgAddr }).rpc(provider.opts); } catch { early = true; }
+      assert.isTrue(early, "cap change cannot be applied before its delay");
+    }
+    while ((await conn.getSlot("confirmed")) < cfg.lockCapEffectiveSlot.toNumber()) await sleep(300);
+    await program.methods.applyLockCap().accountsPartial({ config: cfgAddr }).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    assert.equal(cfg.maxLockedValueLamports.toNumber(), 1, "cap applied after the delay");
+    const capLogs = await tryLaunch(MANUAL_BPS, ESCROW_BPS, [...root], AMOUNT);
+    assert.match(capLogs, errRe("LockCapExceeded"), "launch over the lock cap refused");
+    // back to the 50 SOL default, and the production delay
+    await program.methods.proposeLockCap(new BN(50 * LAMPORTS_PER_SOL)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    while ((await conn.getSlot("confirmed")) < cfg.lockCapEffectiveSlot.toNumber()) await sleep(300);
+    await program.methods.applyLockCap().accountsPartial({ config: cfgAddr }).rpc(provider.opts);
+    await program.methods.setFeeDelay(new BN(delayBefore || 1_512_000)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    assert.equal(cfg.maxLockedValueLamports.toNumber(), 50 * LAMPORTS_PER_SOL);
+    console.log("  frenler: paused'da launch reddi, 1 lamport tavanda LockCapExceeded, tavan 50 SOL'e geri (simulasyon)");
 
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
@@ -209,9 +254,13 @@ describe("manual airdrop (localnet)", () => {
     assert.closeTo(st.manualUnlockTs.toNumber() - now, 30 * 24 * 3600, 300,
       "unlock is 30 days out");
     console.log(`  ${expected.toString()} token ayrildi, kilit ${new Date(st.manualUnlockTs.toNumber() * 1000).toISOString()}`);
+    // leave launches paused: the claims in the next tests must go through anyway
+    await program.methods.setPaused(true).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
   });
 
-  it("each wallet claims its own share", async () => {
+  it("each wallet claims its own share (while launches are paused)", async () => {
+    const cfg: any = await program.account.config.fetch(configPda(program.programId));
+    assert.isTrue(cfg.paused, "launches are paused for this test");
     const st0: any = await program.account.escrow.fetch(escrow);
     const total = st0.manualTotal;
 
@@ -257,6 +306,9 @@ describe("manual airdrop (localnet)", () => {
     } catch { rejected = true; }
     assert.isTrue(rejected, "double claim must be rejected");
     console.log("  ikinci claim reddedildi");
+    // launches back on
+    await program.methods.setPaused(false).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc(provider.opts);
   });
 
   it("a wallet outside the list cannot claim, and shares cannot be inflated", async () => {

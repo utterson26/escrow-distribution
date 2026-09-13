@@ -41,7 +41,77 @@ pub mod airdrop_escrow {
             config.pending_fee_bps = 0;
             config.fee_effective_slot = 0;
             config.fee_delay_slots = PLATFORM_FEE_DELAY_SLOTS;
+            config.max_locked_value_lamports = DEFAULT_MAX_LOCKED_VALUE_LAMPORTS;
+            config.pending_lock_cap_lamports = 0;
+            config.lock_cap_effective_slot = 0;
+            config.paused = false;
         }
+        Ok(())
+    }
+
+    /// Grow an existing `Config` account to the current layout. Upgrade
+    /// authority only. Appended fields read as zero, which every reader treats
+    /// as "default"; nothing already stored is touched.
+    pub fn migrate_config(ctx: Context<MigrateConfig>) -> Result<()> {
+        let info = ctx.accounts.config.to_account_info();
+        let new_len = 8 + Config::INIT_SPACE;
+        if info.data_len() < new_len {
+            let rent = Rent::get()?.minimum_balance(new_len);
+            let short = rent.saturating_sub(info.lamports());
+            if short > 0 {
+                anchor_lang::system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.key(),
+                        anchor_lang::system_program::Transfer {
+                            from: ctx.accounts.authority.to_account_info(),
+                            to: info.clone(),
+                        },
+                    ),
+                    short,
+                )?;
+            }
+            info.resize(new_len)?;
+        }
+        Ok(())
+    }
+
+    /// Propose a new per-coin lock cap; live after the config's delay via
+    /// `apply_lock_cap`. Platform authority only.
+    pub fn propose_lock_cap(ctx: Context<PlatformFeeChange>, lamports: u64) -> Result<()> {
+        require!(lamports > 0, EscrowError::ZeroAmount);
+        let config = &mut ctx.accounts.config;
+        let now = Clock::get()?.slot;
+        let delay = if config.fee_delay_slots == 0 { PLATFORM_FEE_DELAY_SLOTS } else { config.fee_delay_slots };
+        config.pending_lock_cap_lamports = lamports;
+        config.lock_cap_effective_slot = now.saturating_add(delay);
+        emit!(LockCapProposed {
+            current_lamports: config.max_locked_value_lamports,
+            new_lamports: lamports,
+            proposed_slot: now,
+            effective_slot: config.lock_cap_effective_slot,
+        });
+        Ok(())
+    }
+
+    /// Permissionless once the delay has passed.
+    pub fn apply_lock_cap(ctx: Context<ApplyPlatformFee>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.lock_cap_effective_slot > 0, EscrowError::NoPendingLockCap);
+        let now = Clock::get()?.slot;
+        require!(now >= config.lock_cap_effective_slot, EscrowError::LockCapChangeTooEarly);
+        let old = config.max_locked_value_lamports;
+        config.max_locked_value_lamports = config.pending_lock_cap_lamports;
+        config.pending_lock_cap_lamports = 0;
+        config.lock_cap_effective_slot = 0;
+        emit!(LockCapApplied { old_lamports: old, new_lamports: config.max_locked_value_lamports, slot: now });
+        Ok(())
+    }
+
+    /// Stop or resume launches. Immediate, platform authority only. Nothing
+    /// else pauses: claims, triggers, rounds and buybacks keep running.
+    pub fn set_paused(ctx: Context<PlatformFeeChange>, paused: bool) -> Result<()> {
+        ctx.accounts.config.paused = paused;
+        emit!(PausedSet { paused, slot: Clock::get()?.slot });
         Ok(())
     }
 
@@ -113,6 +183,7 @@ pub mod airdrop_escrow {
         holder_bps: u16,
         is_holder_reward: bool,
     ) -> Result<()> {
+        require!(!ctx.accounts.config.paused, EscrowError::Paused);
         let locked_bps = manual_bps as u64 + holder_bps as u64;
         require!(locked_bps > 0 && locked_bps <= BPS_DENOM, EscrowError::BadLockSplit);
         require!(
@@ -153,7 +224,10 @@ pub mod airdrop_escrow {
         )?;
 
         // ---- 3. buy_v2: dev pays, dev receives -------------------------------
+        let dev_before = ctx.accounts.dev.lamports();
         cpi_buy_v2(&ctx.accounts, amount, max_sol_cost)?;
+        // what the buy actually cost, fees and rent included: the launch price
+        let sol_spent = dev_before.saturating_sub(ctx.accounts.dev.lamports());
 
         // ---- 4. split: holder_bps of the buy goes to the escrow ATA -----------
         let escrow_cut = (amount as u128)
@@ -230,6 +304,17 @@ pub mod airdrop_escrow {
             / BPS_DENOM as u128;
         let locked = (escrow_cut as u128).saturating_add(manual_total as u128);
         require!(locked >= min_lock, EscrowError::LockTooSmall);
+
+        // ---- 7. ...and at most the platform's per-coin cap, at the launch price
+        let cap = match ctx.accounts.config.max_locked_value_lamports {
+            0 => DEFAULT_MAX_LOCKED_VALUE_LAMPORTS,
+            c => c,
+        };
+        let locked_value = (sol_spent as u128)
+            .checked_mul(locked)
+            .ok_or(EscrowError::Overflow)?
+            / amount as u128;
+        require!(locked_value <= cap as u128, EscrowError::LockCapExceeded);
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.dev = ctx.accounts.dev.key();
@@ -1510,6 +1595,24 @@ pub struct PlatformFeeProposed {
     pub effective_slot: u64,
 }
 #[event]
+pub struct LockCapProposed {
+    pub current_lamports: u64,
+    pub new_lamports: u64,
+    pub proposed_slot: u64,
+    pub effective_slot: u64,
+}
+#[event]
+pub struct LockCapApplied {
+    pub old_lamports: u64,
+    pub new_lamports: u64,
+    pub slot: u64,
+}
+#[event]
+pub struct PausedSet {
+    pub paused: bool,
+    pub slot: u64,
+}
+#[event]
 pub struct PlatformFeeApplied {
     pub old_bps: u16,
     pub new_bps: u16,
@@ -1850,6 +1953,25 @@ pub struct SetupFeeSharing<'info> {
     pub pump_amm_program: UncheckedAccount<'info>,
     /// CHECK: pump AMM PDA
     pub amm_event_authority: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Upgrade authority only, like `set_platform`; the config is raw here because
+/// an old, shorter account would not deserialize as `Config` before growing.
+#[derive(Accounts)]
+pub struct MigrateConfig<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// CHECK: PDA, seeds checked; resized in-handler
+    #[account(mut, seeds = [CONFIG_SEED], bump, owner = crate::ID)]
+    pub config: UncheckedAccount<'info>,
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()))]
+    pub program: Program<'info, crate::program::AirdropEscrow>,
+    #[account(
+        constraint = program_data.upgrade_authority_address == Some(authority.key())
+            @ EscrowError::NotUpgradeAuthority
+    )]
+    pub program_data: Account<'info, ProgramData>,
     pub system_program: Program<'info, System>,
 }
 

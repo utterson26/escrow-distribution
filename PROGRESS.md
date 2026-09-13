@@ -1117,6 +1117,47 @@ finalized-preflight yüzünden yarım) ~3,3; security 2 koşu ~1,1; manual 2 ko�
 ~0,3. Ana suite'in 3 düzeltilmiş testi devnet'te **yeniden koşulmadı**
 (localnet'te 20/20). Devnet'te tam yeşil bir tur için ~3 SOL gerekir.
 
+## gorev-3saat.md — bölüm 1: devnet ⏸ (SOL yok)
+
+Bakiye **0,538 SOL** (5 SOL önceki turda harcandı, adım 27). Deploy + üç
+suite + demo tahmini: deploy ~0,1 (Config büyüdü, extend gerekmez), ana suite
+~2,4, security ~0,6 net, manual ~0,15, devnet demo ~1,9 → **~5,2 SOL + 1 SOL
+marj ≈ 6,2 SOL** gerekir; bakiye 1 SOL sınırının altına ineceği için **koşulmadı**.
+Maliyeti düşürmek için koşu sonlarına `sellBackAll` eklendi (dev'in kalan
+pozisyonu curve'e geri satılıyor: ana test, security, devnet demo) —
+bununla tahmin **~3 SOL + 1 marj = ~4 SOL**. Şu anki devnet programı adım 26
+sürümü; bölüm 2'nin Config alanları (`max_locked_value_lamports`, `paused`)
+devnet'te **yok**: deploy sonrası `migrate_config` şart (launch, Config'i
+`Account<Config>` olarak açar; kısa hesap deserialize olmaz).
+
+## gorev-3saat.md — bölüm 2: mainnet frenleri ✅
+
+- **Kilit tavanı:** `Config.max_locked_value_lamports` (0 = varsayılan 50 SOL,
+  `DEFAULT_MAX_LOCKED_VALUE_LAMPORTS`). `launch`, `buy_v2` CPI'ı etrafında
+  dev'in lamport farkını ölçüp `sol_spent × locked / amount` ile kilitlenen
+  değeri launch fiyatından hesaplar; tavanı aşarsa `LockCapExceeded`.
+  Değişim: `propose_lock_cap` (platform) → `fee_delay_slots` (7 gün, test
+  knob'u ortak) → `apply_lock_cap` (izinsiz); `LockCapProposed/Applied`.
+- **Pause:** `Config.paused`, `set_paused(bool)` platform-only, anında;
+  **yalnızca `launch`** `Paused` ile durur. claim/fire/open_round/buyback'te
+  bayrak okunmaz bile.
+- **`migrate_config`** (upgrade authority): mevcut Config hesabını yeni
+  boyuta büyütür (`AccountInfo::resize` + rent tamamlama), eklenen alanlar
+  sıfır = varsayılan. Localnet'te 93 → 118 bayt ile denendi.
+- **Testler** (`manual_airdrop.ts`, launch simülasyonuyla): paused'da launch
+  `Paused`; gecikme 5 slota indirilip 1 lamport tavan önerilip uygulanınca
+  launch `LockCapExceeded`; tavan 50 SOL'e geri, gecikme 7 güne geri;
+  launch'tan sonra pause açıkken 6 cüzdan `claim_manual` yapıyor, sonra pause
+  kapanıyor. Simülasyon logu kesildiği için hata adı yerine IDL'den kod
+  numarası da kabul ediliyor (`errRe`). Localnet: ana 20/20, security 6/6,
+  manual 7/7.
+- **SECURITY_REVIEW.md baştan yazıldı:** trust tablosu, invariant listesi,
+  F1–F8 tarihçesi, güvenli sayılanlar, 11 bilinen sınır (yeni: RPC'ye güven,
+  `holder_count` publisher'ın beyanı — ≤10 diyerek tavanı kapatabilir, cüzdan
+  bölerek tavanı aşma), instruction bazlı saldırı yüzeyi tablosu, beta
+  koşulları, auditor'a 10 soru.
+- Web `decodeConfig` yeni alanları okuyor (bölüm 4'te gösterilecek).
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**

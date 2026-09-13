@@ -17,8 +17,18 @@ pub struct Config {
     pub pending_fee_bps: u16,
     pub fee_effective_slot: u64,
     /// Slots between proposing and applying a rate; PLATFORM_FEE_DELAY_SLOTS
-    /// (7 days) unless a test narrowed it with `set_fee_delay`.
+    /// (7 days) unless a test narrowed it with `set_fee_delay`. The same
+    /// delay governs the lock cap below.
     pub fee_delay_slots: u64,
+    /// Beta brake: most value a single launch may lock, in lamports at the
+    /// launch price (0 = DEFAULT_MAX_LOCKED_VALUE_LAMPORTS). Changing it takes
+    /// a proposal and the same delay as the fee.
+    pub max_locked_value_lamports: u64,
+    pub pending_lock_cap_lamports: u64,
+    pub lock_cap_effective_slot: u64,
+    /// Emergency stop for *launches only*. Claims, triggers and distributions
+    /// never pause: a holder's tokens are never locked by the platform.
+    pub paused: bool,
 }
 
 #[account]

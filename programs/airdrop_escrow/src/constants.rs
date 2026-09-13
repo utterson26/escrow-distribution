@@ -101,6 +101,11 @@ pub const PLATFORM_FEE_DELAY_SLOTS: u64 = 1_512_000;
 /// Floor on the configurable fee delay. Anything this small is only for
 /// tests; `set_fee_delay` cannot go below it nor above the default.
 pub const MIN_FEE_DELAY_SLOTS: u64 = 5;
+/// Most value one launch may lock, priced at what the launch buy actually
+/// paid: `sol_spent × locked_tokens / bought_tokens`. A beta brake, not a
+/// business rule — raised (7-day delay) as the program earns trust.
+pub const DEFAULT_MAX_LOCKED_VALUE_LAMPORTS: u64 = 50_000_000_000; // 50 SOL
+
 /// Rent the fee PDA needs to open pump's 1024-byte sharing config, fronted by
 /// whoever calls `setup_fee_sharing`.
 pub const FEE_SHARING_RENT_LAMPORTS: u64 = 10_000_000; // 0.01 SOL

@@ -28,7 +28,7 @@ import {
 import { assert } from "chai";
 import {
   pumpAccounts, escrowPda, escrowAta, directBuyIx, feeAuthorityPda, setupFeeSharingAccounts,
-  collectFeesAccounts, buyerPda, baseAtaOf, failureText, TOKEN_2022, TOKEN, WSOL, patchProvider,
+  collectFeesAccounts, buyerPda, baseAtaOf, failureText, sellBackAll, sharingConfigPda, TOKEN_2022, TOKEN, WSOL, patchProvider,
 } from "./pump";
 import { snapshot, buildTree, proofFor, Snapshot } from "../indexer/snapshot";
 import { configPda, setPlatform } from "./config";
@@ -106,6 +106,12 @@ describe("security review regressions (localnet)", () => {
       } catch { /* best effort */ }
     }
     console.log(`  swept ${swept / LAMPORTS_PER_SOL} SOL back`);
+    try {
+      // the SEC coin got fee sharing in F6, so its creator is the sharing config now
+      const st: any = await program.account.escrow.fetch(escrow).catch(() => null);
+      const got = await sellBackAll(conn, dev, mint, st?.feeSharingSet ? sharingConfigPda(mint) : feeAuthority);
+      console.log(`  sold the dev's SEC position back: +${got / LAMPORTS_PER_SOL} SOL`);
+    } catch (e: any) { console.log(`  sell-back skipped: ${String(e?.message ?? e).slice(0, 80)}`); }
   });
 
   before(async () => {

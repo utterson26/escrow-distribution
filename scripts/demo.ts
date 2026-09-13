@@ -29,7 +29,7 @@ import * as path from "path";
 import { createHash } from "crypto";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
-  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
+  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, sellBackAll,
   TOKEN_2022, TOKEN, WSOL, patchProvider,
 } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
@@ -627,7 +627,12 @@ async function main() {
         swept += bal - keep;
       } catch (e: any) { console.log(`    sweep ${short(w.publicKey)} atlandı: ${String(e?.message ?? e).slice(0, 60)}`); }
     }
-    console.log(`\n  devnet: ${sol(swept)} demo cüzdanlarından geri alındı`);
+    try {
+      const got = await sellBackAll(conn, dev, mint, sharingConfig);
+      swept += got;
+      console.log(`  devnet: dev'in kalan pozisyonu curve'e geri satıldı (+${sol(got)})`);
+    } catch (e: any) { console.log(`  geri satış atlandı: ${String(e?.message ?? e).slice(0, 60)}`); }
+    console.log(`\n  devnet: ${sol(swept)} demo cüzdanlarından ve geri satıştan alındı`);
   }
 
   // ---- özet ----

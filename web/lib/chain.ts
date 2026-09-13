@@ -58,14 +58,26 @@ export interface Escrow {
 export interface Config {
   platform: string; platformFeeBps: number; platformFeeWallet: string;
   pendingFeeBps: number; feeEffectiveSlot: bigint;
+  feeDelaySlots?: bigint;
+  /** beta brake: most value one launch may lock, at the launch price (0 = the 50 SOL default) */
+  maxLockedValueLamports?: bigint; pendingLockCapLamports?: bigint; lockCapEffectiveSlot?: bigint;
+  /** launches paused (claims, triggers and rounds never pause) */
+  paused?: boolean;
 }
+export const DEFAULT_MAX_LOCKED_VALUE_LAMPORTS = 50_000_000_000n;
 export function decodeConfig(data: Buffer): Config {
   const r = new R(data);
   const platform = r.key(); r.u8(); // bump
-  return {
+  const c: Config = {
     platform, platformFeeBps: r.u16(), platformFeeWallet: r.key(),
     pendingFeeBps: r.u16(), feeEffectiveSlot: r.u64(),
   };
+  if (r.left() >= 8) c.feeDelaySlots = r.u64();
+  if (r.left() >= 8 + 8 + 8 + 1) {
+    c.maxLockedValueLamports = r.u64() || DEFAULT_MAX_LOCKED_VALUE_LAMPORTS;
+    c.pendingLockCapLamports = r.u64(); c.lockCapEffectiveSlot = r.u64(); c.paused = r.bool();
+  }
+  return c;
 }
 
 class R {

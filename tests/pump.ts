@@ -87,7 +87,7 @@ export const buyerPda = (mint: PublicKey, program: PublicKey) =>
 export const baseAtaOf = (owner: PublicKey, mint: PublicKey) =>
   ata(owner, mint, TOKEN_2022);
 
-import { TransactionInstruction, SystemProgram, Connection } from "@solana/web3.js";
+import { TransactionInstruction, SystemProgram, Connection, Keypair } from "@solana/web3.js";
 
 /**
  * A direct pump `buy_exact_quote_in_v2`, used by tests to move the market
@@ -259,4 +259,23 @@ export function patchProvider(provider: any, tries = 6) {
     }
   };
   return provider;
+}
+
+/**
+ * Off localnet a run costs real SOL; most of it went into the launch buy, so
+ * at the end the dev sells its remaining position back to the curve (slippage
+ * and pump fees aside). `creator` is whatever pump sees as the coin creator.
+ */
+export async function sellBackAll(conn: Connection, dev: Keypair, mint: PublicKey, creator: PublicKey): Promise<number> {
+  const ata = baseAtaOf(dev.publicKey, mint);
+  let amount = 0n;
+  try { amount = BigInt((await conn.getTokenAccountBalance(ata, "confirmed")).value.amount); } catch { return 0; }
+  if (amount === 0n) return 0;
+  const before = await conn.getBalance(dev.publicKey, "confirmed");
+  const { ComputeBudgetProgram, Transaction, sendAndConfirmTransaction } = await import("@solana/web3.js");
+  const bh = await conn.getLatestBlockhash("finalized");
+  const tx = new Transaction({ ...bh, feePayer: dev.publicKey })
+    .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), directSellIx(mint, dev.publicKey, creator, amount, 0n));
+  await sendAndConfirmTransaction(conn, tx, [dev], { commitment: "confirmed" });
+  return (await conn.getBalance(dev.publicKey, "confirmed")) - before;
 }
