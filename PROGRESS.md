@@ -770,6 +770,19 @@ kullanıyor. Değişenler ve bize etkisi:
   `Blockhash not found` ile düştü — `.rpc()` çağrılarında retry yok, üçüncü
   koşu temiz; program hatası değil).
 
+## Repo ve anahtarlar (13 Eylül)
+
+- GitHub reposu **`utterson26/airdrop_launchpad` → `utterson26/escrow-distribution`**
+  olarak yeniden adlandırıldı (`gh repo rename`); yerel `origin` yeni adrese
+  bakıyor, tüm commit'ler gönderildi. README'de düzyazıdaki "airdrop" →
+  "distribution"; kod kimlikleri (`programs/airdrop_escrow`, `tests/airdrop_escrow.ts`,
+  `manual_airdrop.ts`, `~/.airdrop-launchpad.env`) olduğu gibi kaldı — program adı
+  ve yollar değişmedi.
+- Anahtar yedeği: `~/.config/solana/id.json` (cüzdan `4Ryc…`) ve
+  `target/deploy/airdrop_escrow-keypair.json` (`6aVJ…`, program keypair'i
+  **değil**, yukarıdaki nota bak) `/mnt/c/Users/pc/solana-keys-backup/` altına
+  kopyalandı.
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**

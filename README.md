@@ -1,8 +1,8 @@
-# airdrop-launchpad
+# escrow-distribution
 
 Launch a pump.fun coin whose creator is a program-owned escrow, lock part of
 the dev's buy in it, and hand it back to holders through verifiable,
-automatic airdrops: trading volume and market-cap milestones release tokens,
+automatic distributions: trading volume and market-cap milestones release tokens,
 a Merkle snapshot of holders is committed on chain, randomness is drawn one
 slot later, winners claim with a proof. Creator fees are swept into the escrow
 and bought back into the coin. Nobody — the dev included — can withdraw the
@@ -15,7 +15,7 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 
 | path | what |
 |---|---|
-| `programs/airdrop_escrow` | the Anchor program (`launch`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `draw` / `claim_prize`, manual airdrop list, platform intervention) |
+| `programs/airdrop_escrow` | the Anchor program (`launch`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `draw` / `claim_prize`, manual distribution list, platform intervention) |
 | `indexer/snapshot.ts` | deterministic holder snapshot → Merkle root; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: checks triggers, buys back, fires, snapshots, opens rounds, draws — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | Next.js site: coins, rounds, claim with Phantom, event feed |
@@ -37,7 +37,7 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 ## Ten minutes to a claim
 
 ```bash
-git clone … && cd airdrop-launchpad
+git clone https://github.com/utterson26/escrow-distribution.git && cd escrow-distribution
 npm install && (cd web && npm install)
 
 # 1. build for the v0 loader — `anchor build` produces SBPFv3, which neither
@@ -86,7 +86,7 @@ npx ts-mocha -p ./tsconfig.json -t 600000 tests/airdrop_escrow.ts  # full flow; 
 
 Every run mints a new coin; on localnet that is free.
 
-## How the airdrop stays honest
+## How the distribution stays honest
 
 - **Lock.** `launch` does `create_v2` + `buy_v2` in one transaction and moves
   `escrow_bps` of the buy into an escrow ATA owned by a PDA. No withdraw
