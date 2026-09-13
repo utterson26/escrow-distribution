@@ -293,20 +293,56 @@ async function main() {
       feeConfig: pb.feeConfig, feeProgram: pb.feeProgram, eventAuthority: pb.eventAuthority, pumpProgram: pb.pumpProgram,
       baseTokenProgram: TOKEN_2022, associatedTokenProgram: pb.associatedTokenProgram, systemProgram: SystemProgram.programId,
     };
+    // Slot başına tek harcama: program aynı slotta ikinci buyback'i BuybackSameSlot
+    // ile reddeder. Bir sonraki parçayı göndermeden önce zincirin son harcamanın
+    // slotunu geçmesini bekliyoruz; yine de yakalanırsa (RPC'nin "confirmed"
+    // okuması geride kalabiliyor) bir slot bekleyip yeniden deniyoruz.
+    let lastSpendSlot = 0;
+    const pastSlot = async (slot: number) => {
+      while ((await conn.getSlot("processed")) <= slot) await sleep(300);
+    };
+    const buybackChunk = async () => {
+      const st = await escrowState();
+      lastSpendSlot = Math.max(lastSpendSlot, Number(st.lastBuybackSlot));
+      await pastSlot(lastSpendSlot);
+      const ix = await program.methods.buyback().accountsPartial(buybackAccounts).instruction();
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const s = await sendV0([ix]);
+          const tx = await conn.getTransaction(s, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+          lastSpendSlot = Math.max(lastSpendSlot, tx?.slot ?? 0);
+          return { s, ev: decodeBuybackDone(tx?.meta?.logMessages ?? []), slot: tx?.slot };
+        } catch (e: any) {
+          if (!/BuybackSameSlot|0x1772/.test(errText(e)) || attempt >= 5) throw e;
+          const now = await conn.getSlot("processed");
+          note(`aynı slotta (${now}) ikinci alım reddedildi (BuybackSameSlot) — bu bir kural: slot başına tek harcama; sonraki slot bekleniyor`);
+          await pastSlot(now);
+        }
+      }
+    };
     let chunks = 0;
     for (let i = 0; i < 5; i++) {
-      const st = await escrowState();
-      const last = Number(st.lastBuybackSlot);
-      while ((await conn.getSlot("processed")) <= last) await sleep(300); // slot başına tek harcama
-      const ix = await program.methods.buyback().accountsPartial(buybackAccounts).instruction();
-      const s = await sendV0([ix]);
-      const tx = await conn.getTransaction(s, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      const ev = decodeBuybackDone(tx?.meta?.logMessages ?? []);
+      const { s, ev, slot } = await buybackChunk();
       if (!ev || ev.spent === 0n) { note(`eşiğin altında kaldı, buyback durdu (${i} parçadan sonra)`); break; }
       chunks++;
-      sig(`parça ${chunks}: ${sol(ev.spent)} harcandı → +${tok(ev.bought)}, sonraya ${sol(ev.left)}`, s);
+      sig(`parça ${chunks} (slot ${slot}): ${sol(ev.spent)} harcandı → +${tok(ev.bought)}, sonraya ${sol(ev.left)}`, s);
       if (ev.left < 10_000_000n) break;
     }
+    // Kuralı bilerek göster: tek işleme iki buyback koy (ikisi de aynı slota
+    // düşer). İlki harcar, ikincisi BuybackSameSlot yer, işlem bütünüyle düşer.
+    {
+      await pastSlot(lastSpendSlot);
+      const ix = await program.methods.buyback().accountsPartial(buybackAccounts).instruction();
+      const solNow = await conn.getBalance(escrow, "confirmed");
+      try {
+        await sendV0([ix, ix]);
+        note("UYARI: aynı slotta iki alım kabul edildi (beklenmiyordu)");
+      } catch (e: any) {
+        if (!/BuybackSameSlot|0x1772/.test(errText(e))) throw e;
+        note(`aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz, escrow SOL değişmedi (${sol(await conn.getBalance(escrow, "confirmed"))} = ${sol(solNow)})`);
+      }
+    }
+    note("her parça ayrı slotta: %0,5 sınırı üst üste bindirilemez, musluk slot başına bir kez akar");
     const st1 = await escrowState();
     after({ "escrow SOL": sol(await conn.getBalance(escrow, "confirmed")), "havuz coin": tok(poolOf(st1)) });
     note(`${chunks} parça, toplam ${sol(st1.buybackSpent.toNumber())} harcandı, ${tok(st1.buybackTokens.toString())} alındı`);

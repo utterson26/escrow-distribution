@@ -807,7 +807,18 @@ Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tablo
 - `DEMO_LEAVE_LAST=1`: son çekiliş claim edilmez, cüzdan anahtarları
   `demo-wallets.json`'a (gitignore) yazılır → Phantom'a aktarıp web'den
   claim butonunu denemek için. Son koşu böyle bırakıldı: coin
-  `GkswtFFVcetgfsnSGyLpgk8Fa2iLdKXNYPBK274uGUx5`, Burak'ın 446K coin'i bekliyor.
+  `Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U` (DEMO.md'deki), son çekilişin sahibi
+  `demo-wallets.json`'da, 446K coin claim bekliyor.
+- **Buyback parçaları arası slot beklemesi (düzeltme):** ilk sürümde 2. parça
+  ara sıra `BuybackSameSlot` yiyordu — `escrow.lastBuybackSlot` "confirmed"
+  okuması bir önceki parçanın slotundan geride kalabiliyor. Şimdi script son
+  harcamanın slotunu işlemin kendisinden alıp `processed` slot onu geçene kadar
+  bekliyor; yine de 6002 gelirse bir slot bekleyip yeniden deniyor (5 deneme).
+  Kural ayrıca **bilerek gösteriliyor:** parçalardan sonra tek işleme iki
+  buyback konuyor → reddediliyor, escrow SOL değişmiyor; DEMO.md'de "aynı
+  slotta ikinci alım reddedildi" satırı. Crank'te aynı hata artık `error`
+  değil `same_slot` sonucu (sonraki tick alır). 3 ardışık koşu temiz
+  (42/69/63 sn), her parça ayrı slotta (N, N+2, N+4 …).
 - **Web kontrolü (localnet):** `/api/escrows` demo coin'leri listeliyor,
   `/`, `/coin/<mint>`, `/feed` 200; `/api/claim/<mint>?wallet=…` snapshot'ı
   slot'tan yeniden üretip kazanan çekilişi buluyor (0,4 sn). Claim butonunun

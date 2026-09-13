@@ -252,7 +252,10 @@ async function main() {
               spent: after.buybackSpent.sub(new anchor.BN(before)).toString(),
               tokens: after.buybackTokens.toString(), sig });
       } catch (e) {
-        log({ tick, coin, action: "buyback", result: "error", spendable, error: errName(e) });
+        // one spend per slot: not a failure, the next tick picks it up
+        const name = errName(e);
+        log({ tick, coin, action: "buyback", result: /BuybackSameSlot|0x1772/.test(name) ? "same_slot" : "error",
+              spendable, error: name });
       }
     } else if (spendable >= MIN_BUYBACK_LAMPORTS && curveComplete) {
       log({ tick, coin, action: "buyback", result: "skip", reason: "curve complete", spendable });
