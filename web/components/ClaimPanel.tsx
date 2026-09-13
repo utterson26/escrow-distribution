@@ -10,19 +10,13 @@ const PROGRAM = new PublicKey("5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe");
 const PUMP = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const T22 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 const ATA_PROG = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-// anchor discriminator for the claim_prize instruction
-const CLAIM_PRIZE = Buffer.from([0x9d, 0xe9, 0x8b, 0x79, 0xf6, 0x3e, 0xea, 0xeb]); // sha256("global:claim_prize")[..8]
-
+// anchor discriminator for the claim_share instruction
+const CLAIM_SHARE = Buffer.from([0x2a, 0x12, 0xa1, 0x0f, 0x81, 0x9b, 0xf0, 0x34]); // sha256("global:claim_share")[..8]
 const pda = (s: (Buffer | Uint8Array)[], p: PublicKey) => PublicKey.findProgramAddressSync(s, p)[0];
 const ata = (o: PublicKey, m: PublicKey) =>
   PublicKey.findProgramAddressSync([o.toBuffer(), T22.toBuffer(), m.toBuffer()], ATA_PROG)[0];
-const u16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const u64 = (v: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(v); return b; };
-const u128 = (v: bigint) => {
-  const b = Buffer.alloc(16);
-  b.writeBigUInt64LE(v & 0xffffffffffffffffn, 0); b.writeBigUInt64LE(v >> 64n, 8); return b;
-};
 
 export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: string }) {
   const { publicKey, sendTransaction } = useWallet();
@@ -47,10 +41,10 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
       const mintPk = new PublicKey(mint);
       const escrowPk = new PublicKey(escrow);
       const round = pda([Buffer.from("round"), escrowPk.toBuffer(), u32(c.roundIndex)], PROGRAM);
+      const receipt = pda([Buffer.from("receipt"), round.toBuffer(), publicKey.toBuffer()], PROGRAM);
       const proof = c.proof.map((h: string) => Buffer.from(h, "hex"));
       const data = Buffer.concat([
-        CLAIM_PRIZE, u16(c.drawIndex), u32(c.leafIndex),
-        u64(BigInt(c.balance)), u64(BigInt(c.weight)), u128(BigInt(c.cumStart)),
+        CLAIM_SHARE, u32(c.leafIndex), u64(BigInt(c.balance)), u64(BigInt(c.amount)),
         u32(proof.length), ...proof,
       ]);
       const ro = (pubkey: PublicKey) => ({ pubkey, isWritable: false, isSigner: false });
@@ -59,10 +53,10 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
         programId: PROGRAM, data,
         keys: [
           { pubkey: publicKey, isWritable: true, isSigner: true },
-          rw(escrowPk), rw(round), ro(mintPk),
+          rw(escrowPk), rw(round), rw(receipt), ro(mintPk),
           rw(ata(escrowPk, mintPk)), rw(ata(publicKey, mintPk)),
           ro(pda([Buffer.from("bonding-curve"), mintPk.toBuffer()], PUMP)),
-          ro(T22),
+          ro(T22), ro(SystemProgram.programId),
         ],
       });
       const sig = await sendTransaction(new Transaction().add(ix), connection);
@@ -92,17 +86,18 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
         <>
           {data.claimable.length === 0 && (
             <div className="note">
-              Nothing to claim. Checked {data.reproducible} of {data.rounds} drawn round(s).
+              Nothing to claim. Checked {data.reproducible} of {data.rounds} round(s)
+              {data.claimed?.length > 0 && `; already claimed round(s) ${data.claimed.join(", ")}`}.
               {data.opaque?.length > 0 &&
                 ` Round(s) ${data.opaque.join(", ")} could not be rebuilt from chain history — the operator has not published that snapshot.`}
             </div>
           )}
           {data.claimable.map((c: any) => (
-            <div key={`${c.roundIndex}-${c.drawIndex}`}
+            <div key={c.roundIndex}
                  style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
               <div style={{ flex: 1 }}>
-                <div className="v">{(Number(c.prize) / 1e6).toLocaleString("en-US")} tokens</div>
-                <div className="k">round #{c.roundIndex} · draw {c.drawIndex}</div>
+                <div className="v">{(Number(c.amount) / 1e6).toLocaleString("en-US")} tokens</div>
+                <div className="k">round #{c.roundIndex} · your share {c.sharePct}% (cap 10%)</div>
               </div>
               <button className="btn" disabled={busy} onClick={() => claim(c)}>
                 {busy ? "Claiming…" : "Claim"}

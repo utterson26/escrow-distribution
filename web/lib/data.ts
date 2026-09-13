@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   conn, PROGRAM_ID, anchorDisc, decodeEscrow, decodeRound, decodeCurve,
-  bondingCurve, ata, marketCap, short, Escrow, Round, Curve,
+  bondingCurve, ata, marketCap, short, Escrow, Round, Curve, MAX_SHARE_BPS,
 } from "./chain";
 
 /** Name and symbol from the mint's Token-2022 metadata extension (pump writes it at create). */
@@ -35,7 +35,13 @@ export interface CoinRow {
   poolRemaining: string;      // escrowed - allocated
   escrowPct: number;          // locked airdrop share of the launch buy
   devPct: number;             // what stayed with the dev
-  lastDistribution: { index: number; prize: string; winners: number; claimed: number } | null;
+  lastDistribution: { index: number; total: string; holders: number; claimed: number; claimedAmount: string } | null;
+  /** per-wallet cap on one round, percent */
+  capPct: number;
+  /** "regular" — creator fee goes to the escrow; pump's holder-rewards coins are not launched here */
+  coinType: "regular";
+  /** the escrow keeps 100% of the creator fee: there is no platform fee on this program */
+  platformFeePct: number;
   nextTrigger: NextTrigger | null;
 }
 
@@ -130,9 +136,12 @@ export async function buildRows(): Promise<CoinRow[]> {
       escrowPct: e.escrowBps / 100,
       devPct: 100 - e.escrowBps / 100,
       lastDistribution: last
-        ? { index: last.index, prize: last.prize.toString(),
-            winners: last.winnerCount, claimed: last.claimedCount }
+        ? { index: last.index, total: last.total.toString(), holders: last.holderCount,
+            claimed: last.claimedCount, claimedAmount: last.claimedAmount.toString() }
         : null,
+      capPct: MAX_SHARE_BPS / 100,
+      coinType: "regular",
+      platformFeePct: 0,
       nextTrigger: nextTrigger(e, curve, slot),
     });
   }
@@ -144,7 +153,7 @@ export async function buildRows(): Promise<CoinRow[]> {
 // ---------------------------------------------------------------------------
 
 const EVENTS: Record<string, string> = {};
-for (const n of ["PrizeClaimed", "ManualClaimed", "TriggerFired", "RoundOpened",
+for (const n of ["ShareClaimed", "ManualClaimed", "TriggerFired", "RoundOpened",
                  "BuybackDone", "Launched", "DeadCoinFlagged", "Intervened"]) {
   EVENTS[anchorDisc("event", n).toString("hex")] = n;
 }
@@ -177,9 +186,10 @@ export async function fetchFeed(limit = 30): Promise<FeedItem[]> {
       try {
         item.escrow = new PublicKey(buf.subarray(8, 40)).toBase58();
         item.mint = mintOf.get(item.escrow);
-        if (kind === "PrizeClaimed") {
-          item.holder = new PublicKey(buf.subarray(74, 106)).toBase58();
-          item.amount = buf.readBigUInt64LE(106).toString();
+        if (kind === "ShareClaimed") {
+          // escrow(32) round(32) holder(32) amount(8) position_value(8)
+          item.holder = new PublicKey(buf.subarray(72, 104)).toBase58();
+          item.amount = buf.readBigUInt64LE(104).toString();
         } else if (kind === "ManualClaimed") {
           item.holder = new PublicKey(buf.subarray(40, 72)).toBase58();
           item.amount = buf.readBigUInt64LE(76).toString();

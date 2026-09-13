@@ -8,26 +8,22 @@ pub enum EscrowError {
     ZeroAmount,
     #[msg("buyback already spent in this slot; try again next slot")]
     BuybackSameSlot,
-    #[msg("winner count must be between 1 and MAX_WINNERS")]
-    BadWinnerCount,
     #[msg("merkle root must not be empty")]
     EmptyRoot,
-    #[msg("round randomness has already been drawn")]
-    AlreadyDrawn,
-    #[msg("round randomness is not drawn yet")]
-    NotDrawn,
-    #[msg("draw must wait at least DRAW_DELAY_SLOTS after the root was committed")]
-    DrawTooEarly,
     #[msg("slot hashes sysvar is empty")]
     NoSlotHash,
-    #[msg("the draw did not land in this holder's weight range")]
-    TicketOutOfRange,
     #[msg("merkle proof does not match the committed root")]
     BadProof,
     #[msg("position is below the minimum, valued at the curve price")]
     PositionTooSmall,
-    #[msg("total weight is zero")]
-    ZeroWeight,
+    #[msg("round must have at least one holder")]
+    NoHolders,
+    #[msg("leaf amount exceeds the per-wallet cap (MAX_SHARE_BPS of the round)")]
+    ShareOverCap,
+    #[msg("round total exceeds what the allocator was given")]
+    TotalOverReleased,
+    #[msg("claims would exceed the round total")]
+    RoundExhausted,
     #[msg("allocation already claimed")]
     AlreadyClaimed,
     #[msg("nothing to claim")]
@@ -58,7 +54,7 @@ pub enum EscrowError {
     AlreadyArmed,
     #[msg("the random delay has not elapsed yet")]
     TooEarly,
-    #[msg("round prize total must equal the amount a fired trigger released")]
+    #[msg("round total exceeds what fired triggers released")]
     AmountNotAuthorized,
     #[msg("delay window is below the allowed floor")]
     BadDelayWindow,
@@ -72,8 +68,6 @@ pub enum EscrowError {
     SnapshotInFuture,
     #[msg("only the program upgrade authority may set the platform")]
     NotUpgradeAuthority,
-    #[msg("the draw slot fell out of the SlotHashes window; re-targeted, call draw again")]
-    DrawRetargeted,
     #[msg("holder no longer holds the balance the snapshot credited them for")]
     HoldingBelowSnapshot,
     #[msg("bonding curve reserves are zero")]

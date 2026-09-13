@@ -6,7 +6,7 @@
  * replaying each token account's own transaction history, never from a
  * point-in-time account read, so the same inputs always give the same root.
  *
- *   snapshot  --mint <pubkey> [--slot <n>] --out snap.json
+ *   snapshot  --mint <pubkey> [--slot <n>] --released <tokens> --out snap.json
  *   verify    --in snap.json                 # recompute the root from the leaves
  *   reproduce --in snap.json                 # refetch from chain, compare
  */
@@ -28,8 +28,10 @@ export interface Leaf {
   balance: string;
   heldSinceSlot: number;
   heldSlots: number;
+  /** balance × heldSlots — the pro-rata key */
   weight: string;
-  cumStart: string;
+  /** tokens this holder gets in the round; what the leaf hash commits to */
+  amount: string;
 }
 export interface Snapshot {
   mint: string;
@@ -39,8 +41,53 @@ export interface Snapshot {
   price: { virtualQuoteReserves: string; virtualTokenReserves: string };
   minPositionLamports: string;
   totalWeight: string;
+  /** what the allocator was given (a trigger's release) */
+  released: string;
+  /** per-wallet cap, in bps of `released` */
+  capBps: number;
+  /** sum of every leaf amount; ≤ released when the cap leaves a remainder */
+  total: string;
   root: string;
   leaves: Leaf[];
+}
+
+/** Most of one round a single wallet may receive — must match the program. */
+export const MAX_SHARE_BPS = 1000n;
+
+/**
+ * Pro-rata split of `released` over `weights`, no wallet above the cap.
+ * Whatever the cap holds back is re-split over the uncapped wallets, again
+ * and again until nobody is over; if everyone ends up capped the remainder
+ * is simply not handed out (it stays pending on chain). Integer arithmetic,
+ * deterministic order, so every reproducer gets the same amounts.
+ */
+export function allocate(weights: bigint[], released: bigint): bigint[] {
+  const n = weights.length;
+  const amounts: bigint[] = new Array(n).fill(0n);
+  if (n === 0 || released === 0n) return amounts;
+  const cap = (released * MAX_SHARE_BPS) / 10000n;
+  const capped: boolean[] = new Array(n).fill(false);
+  let remaining = released;
+  for (let iter = 0; iter <= n; iter++) {
+    const open = [...weights.keys()].filter((i) => !capped[i] && weights[i] > 0n);
+    if (open.length === 0) break;
+    const W = open.reduce((a, i) => a + weights[i], 0n);
+    const over = open.filter((i) => (remaining * weights[i]) / W > cap);
+    if (over.length > 0) {
+      for (const i of over) { capped[i] = true; amounts[i] = cap; remaining -= cap; }
+      continue;
+    }
+    let handed = 0n;
+    for (const i of open) { amounts[i] = (remaining * weights[i]) / W; handed += amounts[i]; }
+    // rounding dust goes to the heaviest uncapped wallet, cap permitting
+    const dust = remaining - handed;
+    if (dust > 0n) {
+      const top = open.reduce((b, i) => (weights[i] > weights[b] ? i : b), open[0]);
+      if (amounts[top] + dust <= cap) amounts[top] += dust;
+    }
+    break;
+  }
+  return amounts;
 }
 
 const sha256 = (...parts: Buffer[]) =>
@@ -48,18 +95,13 @@ const sha256 = (...parts: Buffer[]) =>
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const u16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
 const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
-const u128 = (n: bigint) => {
-  const b = Buffer.alloc(16);
-  b.writeBigUInt64LE(n & 0xffffffffffffffffn, 0);
-  b.writeBigUInt64LE(n >> 64n, 8);
-  return b;
-};
 
 /** Leaf hash — byte-for-byte identical to the program's. The snapshot balance
- *  is part of the leaf so a claim can prove what the holder had at the time. */
+ *  is part of the leaf so a claim can prove what the holder had at the time;
+ *  the amount is what the round owes them. */
 export const leafHash = (l: Leaf) =>
   sha256(Buffer.from("leaf"), u32(l.index), new PublicKey(l.holder).toBuffer(),
-         u64(BigInt(l.balance)), u64(BigInt(l.weight)), u128(BigInt(l.cumStart)));
+         u64(BigInt(l.balance)), u64(BigInt(l.amount)));
 
 /** Sorted-pair Merkle tree; a lone node on a level is promoted unchanged. */
 export function buildTree(leaves: Leaf[]): { root: Buffer; layers: Buffer[][] } {
@@ -150,9 +192,16 @@ export function protocolOwners(mint: PublicKey, escrowProgram: PublicKey): strin
   ];
 }
 
+/**
+ * Holder snapshot at `slotArg` plus the allocation of `released` tokens over
+ * it. `released` is part of the input on purpose: the root commits to amounts,
+ * so reproducing a round means re-running with the same slot and the same
+ * release (both are recorded on the Round account).
+ */
 export async function snapshot(
   rpc: string, mintStr: string, slotArg?: number,
   escrowProgram = ESCROW_PROGRAM, extraExcluded: string[] = [],
+  released: bigint = 0n,
 ): Promise<Snapshot> {
   const c = new Connection(rpc, "confirmed");
   const mint = new PublicKey(mintStr);
@@ -193,23 +242,21 @@ export async function snapshot(
   rows.sort((x, y) => x.holder.localeCompare(y.holder) || x.tokenAccount.localeCompare(y.tokenAccount));
 
   const leaves: Leaf[] = [];
-  let cum = 0n;
-  for (const [i, r] of rows.entries()) {
+  let totalWeight = 0n;
+  for (const r of rows) {
     const heldSlots = BigInt(Math.max(0, snapshotSlot - r.streak));
-    let weight = r.balance * heldSlots;
-    // the program carries weight as u64; clamp rather than wrap
-    const U64_MAX = (1n << 64n) - 1n;
-    if (weight > U64_MAX) weight = U64_MAX;
+    const weight = r.balance * heldSlots;
     if (weight === 0n) continue;
     leaves.push({
       index: leaves.length, holder: r.holder, tokenAccount: r.tokenAccount,
       balance: r.balance.toString(), heldSinceSlot: r.streak,
-      heldSlots: Number(heldSlots), weight: weight.toString(), cumStart: cum.toString(),
+      heldSlots: Number(heldSlots), weight: weight.toString(), amount: "0",
     });
-    cum += weight;
+    totalWeight += weight;
   }
-  // indices must be final before hashing
-  leaves.forEach((l, i) => (l.index = i));
+  const amounts = allocate(leaves.map((l) => BigInt(l.weight)), released);
+  leaves.forEach((l, i) => { l.index = i; l.amount = amounts[i].toString(); });
+  const total = amounts.reduce((a, b) => a + b, 0n);
 
   const { root } = buildTree(leaves);
   return {
@@ -219,7 +266,9 @@ export async function snapshot(
       virtualTokenReserves: curve.virtualTokenReserves.toString(),
     },
     minPositionLamports: MIN_POSITION_LAMPORTS.toString(),
-    totalWeight: cum.toString(), root: root.toString("hex"), leaves,
+    totalWeight: totalWeight.toString(),
+    released: released.toString(), capBps: Number(MAX_SHARE_BPS), total: total.toString(),
+    root: root.toString("hex"), leaves,
   };
 }
 
@@ -232,7 +281,7 @@ if (require.main === module) {
     if (cmd === "snapshot") {
       const extra = (get("--exclude") ?? "").split(",").filter(Boolean);
       const snap = await snapshot(rpc, get("--mint")!, get("--slot") ? Number(get("--slot")) : undefined,
-                                  ESCROW_PROGRAM, extra);
+                                  ESCROW_PROGRAM, extra, BigInt(get("--released") ?? "0"));
       const out = get("--out") ?? "snapshot.json";
       fs.writeFileSync(out, JSON.stringify(snap, null, 2));
       console.log(`root        : ${snap.root}`);
@@ -240,6 +289,7 @@ if (require.main === module) {
       console.log(`holders     : ${snap.leaves.length}`);
       console.log(`excluded    : ${snap.excluded.length} adres (protokol/hazine)`);
       console.log(`totalWeight : ${snap.totalWeight}`);
+      console.log(`released    : ${snap.released} → dagitilan ${snap.total} (tavan %${snap.capBps / 100})`);
       console.log(`yazildi     : ${out}`);
     } else if (cmd === "verify") {
       const snap: Snapshot = JSON.parse(fs.readFileSync(get("--in")!, "utf8"));
@@ -247,22 +297,25 @@ if (require.main === module) {
       const sum = snap.leaves.reduce((a, l) => a + BigInt(l.weight), 0n);
       const okRoot = root.toString("hex") === snap.root;
       const okSum = sum.toString() === snap.totalWeight;
-      let okCum = true, cum = 0n;
-      for (const l of snap.leaves) { if (l.cumStart !== cum.toString()) okCum = false; cum += BigInt(l.weight); }
+      const again = allocate(snap.leaves.map((l) => BigInt(l.weight)), BigInt(snap.released));
+      const okAlloc = snap.leaves.every((l, i) => l.amount === again[i].toString());
+      const cap = (BigInt(snap.released) * BigInt(snap.capBps)) / 10000n;
+      const okCap = snap.leaves.every((l) => BigInt(l.amount) <= cap);
       console.log(`kok eslesti      : ${okRoot}`);
       console.log(`toplam agirlik   : ${okSum}`);
-      console.log(`kumulatif zincir : ${okCum}`);
-      process.exit(okRoot && okSum && okCum ? 0 : 1);
+      console.log(`paylar yeniden   : ${okAlloc}`);
+      console.log(`tavan asilmadi   : ${okCap}`);
+      process.exit(okRoot && okSum && okAlloc && okCap ? 0 : 1);
     } else if (cmd === "reproduce") {
       const snap: Snapshot = JSON.parse(fs.readFileSync(get("--in")!, "utf8"));
-      const again = await snapshot(rpc, snap.mint, snap.snapshotSlot, ESCROW_PROGRAM, snap.excluded);
+      const again = await snapshot(rpc, snap.mint, snap.snapshotSlot, ESCROW_PROGRAM, snap.excluded, BigInt(snap.released));
       const same = again.root === snap.root;
       console.log(`dosyadaki kok : ${snap.root}`);
       console.log(`yeniden uretim: ${again.root}`);
       console.log(same ? "AYNI ✅" : "FARKLI ❌");
       process.exit(same ? 0 : 1);
     } else {
-      console.log("kullanim: snapshot --mint <pubkey> [--slot n] --out f.json | verify --in f.json | reproduce --in f.json");
+      console.log("kullanim: snapshot --mint <pubkey> [--slot n] --released <n> --out f.json | verify --in f.json | reproduce --in f.json");
       process.exit(2);
     }
   })().catch((e) => { console.error(e); process.exit(1); });

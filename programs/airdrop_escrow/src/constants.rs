@@ -71,15 +71,13 @@ pub const DST_POOL: u8 = 1;
 pub const TRIGGER_VOLUME: u8 = 1;
 pub const TRIGGER_MILESTONE: u8 = 2;
 
-/// Winners per round; bounded by the 256-bit claim bitmap on `Round`.
-pub const MAX_WINNERS: u16 = 256;
-/// The randomness of a round is the hash of the slot this many slots after the
-/// commit. Two rather than one: the hash of slot N is only in the sysvar from
-/// slot N+1, and a one-slot gap makes the first eligible call land reliably.
-pub const DRAW_DELAY_SLOTS: u64 = 2;
-/// SlotHashes keeps this many recent slots. A round whose draw slot has fallen
-/// out of the window is re-targeted instead of stuck.
-pub const SLOT_HASHES_WINDOW: u64 = 512;
+/// Seed of the per-holder, per-round claim receipt.
+#[constant]
+pub const RECEIPT_SEED: &[u8] = b"receipt";
+/// Most of one round a single wallet may receive. The allocator caps a wallet
+/// here and hands the excess to the others pro rata; the program refuses any
+/// leaf above it, so a publisher cannot commit a root that favours one wallet.
+pub const MAX_SHARE_BPS: u64 = 1_000; // 10%
 /// A winner must still hold at least this share of their snapshot balance when
 /// claiming. 10000 = the whole position; a holder who dumped after the
 /// snapshot forfeits the prize. Lower it to soften the rule, 0 disables it.

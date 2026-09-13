@@ -1,11 +1,12 @@
 /**
  * Uçtan uca demo, tek koşu. Localnet'te (scripts/localnet.sh ayakta olmalı):
  *
- *   coin bas + escrow'a kilitle → 4 cüzdan alır, biri hepsini satar →
+ *   coin bas + escrow'a kilitle → 12 cüzdan alır, biri hepsini satar →
  *   creator ücreti birikir → escrow süpürür → buyback parça parça →
  *   hacim tetikler → rastgele gecikme → dağıtım serbest →
- *   snapshot → kök zincire → çekiliş → kazananlar claim eder →
- *   tam satan cüzdan snapshot'ta yok, sahte claim reddedilir.
+ *   snapshot + pro-rata paylaşım (%10 tavan) → kök zincire →
+ *   sahte claim reddedilir → herkes kendi payını claim eder →
+ *   tam satan cüzdan snapshot'ta yok.
  *
  * Her adımda tx imzası ve tek satır Türkçe açıklama basar, sonunda DEMO.md yazar.
  *
@@ -25,7 +26,6 @@ import {
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { createHash } from "crypto";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
   TOKEN_2022, TOKEN, WSOL,
@@ -35,7 +35,6 @@ import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 const RPC_URL = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
 const DELAY_WINDOW = 150;        // ~1 dk: demo bekleyebilsin, ama gecikme görünsün
-const WINNERS = 3;
 const DEC = 1_000_000n;          // coin 6 ondalık
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -45,8 +44,6 @@ const tok = (raw: bigint | string | number) => {
   const n = Number(BigInt(raw.toString())) / 1e6;
   return n >= 1e6 ? `${(n / 1e6).toFixed(2)}M coin` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K coin` : `${n.toFixed(0)} coin`;
 };
-const u16le = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
-const leBytesToBigInt = (b: Buffer) => { let v = 0n; for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]); return v; };
 
 /** BuybackDone event'inden harcanan / sonraya kalan */
 function decodeBuybackDone(logs: string[]) {
@@ -106,7 +103,8 @@ async function main() {
   const coinAta = (owner: PublicKey) => getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022);
   const wsolAta = (owner: PublicKey) => getAssociatedTokenAddressSync(WSOL, owner, true, TOKEN);
 
-  const NAMES = ["Ayşe", "Burak", "Ceren", "Deniz"];
+  // 4 isimli + 8 küçük cüzdan: 11 holder kalır, tavan (%10) ve oransal paylaşım aynı turda görünsün
+  const NAMES = ["Ayşe", "Burak", "Ceren", "Deniz", ...Array.from({ length: 8 }, (_, i) => `Küçük-${i + 1}`)];
   const wallets = NAMES.map(() => Keypair.generate());
   const nameOf = (k: string) => { const i = wallets.findIndex((w) => w.publicKey.toBase58() === k); return i < 0 ? short(k) : `${NAMES[i]} (${short(k)})`; };
   const SELLER = 3; // Deniz alır, sonra hepsini satar
@@ -182,12 +180,13 @@ async function main() {
 
   // ---- 1. launch ----
   step("Coin basıldı ve %30'u kilitlendi",
-    "Tek işlemde: pump.fun'da coin yaratıldı, dev 400M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti");
-  const AMOUNT = 400_000_000n * DEC;
+    "Tek işlemde: pump.fun'da coin yaratıldı, dev 650M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti");
+  // 650M: piyasa değeri yüksek başlasın ki 12 alım kilometre taşını (2×) tetiklemesin (eşik ~1,05 SOL, alımlar net ~0,92)
+  const AMOUNT = 650_000_000n * DEC;
   {
     const ix = await program.methods
       .launch("Demo Coin", "DEMO", "https://example.com/demo.json", 3000,
-              new BN(AMOUNT.toString()), new BN(1.5 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0)
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta,
@@ -210,13 +209,13 @@ async function main() {
   sig("check_trigger", await rpc(program.methods.checkTrigger().accountsPartial(triggerAccounts)));
   {
     const st = await escrowState();
-    note(`piyasa değeri: ${sol(st.lastMilestoneMcap.toNumber())} — dağıtım gecikme penceresi demo için ${DELAY_WINDOW} slot (~1 dk; üretimde 60 dk)`);
+    note(`piyasa değeri: ${sol(st.lastMilestoneMcap.toNumber())} — dağıtım gecikme penceresi demo için ~${Math.round(DELAY_WINDOW * 0.4)} sn (üretimde 60 dk)`);
   }
 
   // ---- 3. dört cüzdan alır ----
-  step("Dört cüzdan piyasadan aldı",
-    "Ayşe, Burak, Ceren ve Deniz doğrudan pump.fun'dan coin aldı; her alımın küçük bir kısmı creator ücreti olarak birikti");
-  const BUYS = [0.12, 0.10, 0.08, 0.06];
+  step("On iki cüzdan piyasadan aldı",
+    "Ayşe (büyük), Burak, Ceren, Deniz ve sekiz küçük yatırımcı doğrudan pump.fun'dan coin aldı; her alımın küçük bir kısmı creator ücreti olarak birikti");
+  const BUYS = [0.15, 0.08, 0.08, 0.07, ...Array(8).fill(0.07)];
   {
     for (const w of wallets) {
       await send([
@@ -234,7 +233,7 @@ async function main() {
         directBuyIx(mint, w.publicKey, escrow, BigInt(Math.round(BUYS[i] * LAMPORTS_PER_SOL)), 1n),
       ], w);
       sig(`${NAMES[i]} ${BUYS[i]} SOL ile aldı → ${tok(await coinBal(w.publicKey))}`, s);
-      await sleep(1500); // tutma süreleri farklı olsun
+      await sleep(800); // tutma süreleri farklı olsun
     }
     after({ "creator ücreti kasası": sol(await conn.getBalance(pa.creatorVault, "confirmed")) });
   }
@@ -273,9 +272,10 @@ async function main() {
 
   // ---- 6. bağış + buyback parçalı ----
   step("Topluluk bağışı ve parça parça geri alım",
-    "Escrow'a 0.2 SOL bağış geldi. Buyback bunu tek seferde değil, her çağrıda piyasanın en fazla %0,5'i kadar harcayarak coin'e çevirdi (demo 5 parça gösterir, kalan sonraki çağrılara kalır); alınan coin havuza eklendi");
+    "Escrow'a 0.2 SOL eklendi. Buyback bunu tek seferde değil, her çağrıda piyasanın en fazla %0,5'i kadar harcayarak coin'e çevirdi (demo 5 parça gösterir, kalan sonraki çağrılara kalır); alınan coin havuza eklendi");
   {
-    sig("bağış 0.2 SOL", await send([SystemProgram.transfer({
+    note("Demo'da 12 küçük alım yeterli ücret üretmediği için musluğu göstermek üzere escrow'a 0.2 SOL eklendi; üretimde tek kaynak creator ücretidir.");
+    sig("0.2 SOL eklendi", await send([SystemProgram.transfer({
       fromPubkey: dev.publicKey, toPubkey: escrow, lamports: 0.2 * LAMPORTS_PER_SOL,
     })]));
     const st0 = await escrowState();
@@ -315,7 +315,7 @@ async function main() {
         } catch (e: any) {
           if (!/BuybackSameSlot|0x1772/.test(errText(e)) || attempt >= 5) throw e;
           const now = await conn.getSlot("processed");
-          note(`aynı slotta (${now}) ikinci alım reddedildi (BuybackSameSlot) — bu bir kural: slot başına tek harcama; sonraki slot bekleniyor`);
+          note(`aynı anda (blok ${now}) ikinci alım reddedildi (BuybackSameSlot) — bu bir kural: blok başına tek harcama; sonraki blok bekleniyor`);
           await pastSlot(now);
         }
       }
@@ -325,7 +325,7 @@ async function main() {
       const { s, ev, slot } = await buybackChunk();
       if (!ev || ev.spent === 0n) { note(`eşiğin altında kaldı, buyback durdu (${i} parçadan sonra)`); break; }
       chunks++;
-      sig(`parça ${chunks} (slot ${slot}): ${sol(ev.spent)} harcandı → +${tok(ev.bought)}, sonraya ${sol(ev.left)}`, s);
+      sig(`parça ${chunks}: ${sol(ev.spent)} harcandı → +${tok(ev.bought)}, sonraya ${sol(ev.left)}`, s);
       if (ev.left < 10_000_000n) break;
     }
     // Kuralı bilerek göster: tek işleme iki buyback koy (ikisi de aynı slota
@@ -339,10 +339,10 @@ async function main() {
         note("UYARI: aynı slotta iki alım kabul edildi (beklenmiyordu)");
       } catch (e: any) {
         if (!/BuybackSameSlot|0x1772/.test(errText(e))) throw e;
-        note(`aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz, escrow SOL değişmedi (${sol(await conn.getBalance(escrow, "confirmed"))} = ${sol(solNow)})`);
+        note(`aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz (~0,4 sn'de bir), escrow SOL değişmedi (${sol(await conn.getBalance(escrow, "confirmed"))} = ${sol(solNow)})`);
       }
     }
-    note("her parça ayrı slotta: %0,5 sınırı üst üste bindirilemez, musluk slot başına bir kez akar");
+    note("her parça ayrı blokta (~0,4 sn): %0,5 sınırı üst üste bindirilemez, musluk blok başına bir kez akar");
     const st1 = await escrowState();
     after({ "escrow SOL": sol(await conn.getBalance(escrow, "confirmed")), "havuz coin": tok(poolOf(st1)) });
     note(`${chunks} parça, toplam ${sol(st1.buybackSpent.toNumber())} harcandı, ${tok(st1.buybackTokens.toString())} alındı`);
@@ -359,7 +359,7 @@ async function main() {
     fireSlot = st.fireSlot.toNumber();
     const now = await conn.getSlot("confirmed");
     note(`tür: ${st.armedKind === 1 ? "hacim" : "kilometre taşı"}, serbest bırakılacak: ${tok(st.authorized.toString())} (havuzun %1'i)`);
-    note(`ateşleme slotu ${fireSlot}, şu an ${now} → ~${Math.max(0, Math.round((fireSlot - now) * 0.4))} sn sonra`);
+    note(`dağıtım ~${Math.max(0, Math.round((fireSlot - now) * 0.4))} sn sonra serbest kalacak (rastgele gecikme; üretimde 0–60 dk)`);
     if (now < fireSlot) {
       try {
         await rpc(program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }));
@@ -382,67 +382,70 @@ async function main() {
     after({ "dağıtıma açık coin": tok(st.pending.toString()) });
   }
 
-  // ---- 9. snapshot ----
-  step("Holder listesi çıkarıldı",
-    "Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Ağırlık = bakiye × tutma süresi");
+  // ---- 9. snapshot + paylaşım ----
+  step("Holder listesi ve paylar hesaplandı",
+    "Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Serbest bırakılan miktar ağırlık (bakiye × tutma süresi) oranında TÜM uygun holder'lara bölündü; tek cüzdan turun en fazla %10'unu alır, fazlası diğerlerine oransal dağıtıldı");
+  const stFired = await escrowState();
+  const released = BigInt(stFired.pending.toString());
   const snapSlot = await conn.getSlot("confirmed");
   // Indexer hangi zincirde koşuyorsak onu okur. ~/.airdrop-launchpad.env'deki
   // HELIUS_RPC_URL devnet'e bakar; localnet demosunda onu kullanmak "bonding
   // curve not found" demek. Bu yüzden HELIUS_RPC_URL burada bilerek yok sayılır.
-  const snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId);
+  const snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], released);
+  const cap = released * 1000n / 10000n;
   {
-    for (const l of snap.leaves) {
-      const pct = (Number(BigInt(l.weight) * 10000n / BigInt(snap.totalWeight)) / 100).toFixed(1);
-      note(`${nameOf(l.holder)}: ${tok(l.balance)}, ${l.heldSlots} slottur tutuyor → şans %${pct}`);
+    const sorted = [...snap.leaves].sort((x: any, y: any) => (BigInt(y.weight) > BigInt(x.weight) ? 1 : -1));
+    for (const l of sorted) {
+      const wPct = (Number(BigInt(l.weight) * 10000n / BigInt(snap.totalWeight)) / 100).toFixed(1);
+      const sPct = (Number(BigInt(l.amount) * 10000n / released) / 100).toFixed(1);
+      const capped = BigInt(l.amount) === cap ? " ← tavan" : "";
+      note(`${nameOf(l.holder)}: ${tok(l.balance)}, ${Math.round(l.heldSlots * 0.4)} sn tutuyor, ağırlık %${wPct} → pay ${tok(l.amount)} (%${sPct})${capped}`);
     }
     const seller = wallets[SELLER].publicKey.toBase58();
     note(snap.leaves.some((l: any) => l.holder === seller)
       ? "UYARI: Deniz listede (beklenmiyordu)"
       : `Deniz (${short(seller)}) listede YOK — hepsini sattığı için`);
+    note(`serbest ${tok(released)}, dağıtılan ${tok(snap.total)}; tavan yüzünden kalan ${tok(released - BigInt(snap.total))} sonraki tura devrediyor`);
     note(`dev cüzdanı hazine sayılır, listede yok. kök: ${snap.root.slice(0, 16)}… slot ${snap.snapshotSlot}`);
     fs.writeFileSync(path.join(__dirname, "../snapshot.json"), JSON.stringify(snap, null, 2));
   }
 
-  // ---- 10. open_round + draw ----
-  step("Kök zincire yazıldı, sonra çekiliş",
-    `Liste önce zincire mühürlendi (kök), rastgelelik ancak ondan sonra üretildi: ${WINNERS} kazanan, eşit ödül. Sıra önemli — önce liste, sonra zar`);
+  // ---- 10. open_round ----
+  step("Paylaşım zincire mühürlendi",
+    "Listenin kökü, serbest bırakılan miktar ve snapshot anı zincire yazıldı: kim ne alacak artık sabit ve herkes aynı girdilerle aynı sonucu üretebilir. Zar yok, seçim yok");
   const round = PublicKey.findProgramAddressSync(
     [Buffer.from("round"), escrow.toBuffer(), Buffer.from(new Uint32Array([0]).buffer)], program.programId)[0];
   let r: any;
   {
-    const st = await escrowState();
-    const prize = new BN(st.pending.toString()).divn(WINNERS);
     sig("open_round", await rpc(program.methods
-      .openRound(0, [...Buffer.from(snap.root, "hex")], new BN(snap.totalWeight), WINNERS, prize, new BN(snap.snapshotSlot))
+      .openRound(0, [...Buffer.from(snap.root, "hex")], new BN(released.toString()), new BN(snap.total),
+                 snap.leaves.length, new BN(snap.snapshotSlot))
       .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })));
     r = await program.account.round.fetch(round, "confirmed");
-    note(`ödül: ${WINNERS} × ${tok(r.prize.toString())}; zar slotu ${r.drawSlot} (kök yazıldıktan 2 slot sonra)`);
-    while ((await conn.getSlot("confirmed")) <= r.drawSlot.toNumber()) await sleep(400);
-    sig("draw", await rpc(program.methods.draw().accountsPartial({ round, slotHashes: SLOT_HASHES })));
-    r = await program.account.round.fetch(round, "confirmed");
-    note(`rastgele tohum: ${Buffer.from(r.seed).toString("hex").slice(0, 16)}…`);
+    const again = await snapshot(RPC_URL, mint.toBase58(), r.snapshotSlot.toNumber(), program.programId, [], BigInt(r.released.toString()));
+    note(again.root === Buffer.from(r.root).toString("hex")
+      ? "zincirdeki (slot, miktar) ile yeniden üretildi: kök birebir tuttu"
+      : "UYARI: yeniden üretim kökü tutmadı");
+    note(`${r.holderCount} holder, ${tok(r.total.toString())} dağıtımda, tavan cüzdan başına ${tok(cap)}`);
   }
 
-  // ---- 11. Deniz sahte claim (kazananlardan önce: ret sebebi ispat olsun, 'zaten ödendi' değil) ----
-  step("Satan cüzdan ödül alamadı",
-    "Kazananlar almadan önce Deniz, 1. çekilişi kazanan satırı kendi cüzdanıyla kullanıp ödül almayı denedi; program ispatı imzalayan cüzdana göre kontrol ettiği için reddetti");
+  const claimAccounts = (h: PublicKey) => ({
+    holder: h, escrow, round, mint, escrowTokenAccount: escrowTa, holderTokenAccount: coinAta(h),
+    receipt: PublicKey.findProgramAddressSync([Buffer.from("receipt"), round.toBuffer(), h.toBuffer()], program.programId)[0],
+    bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022, systemProgram: SystemProgram.programId,
+  });
+  const { layers } = buildTree(snap.leaves);
+
+  // ---- 11. Deniz sahte claim ----
+  step("Satan cüzdan pay alamadı",
+    "Deniz, Ayşe'nin listedeki satırını kendi cüzdanıyla kullanıp pay almayı denedi; program ispatı imzalayan cüzdana göre kontrol ettiği için reddetti");
   {
-    const { layers } = buildTree(snap.leaves);
-    // 1. çekilişi gerçekten kazanan satır: bilet aralığı tutsun ki ret sebebi
-    // "yanlış cüzdan" olsun, "bu satır bu çekilişi kazanmadı" değil
-    const h0 = createHash("sha256").update(Buffer.concat([Buffer.from(r.seed), u16le(0)])).digest();
-    const t0k = leBytesToBigInt(h0.subarray(0, 16)) % BigInt(snap.totalWeight);
-    const victim = snap.leaves.find((l: any) => BigInt(l.cumStart) <= t0k && t0k < BigInt(l.cumStart) + BigInt(l.weight))!;
+    const victim = snap.leaves.find((l: any) => l.holder === wallets[0].publicKey.toBase58())!;
     const d = wallets[SELLER];
-    note(`1. çekilişi ${nameOf(victim.holder)} kazandı; Deniz o satırla deniyor`);
     try {
       await rpc(program.methods
-        .claimPrize(0, victim.index, new BN(victim.balance), new BN(victim.weight), new BN(victim.cumStart),
-                    proofFor(layers, victim.index).map((x) => [...x]))
-        .accountsPartial({
-          holder: d.publicKey, escrow, round, mint, escrowTokenAccount: escrowTa,
-          holderTokenAccount: coinAta(d.publicKey), bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-        }).signers([d]));
+        .claimShare(victim.index, new BN(victim.balance), new BN(victim.amount), proofFor(layers, victim.index).map((x) => [...x]))
+        .accountsPartial(claimAccounts(d.publicKey)).signers([d]));
       note("UYARI: sahte claim kabul edildi (beklenmiyordu)");
     } catch (e: any) {
       const m = errText(e).match(/Error Code: (\w+)/);
@@ -450,45 +453,44 @@ async function main() {
     }
   }
 
-  // ---- 12. kazananlar claim ----
-  step("Kazananlar ödülünü aldı",
-    "Her çekiliş ağırlığa göre bir holder'a düştü; kazananlar kendi cüzdanlarıyla claim etti, ödül havuzdan cüzdanlarına geçti");
+  // ---- 12. herkes payını alır ----
+  step("Herkes kendi payını aldı",
+    "Listedeki her holder kendi cüzdanıyla claim etti, payı havuzdan cüzdanına geçti; aynı cüzdan ikinci kez alamaz");
   {
-    const seed = Buffer.from(r.seed);
-    const total = BigInt(snap.totalWeight);
-    const { layers } = buildTree(snap.leaves);
     const b: Record<string, string> = {};
     for (const w of wallets.slice(0, 3)) b[`${nameOf(w.publicKey.toBase58())} coin`] = tok(await coinBal(w.publicKey));
     b["havuz coin"] = tok(poolOf(await escrowState()));
     before(b);
-    const won: string[] = [];
-    // DEMO_LEAVE_LAST=1: son çekilişi claim etme, web'deki claim butonu için bırak
+    // DEMO_LEAVE_LAST=1: son holder'ın payını claim etme, web'deki claim butonu için bırak
     const leaveLast = process.env.DEMO_LEAVE_LAST === "1";
-    for (let k = 0; k < r.winnerCount; k++) {
-      const h = createHash("sha256").update(Buffer.concat([seed, u16le(k)])).digest();
-      const ticket = leBytesToBigInt(h.subarray(0, 16)) % total;
-      const leaf = snap.leaves.find((l: any) => BigInt(l.cumStart) <= ticket && ticket < BigInt(l.cumStart) + BigInt(l.weight))!;
+    const order = [...snap.leaves].sort((x: any, y: any) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1));
+    for (const [i, leaf] of order.entries()) {
       const w = wallets.find((x) => x.publicKey.toBase58() === leaf.holder)!;
-      if (leaveLast && k === r.winnerCount - 1) {
-        note(`çekiliş ${k + 1} → ${nameOf(leaf.holder)} kazandı, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)`);
+      if (leaveLast && i === order.length - 1) {
+        note(`${nameOf(leaf.holder)} payı ${tok(leaf.amount)}, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)`);
         continue;
       }
       const s = await rpc(program.methods
-        .claimPrize(k, leaf.index, new BN(leaf.balance), new BN(leaf.weight), new BN(leaf.cumStart),
-                    proofFor(layers, leaf.index).map((x) => [...x]))
-        .accountsPartial({
-          holder: w.publicKey, escrow, round, mint, escrowTokenAccount: escrowTa,
-          holderTokenAccount: coinAta(w.publicKey), bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-        }).signers([w]));
-      sig(`çekiliş ${k + 1} → ${nameOf(leaf.holder)} +${tok(r.prize.toString())}`, s);
-      won.push(nameOf(leaf.holder));
+        .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((x) => [...x]))
+        .accountsPartial(claimAccounts(w.publicKey)).signers([w]));
+      sig(`${nameOf(leaf.holder)} +${tok(leaf.amount)}`, s);
+    }
+    // ikinci claim
+    const first = order[0]; const w0 = wallets.find((x) => x.publicKey.toBase58() === first.holder)!;
+    try {
+      await rpc(program.methods
+        .claimShare(first.index, new BN(first.balance), new BN(first.amount), proofFor(layers, first.index).map((x) => [...x]))
+        .accountsPartial(claimAccounts(w0.publicKey)).signers([w0]));
+      note("UYARI: ikinci claim kabul edildi (beklenmiyordu)");
+    } catch {
+      note(`${nameOf(first.holder)} ikinci kez denedi → reddedildi (makbuz zaten var)`);
     }
     const a: Record<string, string> = {};
     for (const w of wallets.slice(0, 3)) a[`${nameOf(w.publicKey.toBase58())} coin`] = tok(await coinBal(w.publicKey));
     a["havuz coin"] = tok(poolOf(await escrowState()));
     after(a);
     const rr = await program.account.round.fetch(round, "confirmed");
-    note(`${rr.claimedCount}/${WINNERS} ödül ödendi`);
+    note(`${rr.claimedCount}/${rr.holderCount} holder aldı, ${tok(rr.claimedAmount.toString())} / ${tok(rr.total.toString())}`);
     // cüzdanlar (gizli anahtarlarıyla) — Phantom'a aktarıp web'den claim denemek için; gitignore'da
     fs.writeFileSync(path.join(__dirname, "../demo-wallets.json"), JSON.stringify(
       Object.fromEntries(wallets.map((w, i) => [NAMES[i], { pubkey: w.publicKey.toBase58(), secretKey: [...w.secretKey] }])), null, 2));
@@ -511,12 +513,12 @@ async function main() {
   // ---- DEMO.md ----
   const md: string[] = [];
   md.push(`# Demo — uçtan uca bir dağıtım`, "",
-    `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde yerel test ağında (localnet, pump.fun programı devnet'ten kopyalanmış) tek koşuda üretildi: \`npm run demo\`. Her adımın zincir üstü işlem imzası var; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`, "",
-    `**Fikir tek cümlede:** coin basılırken bir kısmı kilitli havuza gider; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutanlar arasında ağırlıklı çekilişle dağıtılır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, kazananlar kendi cüzdanıyla alır.`, "",
+    `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde yerel test ağında (localnet, pump.fun programı devnet'ten kopyalanmış) tek koşuda üretildi: \`npm run demo\`. Her adımın zincir üstü işlem imzası en alttaki ekte; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`, "",
+    `**Fikir tek cümlede:** coin basılırken bir kısmı kilitli havuza gider; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.`, "",
     `## Aktörler`, "",
     `| Kim | Cüzdan | Rol |`, `|---|---|---|`,
-    `| Dev | \`${dev.publicKey.toBase58()}\` | coin'i basan; hazine sayılır, çekilişe girmez |`,
-    ...wallets.map((w, i) => `| ${NAMES[i]} | \`${w.publicKey.toBase58()}\` | ${i === SELLER ? "alır, sonra hepsini satar" : "alır ve tutar"} |`),
+    `| Dev | \`${dev.publicKey.toBase58()}\` | coin'i basan; hazine sayılır, dağıtıma girmez |`,
+    ...wallets.map((w, i) => `| ${NAMES[i]} | \`${w.publicKey.toBase58()}\` | ${i === SELLER ? "alır, sonra hepsini satar" : i === 0 ? "büyük alır ve tutar (tavana takılır)" : "alır ve tutar"} |`),
     `| Escrow | \`${escrow.toBase58()}\` | kilitli havuz (program hesabı, insan anahtarı yok) |`, "",
     `Coin: \`${mint.toBase58()}\` (DEMO)`, "",
     `## Adımlar`, "");
@@ -529,28 +531,32 @@ async function main() {
       md.push("");
     }
     for (const n of s.notes) md.push(`- ${n}`);
-    if (s.notes.length) md.push("");
-    if (s.sigs.length) {
-      md.push(`İmzalar:`, "");
-      for (const x of s.sigs) md.push(`- ${x.label}: \`${x.sig}\``);
-      md.push("");
-    }
+    // işlemler ana metinde tek satır; imzalar ekte
+    if (s.sigs.length) md.push(`- ${s.sigs.length} işlem: ${s.sigs.map((x) => x.label).join("; ")} (imzalar: ek, adım ${s.n})`);
+    md.push("");
   }
   md.push(`## Sonuç`, "",
     `| | |`, `|---|---|`,
     `| Havuza kilitlenen | ${summary.escrowed} |`,
     `| Ücretlerden toplanan | ${summary.feesCollected} |`,
     `| Geri alıma harcanan | ${summary.buybackSpent} → ${summary.buybackTokens} havuza eklendi |`,
-    `| Dağıtılan | ${summary.allocated} |`,
+    `| Bu turda dağıtılan | ${summary.allocated} |`,
     `| Havuzda kalan | ${summary.pool} |`,
     `| Süre | ${summary.durationSec} sn |`, "",
-    `Kurallar özet: dağıtım anı rastgele gecikmeli (üretimde 0–60 dk), holder listesi zincire yazıldıktan sonra zar atılır, ödül yalnızca listedeki cüzdana ve hâlâ tutuyorsa ödenir, geri alım tek seferde piyasanın %0,5'inden fazlasını harcamaz ve aynı slotta iki kez çalışmaz.`, "",
-    `Doğrulamak için: \`solana confirm -v <imza> --url http://127.0.0.1:8899\` (localnet açıkken).`, "",
+    `Kurallar özet: dağıtım anı rastgele gecikmeli (üretimde 0–60 dk); pay = bakiye × tutma süresi oranı, tek cüzdan turun en fazla %10'u, fazlası diğerlerine; liste ve miktar zincire yazılır, herkes aynı sonucu yeniden üretebilir; pay yalnızca listedeki cüzdana ve hâlâ tutuyorsa ödenir; geri alım tek seferde piyasanın %0,5'inden fazlasını harcamaz ve aynı blokta iki kez çalışmaz.`, "",
     `## Web'de görmek`, "",
-    `\`cd web && npm run dev:local\` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/${mint.toBase58()} (bu coin: havuz, son dağıtım, sıradaki tetikleyici, "Your share" paneli).`,
+    `\`cd web && npm run dev:local\` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/${mint.toBase58()} (bu coin: holder payı, tavan, havuz, turlar, "Your share" paneli).`,
     (process.env.DEMO_LEAVE_LAST === "1"
-      ? `Son çekiliş bilerek claim edilmedi: kazanan cüzdanın anahtarı \`demo-wallets.json\` içinde; Phantom'a aktarıp (ağ: localhost:8899) coin sayfasında cüzdanı bağlayınca panel ödülü bulur, "claim" butonu zincire gönderir.`
-      : `Bir çekilişi web'den claim etmek için demoyu \`DEMO_LEAVE_LAST=1 npm run demo\` ile koş; kazanan cüzdanın anahtarı \`demo-wallets.json\` içine yazılır, Phantom'a aktarıp butona basarsın.`), "");
+      ? `Bir holder'ın payı bilerek claim edilmedi: cüzdanın anahtarı \`demo-wallets.json\` içinde; Phantom'a aktarıp (ağ: localhost:8899) coin sayfasında cüzdanı bağlayınca panel payı bulur, "claim" butonu zincire gönderir.`
+      : `Bir payı web'den claim etmek için demoyu \`DEMO_LEAVE_LAST=1 npm run demo\` ile koş; cüzdanın anahtarı \`demo-wallets.json\` içine yazılır, Phantom'a aktarıp butona basarsın.`), "",
+    `## Ek: işlem imzaları`, "",
+    `Doğrulamak için: \`solana confirm -v <imza> --url http://127.0.0.1:8899\` (localnet açıkken).`, "");
+  for (const s of steps) {
+    if (!s.sigs.length) continue;
+    md.push(`**Adım ${s.n} — ${s.title}**`, "");
+    for (const x of s.sigs) md.push(`- ${x.label}: \`${x.sig}\``);
+    md.push("");
+  }
   fs.writeFileSync(path.join(__dirname, "../DEMO.md"), md.join("\n"));
   fs.writeFileSync(path.join(__dirname, "../demo-summary.json"), JSON.stringify({ ...summary, steps }, null, 2));
   console.log("\nDEMO.md yazıldı");

@@ -16,15 +16,8 @@ import {
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 import { configPda, setPlatform } from "./config";
-import { createHash } from "crypto";
 
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
-const u16le = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
-const leBytesToBigInt = (b: Buffer) => {
-  let v = 0n;
-  for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]);
-  return v;
-};
 /** pull lamports_spent / left_for_next_call out of a BuybackDone log */
 function decodeBuybackDone(logs: string[]) {
   const line = [...logs].reverse().find((l) => l.startsWith("Program data: "));
@@ -43,6 +36,8 @@ const manualPda = (mint: PublicKey, program: PublicKey) =>
 const manualAta = (mint: PublicKey, program: PublicKey) =>
   getAssociatedTokenAddressSync(mint, manualPda(mint, program), true, TOKEN_2022);
 
+const receiptPda = (round: PublicKey, holder: PublicKey, program: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("receipt"), round.toBuffer(), holder.toBuffer()], program)[0];
 const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
   const b = Buffer.alloc(4); b.writeUInt32LE(index);
   return PublicKey.findProgramAddressSync([Buffer.from("round"), escrow.toBuffer(), b], program)[0];
@@ -501,13 +496,13 @@ describe("airdrop_escrow (devnet)", () => {
     for (const i of [0, 1, 2, 3, 4]) {
       assert.isTrue(inSnap.has(holders[i].publicKey.toBase58()), `holder ${i} present`);
     }
-    // weights are balance x slots held, and cum ranges must tile the line
-    let cum = 0n;
+    // weights are balance x slots held and add up to the total
+    let sum = 0n;
     for (const l of snap.leaves) {
-      assert.equal(l.cumStart, cum.toString(), "cumulative ranges are contiguous");
-      cum += BigInt(l.weight);
+      assert.isTrue(BigInt(l.weight) > 0n, "positive weight");
+      sum += BigInt(l.weight);
     }
-    assert.equal(cum.toString(), snap.totalWeight);
+    assert.equal(sum.toString(), snap.totalWeight);
 
     // same inputs -> same root, recomputed from the leaves alone
     const { root } = buildTree(snap.leaves);
@@ -611,137 +606,160 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  slot ${now} >= ${fireSlot} -> ${after.pending.toString()} token serbest sig=${sig}`);
   });
 
-  it("5. round is opened: root committed before any randomness exists", async () => {
+  /** the indexer's RPC: the provider on localnet, Helius elsewhere */
+  const indexerRpc = () => /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint)
+    ? conn.rpcEndpoint : (process.env.HELIUS_RPC_URL ?? conn.rpcEndpoint);
+  const claimAccounts = (h: PublicKey, round: PublicKey) => ({
+    holder: h, escrow, round, receipt: receiptPda(round, h, program.programId), mint,
+    escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(h),
+    bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022, systemProgram: SystemProgram.programId,
+  });
+
+  it("5. round is opened: the root commits a capped pro-rata allocation", async () => {
     const roundIndex = 0;
     const round = roundPda(escrow, roundIndex, program.programId);
-    const winners = 8;
     const st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.pending.gtn(0), "a trigger must have released funds first");
-    const prize = st.pending.divn(winners);
+    const released = BigInt(st.pending.toString());
+
+    // allocate what the trigger released over the snapshot
+    const slot = await conn.getSlot("confirmed");
+    snap = await snapshot(indexerRpc(), mint.toBase58(), slot, program.programId,
+                          [dev.publicKey.toBase58()], released);
+    assert.equal(snap.leaves.length, 5, "same 5 holders");
+    const total = BigInt(snap.total);
+    const cap = released * 1000n / 10000n;
+    assert.isTrue(total <= released, "cannot hand out more than released");
+    for (const l of snap.leaves) assert.isTrue(BigInt(l.amount) <= cap, `${l.holder} over the 10% cap`);
+    // 5 holders, 10% cap each: exactly half is handed out, the rest stays pending
+    assert.equal(total.toString(), (cap * 5n).toString(), "5 × cap");
+    const again = await snapshot(indexerRpc(), mint.toBase58(), slot, program.programId,
+                                 [dev.publicKey.toBase58()], released);
+    assert.equal(again.root, snap.root, "allocation is deterministic");
+    fs.writeFileSync("snapshot.json", JSON.stringify(snap, null, 2));
 
     // more than the trigger released must be refused
     let refused = false;
     try {
       await program.methods
-        .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
-                   new BN(snap.totalWeight), winners, prize.muln(3), new BN(snap.snapshotSlot))
+        .openRound(roundIndex, [...Buffer.from(snap.root, "hex")], new BN(released.toString()),
+                   new BN((released + 1n).toString()), snap.leaves.length, new BN(snap.snapshotSlot))
         .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
         .rpc({ commitment: "confirmed" });
     } catch { refused = true; }
     assert.isTrue(refused, "cannot distribute more than the trigger authorised");
 
     const sig = await withRetry("open_round", () => program.methods
-      .openRound(roundIndex, [...Buffer.from(snap.root, "hex")],
-                 new BN(snap.totalWeight), winners, prize, new BN(snap.snapshotSlot))
+      .openRound(roundIndex, [...Buffer.from(snap.root, "hex")], new BN(released.toString()),
+                 new BN(total.toString()), snap.leaves.length, new BN(snap.snapshotSlot))
       .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
       .rpc({ commitment: "confirmed" }));
     sigs.openRound = sig;
 
     const r: any = await program.account.round.fetch(round);
     assert.equal(Buffer.from(r.root).toString("hex"), snap.root, "root stored as committed");
-    assert.isFalse(r.drawn, "no randomness at commit time");
-    assert.equal(r.winnerCount, winners);
+    assert.equal(r.released.toString(), released.toString());
+    assert.equal(r.total.toString(), total.toString());
+    assert.equal(r.holderCount, snap.leaves.length);
     assert.equal(r.snapshotSlot.toNumber(), snap.snapshotSlot, "snapshot slot recorded");
-    console.log(`  root islendi, ${winners} kazanan x ${prize.toString()} odul sig=${sig}`);
+    const st2: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st2.pending.toString(), (released - total).toString(), "cap remainder stays pending");
+    console.log(`  root islendi: ${snap.leaves.length} holder, ${total} dagitiliyor / ${released} serbest, kalan pending sig=${sig}`);
   });
 
-  it("6. randomness is drawn afterwards, by anyone", async () => {
+  it("6. every holder claims exactly their share; nobody twice", async () => {
     const round = roundPda(escrow, 0, program.programId);
-    const before: any = await program.account.round.fetch(round);
-    // the seed is the hash of draw_slot, which is only in the sysvar once that slot is over
-    while ((await conn.getSlot("confirmed")) <= before.drawSlot.toNumber()) await sleep(500);
-
-    const sig = await withRetry("draw", () => program.methods
-      .draw()
-      .accountsPartial({ round, slotHashes: SLOT_HASHES })
-      .rpc({ commitment: "confirmed" }));
-    sigs.draw = sig;
-
-    const r: any = await program.account.round.fetch(round);
-    assert.isTrue(r.drawn, "seed filled in");
-    assert.notEqual(Buffer.from(r.seed).toString("hex"), "00".repeat(32), "seed is real");
-    console.log(`  seed=${Buffer.from(r.seed).toString("hex").slice(0, 16)}... sig=${sig}`);
-  });
-
-  it("7. winners claim; only the drawn ranges pay out", async () => {
-    const roundIndex = 0;
-    const round = roundPda(escrow, roundIndex, program.programId);
-    const r: any = await program.account.round.fetch(round);
-    const seed = Buffer.from(r.seed);
-    const total = BigInt(snap.totalWeight);
     const { layers } = buildTree(snap.leaves);
-
-    // recompute the same draws the program will
-    const winnersOf = new Map<number, number[]>();
-    for (let k = 0; k < r.winnerCount; k++) {
-      const h = createHash("sha256").update(Buffer.concat([seed, u16le(k)])).digest();
-      const ticket = leBytesToBigInt(h.subarray(0, 16)) % total;
-      const idx = snap.leaves.findIndex((l: any) =>
-        BigInt(l.cumStart) <= ticket && ticket < BigInt(l.cumStart) + BigInt(l.weight));
-      assert.isAtLeast(idx, 0, `draw ${k} must land on a leaf`);
-      winnersOf.set(k, [...(winnersOf.get(k) ?? []), idx]);
-    }
-
-    let paid = 0;
-    for (const [k, [idx]] of winnersOf) {
-      const leaf = snap.leaves[idx];
+    let paid = 0n;
+    for (const leaf of snap.leaves) {
       const h = holders.find((x) => x.publicKey.toBase58() === leaf.holder)!;
       const before = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
-      const sig = await withRetry(`claim ${k}`, () => program.methods
-        .claimPrize(k, leaf.index, new BN(leaf.balance), new BN(leaf.weight), new BN(leaf.cumStart),
+      const sig = await withRetry(`claim ${leaf.index}`, () => program.methods
+        .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount),
                     proofFor(layers, leaf.index).map((b) => [...b]))
-        .accountsPartial({
-          holder: h.publicKey, escrow, round, mint,
-          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(h.publicKey),
-          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-        })
+        .accountsPartial(claimAccounts(h.publicKey, round))
         .signers([h]).rpc({ commitment: "confirmed" }));
-      if (paid === 0) sigs.claimPrize = sig;
+      if (paid === 0n) sigs.claimShare = sig;
       const after = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
-      assert.equal((after.amount - before.amount).toString(), r.prize.toString(),
-        `draw ${k} paid exactly one prize`);
-      paid++;
+      assert.equal((after.amount - before.amount).toString(), leaf.amount, `leaf ${leaf.index} paid its amount`);
+      paid += BigInt(leaf.amount);
     }
     const rr: any = await program.account.round.fetch(round);
-    assert.equal(rr.claimedCount, paid, "every drawn prize claimed once");
-    console.log(`  ${paid} odul odendi`);
+    assert.equal(rr.claimedCount, snap.leaves.length, "every holder claimed once");
+    assert.equal(rr.claimedAmount.toString(), rr.total.toString(), "round fully paid");
+    console.log(`  ${snap.leaves.length} holder ${paid} token aldi`);
 
-    // the same draw cannot be claimed twice
-    const [k0, [i0]] = [...winnersOf][0];
-    const l0 = snap.leaves[i0];
+    // the same holder cannot claim twice: the receipt already exists
+    const l0 = snap.leaves[0];
     const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
     let again = false;
     try {
-      await program.methods.claimPrize(k0, l0.index, new BN(l0.balance), new BN(l0.weight), new BN(l0.cumStart),
+      await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount),
           proofFor(layers, l0.index).map((b) => [...b]))
-        .accountsPartial({
-          holder: h0.publicKey, escrow, round, mint,
-          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(h0.publicKey),
-          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-        }).signers([h0]).rpc({ commitment: "confirmed" });
+        .accountsPartial(claimAccounts(h0.publicKey, round)).signers([h0]).rpc({ commitment: "confirmed" });
     } catch { again = true; }
     assert.isTrue(again, "double claim rejected");
-    console.log("  ayni cekilis ikinci kez odenmedi");
+    console.log("  ikinci claim reddedildi");
   });
 
-  it("8. a holder who is not in the tree cannot forge a claim", async () => {
+  it("7. a holder who is not in the tree cannot forge a claim", async () => {
     const round = roundPda(escrow, 0, program.programId);
     const { layers } = buildTree(snap.leaves);
     const victim = snap.leaves[0];
     const outsider = holders[TOO_SMALL]; // real wallet, but below the minimum
-    let rejected = false;
+    let detail = "";
     try {
-      await program.methods.claimPrize(0, victim.index, new BN(victim.balance), new BN(victim.weight), new BN(victim.cumStart),
+      await program.methods.claimShare(victim.index, new BN(victim.balance), new BN(victim.amount),
           proofFor(layers, victim.index).map((b) => [...b]))
-        .accountsPartial({
-          holder: outsider.publicKey, escrow, round, mint,
-          escrowTokenAccount: escrowTa, holderTokenAccount: baseAta(outsider.publicKey),
-          bondingCurve: pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-        }).signers([outsider]).rpc({ commitment: "confirmed" });
-    } catch { rejected = true; }
-    assert.isTrue(rejected, "someone else's leaf must not pay out");
-    console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi");
+        .accountsPartial(claimAccounts(outsider.publicKey, round)).signers([outsider]).rpc({ commitment: "confirmed" });
+      detail = "KABUL";
+    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
+    assert.match(detail, /BadProof/, `someone else's leaf must not pay out: ${detail.slice(0, 200)}`);
+    console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi (BadProof)");
   });
+
+  it("8. the 10% cap is enforced on chain, not just by the indexer", async () => {
+    // A dishonest publisher commits a root that hands one wallet half the
+    // round. The proof checks out; the program still refuses the amount.
+    const st: any = await program.account.escrow.fetch(escrow);
+    let released = BigInt(st.pending.toString());
+    if (released === 0n) {
+      // nothing pending: make the escrow release something small first
+      console.log("  not: pending yok, tavan testi milestone'dan sonra kosacak");
+      capTestPending = true; return;
+    }
+    await capTest(released);
+  });
+  let capTestPending = false;
+  async function capTest(released: bigint) {
+    const roundIndex = 1;
+    const round = roundPda(escrow, roundIndex, program.programId);
+    const slot = await conn.getSlot("confirmed");
+    const doctored = await snapshot(indexerRpc(), mint.toBase58(), slot, program.programId,
+                                    [dev.publicKey.toBase58()], released);
+    // rewrite the amounts: leaf 0 gets 50% of the round, the rest nothing
+    const half = released / 2n;
+    doctored.leaves.forEach((l: any, i: number) => { l.amount = i === 0 ? half.toString() : "0"; });
+    const { root, layers } = buildTree(doctored.leaves);
+    await withRetry("open_round_doctored", () => program.methods
+      .openRound(roundIndex, [...root], new BN(released.toString()), new BN(half.toString()),
+                 doctored.leaves.length, new BN(doctored.snapshotSlot))
+      .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
+      .rpc({ commitment: "confirmed" }));
+    const l0 = doctored.leaves[0];
+    const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
+    let detail = "";
+    try {
+      await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount),
+          proofFor(layers, l0.index).map((b) => [...b]))
+        .accountsPartial(claimAccounts(h0.publicKey, round)).signers([h0]).rpc({ commitment: "confirmed" });
+      detail = "KABUL";
+    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
+    assert.match(detail, /ShareOverCap/, `over-cap leaf must be refused: ${detail.slice(0, 200)}`);
+    console.log(`  %50'lik leaf reddedildi (ShareOverCap), tavan %10`);
+  }
+
+
   it("9. milestone: doubling the market cap releases 5% and ratchets", async () => {
     const before: any = await program.account.escrow.fetch(escrow);
     const baseline = before.lastMilestoneMcap;
@@ -819,5 +837,6 @@ describe("airdrop_escrow (devnet)", () => {
       "milestone does not go backwards");
     assert.equal(st2.armedKind, st2.armed ? 1 : 0, "no second milestone at the same cap");
     console.log(`  tas geri gitmedi sig=${again}`);
+    if (capTestPending) await capTest(BigInt(after.pending.toString()));
   });
 });

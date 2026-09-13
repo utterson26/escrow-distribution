@@ -3,8 +3,9 @@
 Launch a pump.fun coin whose creator is a program-owned escrow, lock part of
 the dev's buy in it, and hand it back to holders through verifiable,
 automatic distributions: trading volume and market-cap milestones release tokens,
-a Merkle snapshot of holders is committed on chain, randomness is drawn one
-slot later, winners claim with a proof. Creator fees are swept into the escrow
+every eligible holder gets a pro-rata share (balance × time held, no wallet
+above 10% of a round), the Merkle root of the allocation is committed on chain,
+holders claim with a proof. Creator fees are swept into the escrow
 and bought back into the coin. Nobody — the dev included — can withdraw the
 escrow.
 
@@ -15,9 +16,9 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 
 | path | what |
 |---|---|
-| `programs/airdrop_escrow` | the Anchor program (`launch`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `draw` / `claim_prize`, manual distribution list, platform intervention) |
+| `programs/airdrop_escrow` | the Anchor program (`launch`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `claim_share`, manual distribution list, platform intervention) |
 | `indexer/snapshot.ts` | deterministic holder snapshot → Merkle root; `snapshot` / `verify` / `reproduce` |
-| `crank/` | the keeper: checks triggers, buys back, fires, snapshots, opens rounds, draws — once a minute, for every coin ([README](crank/README.md)) |
+| `crank/` | the keeper: checks triggers, buys back, fires, snapshots, allocates, opens rounds — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | Next.js site: coins, rounds, claim with Phantom, event feed |
 | `tests/` | Anchor/mocha suites, including `security.ts` for [SECURITY_REVIEW.md](SECURITY_REVIEW.md) |
 | `scripts/localnet.sh` | local validator with pump / fee / mayhem programs and their config accounts cloned |
@@ -65,7 +66,7 @@ Step 3 launches the coins, generates a wallet for the crank and makes it the
 platform authority via `set_platform` (signed by your wallet, the upgrade
 authority), trades for five minutes and checks every crank action against
 what the chain says. To claim from the site with your own wallet, add
-it to the run and it will leave the draws it wins unclaimed:
+it to the run and it will leave the shares it is owed unclaimed:
 
 ```bash
 DEMO_WALLET=<your Phantom address> npm run crank:sim
@@ -78,8 +79,9 @@ Testnet Mode → Localnet; extension only) — details in
 ## Demo
 
 `npm run demo` (localnet up, env as above) plays the whole story once — launch,
-four buyers, one sells out, fee sweep, chunked buyback, volume trigger, random
-delay, snapshot, commit-then-draw, claims, a forged claim refused — printing a
+twelve buyers, one sells out, fee sweep, chunked buyback, volume trigger, random
+delay, snapshot, pro-rata split with the 10% cap, root committed, a forged claim
+refused, everyone claims — printing a
 signature per step and writing it up in [DEMO.md](DEMO.md). `DEMO_LEAVE_LAST=1`
 leaves the last prize unclaimed and drops the wallets in `demo-wallets.json`
 so you can claim it from the web page with Phantom. The demo's indexer always
@@ -104,16 +106,17 @@ Every run mints a new coin; on localnet that is free.
 - **Release.** `check_trigger` (permissionless) samples the curve; 1% of
   market cap in volume releases 1% of the pool, a 2× market cap releases 5%.
   The release fires at a random slot inside the next hour.
-- **Snapshot.** The indexer replays every token account's history to
+- **Snapshot + split.** The indexer replays every token account's history to
   `snapshot_slot`, weights holders by balance × slots held, excludes the dev
-  and the protocol's own accounts, and builds a Merkle tree. Only the root and
-  the slot go on chain, so anyone can rebuild and compare
-  (`indexer/snapshot.ts reproduce`).
-- **Draw.** Randomness is the hash of a slot fixed when the root was
-  committed; whoever calls `draw`, and when, does not change it.
-- **Claim.** The winner proves their leaf and that the draw fell in their
-  range; the program itself checks they still hold the snapshot balance and
-  at least 0.05 SOL worth. One prize per draw.
+  and the protocol's own accounts, and splits the release pro rata — no wallet
+  above `MAX_SHARE_BPS` (10%) of a round, the excess re-split over the others
+  until nobody is over. The Merkle root of the (holder, balance, amount) rows,
+  the slot and the release go on chain, so anyone can rebuild and compare
+  (`indexer/snapshot.ts reproduce`). Nothing is random.
+- **Claim.** A holder proves their row; the program itself checks the amount
+  is under the cap (measured against the recorded release, which cannot exceed
+  what triggers freed), that they still hold the snapshot balance and at least
+  0.05 SOL worth. One claim per wallet per round (a receipt PDA).
 - **Fees → buyback.** The escrow is the pump creator; `collect_fees` sweeps the
   vault, `buyback` converts at most 0.5% of the curve's reserves per call into
   the coin and adds it to the pool — and spends at most once per slot, so the
@@ -125,7 +128,8 @@ What is trusted, what is not, and what was found in review:
 ## Devnet
 
 Program id `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`. The deployed
-devnet build predates `Config`, `snapshot_slot`, `draw_slot` and the
-balance-carrying leaf; redeploy (v0 build) before running the devnet suite.
+devnet build predates `Config`, `snapshot_slot`, the pro-rata rounds
+(`claim_share`, receipts) and the amount-carrying leaf; redeploy (v0 build)
+before running the devnet suite.
 Deploying needs ~2.7 SOL for the buffer. `PROGRESS.md` has the signatures of
 every step already proven on devnet.

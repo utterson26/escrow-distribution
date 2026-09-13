@@ -107,35 +107,38 @@ pub struct ManualEntry {
     pub bps: u16,
 }
 
-/// One distribution round. The Merkle root is committed first and the
-/// randomness is drawn afterwards, so whoever publishes the root cannot know
-/// — and therefore cannot pick — the winners.
+/// One distribution round. The amount a trigger released is split pro rata
+/// over every eligible holder (weight = balance × holding time), no single
+/// wallet taking more than `MAX_SHARE_BPS` of it; the Merkle root commits to
+/// the resulting (holder, snapshot balance, amount) rows. Nothing is random:
+/// anyone can rebuild the snapshot from `snapshot_slot` and `released` and
+/// check the root.
 #[account]
 #[derive(InitSpace)]
 pub struct Round {
     pub escrow: Pubkey,
     pub index: u32,
-    /// Merkle root over the holder snapshot leaves.
+    /// Merkle root over the allocation leaves.
     pub root: [u8; 32],
-    /// Sum of every leaf weight; the draw is taken modulo this.
-    pub total_weight: u128,
-    pub winner_count: u16,
-    /// Tokens paid per winning draw.
-    pub prize: u64,
+    /// What the allocator was given: the input every reproducer needs.
+    pub released: u64,
+    /// Sum of every leaf amount; ≤ `released` (the per-wallet cap can leave a
+    /// remainder, which stays pending for the next round).
+    pub total: u64,
+    /// Leaves in the tree.
+    pub holder_count: u32,
+    pub claimed_amount: u64,
+    pub claimed_count: u32,
     pub commit_slot: u64,
-    /// Randomness, filled in by `draw`.
-    pub seed: [u8; 32],
-    pub drawn: bool,
-    /// One bit per draw index; 256 draws max.
-    pub claimed_bits: [u8; 32],
-    pub claimed_count: u16,
-    pub bump: u8,
-    /// Slot the holder snapshot behind `root` was taken at, so the snapshot
-    /// can be rebuilt exactly by anyone.
+    /// Slot the holder snapshot behind `root` was taken at.
     pub snapshot_slot: u64,
-    /// The randomness is the hash of this (future, at commit time) slot. Fixed
-    /// when the root is committed, so whoever calls `draw` cannot shop for a
-    /// slot hash they like.
-    pub draw_slot: u64,
+    pub bump: u8,
 }
 
+/// Marks one holder's claim in one round. Its existence is the "already
+/// claimed" bit: a second claim fails on `init`.
+#[account]
+#[derive(InitSpace)]
+pub struct ClaimReceipt {
+    pub bump: u8,
+}

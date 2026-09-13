@@ -647,41 +647,33 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
-    /// Commit the Merkle root of a holder snapshot for one distribution round.
-    /// Only the root is stored; the randomness that picks winners is drawn in a
-    /// separate, later transaction, so whoever publishes the root cannot know who
-    /// will win and therefore cannot pick them.
-    ///
-    /// `snapshot_slot` is the slot the holder snapshot was taken at. It is
-    /// recorded so anyone can rebuild the exact same snapshot and check the
-    /// root, instead of guessing which slot the publisher used.
+    /// Commit a distribution round: the Merkle root over the pro-rata
+    /// allocation of `released` tokens across the holder snapshot taken at
+    /// `snapshot_slot`. `total` is the sum of the leaf amounts — at most
+    /// `released`, less when the per-wallet cap leaves a remainder, which then
+    /// stays `pending` for the next round. Both slot and `released` are
+    /// recorded so anyone can rebuild the exact allocation and check the root.
     pub fn open_round(
         ctx: Context<OpenRound>,
         index: u32,
         root: [u8; 32],
-        total_weight: u128,
-        winner_count: u16,
-        prize: u64,
+        released: u64,
+        total: u64,
+        holder_count: u32,
         snapshot_slot: u64,
     ) -> Result<()> {
-        require!(
-            winner_count > 0 && winner_count <= MAX_WINNERS,
-            EscrowError::BadWinnerCount
-        );
         let now_slot = Clock::get()?.slot;
         require!(snapshot_slot <= now_slot, EscrowError::SnapshotInFuture);
-        require!(total_weight > 0, EscrowError::ZeroWeight);
-        require!(prize > 0, EscrowError::ZeroAmount);
+        require!(holder_count > 0, EscrowError::NoHolders);
+        require!(total > 0, EscrowError::ZeroAmount);
+        require!(total <= released, EscrowError::TotalOverReleased);
         require!(root != [0u8; 32], EscrowError::EmptyRoot);
 
-        // The whole purse must already be sitting in the escrow token account.
-        let committed = (winner_count as u64)
-            .checked_mul(prize)
-            .ok_or(EscrowError::Overflow)?;
-        // The amount is not the publisher's to choose: it is exactly what a
-        // trigger released.
+        // The amount is not the publisher's to choose: it is at most what
+        // fired triggers released and have not yet been handed out. `released`
+        // is bounded too, because the per-wallet cap is measured against it.
         require!(
-            committed <= ctx.accounts.escrow.pending,
+            released <= ctx.accounts.escrow.pending,
             EscrowError::AmountNotAuthorized
         );
         let free = ctx
@@ -690,162 +682,68 @@ pub mod airdrop_escrow {
             .escrowed
             .checked_sub(ctx.accounts.escrow.allocated)
             .ok_or(EscrowError::Overflow)?;
-        require!(free >= committed, EscrowError::NothingToClaim);
+        require!(free >= total, EscrowError::NothingToClaim);
 
         let round = &mut ctx.accounts.round;
         round.escrow = ctx.accounts.escrow.key();
         round.index = index;
         round.root = root;
-        round.total_weight = total_weight;
-        round.winner_count = winner_count;
-        round.prize = prize;
-        round.commit_slot = now_slot;
-        round.seed = [0u8; 32];
-        round.drawn = false;
-        round.claimed_bits = [0u8; 32];
+        round.released = released;
+        round.total = total;
+        round.holder_count = holder_count;
+        round.claimed_amount = 0;
         round.claimed_count = 0;
-        round.bump = ctx.bumps.round;
+        round.commit_slot = now_slot;
         round.snapshot_slot = snapshot_slot;
-        round.draw_slot = now_slot.saturating_add(DRAW_DELAY_SLOTS);
+        round.bump = ctx.bumps.round;
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.allocated = escrow
             .allocated
-            .checked_add(committed)
+            .checked_add(total)
             .ok_or(EscrowError::Overflow)?;
         escrow.pending = escrow
             .pending
-            .checked_sub(committed)
+            .checked_sub(total)
             .ok_or(EscrowError::Overflow)?;
 
         emit!(RoundOpened {
             escrow: round.escrow,
             index,
             root,
-            total_weight,
-            winner_count,
-            prize,
+            released,
+            total,
+            holder_count,
             commit_slot: round.commit_slot,
             snapshot_slot,
         });
         Ok(())
     }
 
-    /// Draw the randomness for a round. Permissionless. The seed is the hash of
-    /// the slot fixed at commit time (`draw_slot`), looked up in the SlotHashes
-    /// sysvar — not "the most recent slot", which would let whoever calls this
-    /// wait for a hash they like. If nobody drew for ~512 slots and the hash has
-    /// fallen out of the sysvar, the round is re-targeted to a fresh future slot
-    /// and the call must be repeated.
-    pub fn draw(ctx: Context<Draw>) -> Result<()> {
-        let round = &mut ctx.accounts.round;
-        require!(!round.drawn, EscrowError::AlreadyDrawn);
-        let now = Clock::get()?.slot;
-        require!(now > round.draw_slot, EscrowError::DrawTooEarly);
-
-        // SlotHashes: u64 count, then (slot u64, hash [u8;32]) pairs, newest first.
-        let data = ctx.accounts.slot_hashes.try_borrow_data()?;
-        require!(data.len() >= 8 + 40, EscrowError::NoSlotHash);
-        let count = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-        require!(data.len() >= 8 + count * 40, EscrowError::NoSlotHash);
-
-        // The first slot at or after draw_slot that actually produced a block:
-        // walk from newest to oldest and keep the last entry still >= draw_slot.
-        let mut pick: Option<usize> = None;
-        let mut older_exists = false;
-        for i in 0..count {
-            let off = 8 + i * 40;
-            let slot = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
-            if slot >= round.draw_slot {
-                pick = Some(i);
-            } else {
-                older_exists = true;
-                break;
-            }
-        }
-        let Some(i) = pick else {
-            // draw_slot itself was skipped and nothing after it has landed yet
-            return err!(EscrowError::DrawTooEarly);
-        };
-        let off = 8 + i * 40;
-        let seed_slot = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
-        // Only deterministic if we can see that nothing between draw_slot and
-        // the pick has scrolled out of the window.
-        if seed_slot != round.draw_slot && !older_exists {
-            round.draw_slot = now.saturating_add(DRAW_DELAY_SLOTS);
-            emit!(RoundRetargeted { escrow: round.escrow, index: round.index,
-                                    draw_slot: round.draw_slot });
-            return err!(EscrowError::DrawRetargeted);
-        }
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&data[off + 8..off + 40]);
-
-        round.seed = hashv(&[
-            &hash,
-            &seed_slot.to_le_bytes(),
-            round.key().as_ref(),
-            &round.root,
-        ])
-        .to_bytes();
-        round.drawn = true;
-
-        emit!(RoundDrawn {
-            escrow: round.escrow,
-            index: round.index,
-            seed: round.seed,
-            slot: seed_slot,
-        });
-        Ok(())
-    }
-
-    /// Claim one winning draw. The caller proves their snapshot leaf is in the
-    /// committed tree and that the draw landed inside their weight range; the
-    /// program then checks, on its own, that they still hold a large enough
-    /// position right now.
-    pub fn claim_prize(
-        ctx: Context<ClaimPrize>,
-        draw_index: u16,
+    /// Claim this holder's share of a round. The caller proves their
+    /// allocation leaf is in the committed tree; the program then checks, on
+    /// its own, that the amount respects the per-wallet cap and that they still
+    /// hold a large enough position right now. One claim per holder per round,
+    /// enforced by the receipt account's `init`.
+    pub fn claim_share(
+        ctx: Context<ClaimShare>,
         leaf_index: u32,
         balance: u64,
-        weight: u64,
-        cum_start: u128,
+        amount: u64,
         proof: Vec<[u8; 32]>,
     ) -> Result<()> {
         let round = &ctx.accounts.round;
-        require!(round.drawn, EscrowError::NotDrawn);
-        require!(draw_index < round.winner_count, EscrowError::BadWinnerCount);
-        require!(weight > 0, EscrowError::ZeroWeight);
+        require!(amount > 0, EscrowError::ZeroAmount);
+        require!(leaf_index < round.holder_count, EscrowError::BadProof);
 
-        // one prize per draw index
-        let byte = (draw_index / 8) as usize;
-        let bit = 1u8 << (draw_index % 8);
-        require!(
-            round.claimed_bits[byte] & bit == 0,
-            EscrowError::AlreadyClaimed
-        );
-
-        // Where this draw landed on the cumulative weight line.
-        let h = hashv(&[&round.seed, &draw_index.to_le_bytes()]);
-        let ticket = u128::from_le_bytes(h.to_bytes()[0..16].try_into().unwrap())
-            % round.total_weight;
-        let end = cum_start
-            .checked_add(weight as u128)
-            .ok_or(EscrowError::Overflow)?;
-        require!(
-            cum_start <= ticket && ticket < end,
-            EscrowError::TicketOutOfRange
-        );
-
-        // The leaf binds holder, snapshot balance, weight and position on that
-        // line together.
+        // The leaf binds holder, snapshot balance and amount together.
         let holder = ctx.accounts.holder.key();
         let mut node = hashv(&[
             b"leaf",
             &leaf_index.to_le_bytes(),
             holder.as_ref(),
             &balance.to_le_bytes(),
-            &weight.to_le_bytes(),
-            &cum_start.to_le_bytes(),
+            &amount.to_le_bytes(),
         ])
         .to_bytes();
         for sibling in proof.iter() {
@@ -856,6 +754,22 @@ pub mod airdrop_escrow {
             };
         }
         require!(node == round.root, EscrowError::BadProof);
+
+        // The cap is a program rule, not an allocator convention: a root that
+        // hands one wallet more than MAX_SHARE_BPS of the release cannot pay out.
+        let cap = (round.released as u128)
+            .checked_mul(MAX_SHARE_BPS as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        require!(amount as u128 <= cap, EscrowError::ShareOverCap);
+        require!(
+            round
+                .claimed_amount
+                .checked_add(amount)
+                .ok_or(EscrowError::Overflow)?
+                <= round.total,
+            EscrowError::RoundExhausted
+        );
 
         // Independent of the snapshot: is this holder still in, right now, and
         // big enough? The publisher cannot fake either of these.
@@ -880,7 +794,6 @@ pub mod airdrop_escrow {
             EscrowError::PositionTooSmall
         );
 
-        let prize = round.prize;
         let mint_key = ctx.accounts.escrow.mint;
         let bump = ctx.accounts.escrow.bump;
         let seeds: &[&[u8]] = &[ESCROW_SEED, mint_key.as_ref(), &[bump]];
@@ -895,22 +808,22 @@ pub mod airdrop_escrow {
                 },
                 &[seeds],
             ),
-            prize,
+            amount,
             ctx.accounts.mint.decimals,
         )?;
 
+        ctx.accounts.receipt.bump = ctx.bumps.receipt;
         let round = &mut ctx.accounts.round;
-        round.claimed_bits[byte] |= bit;
+        round.claimed_amount = round.claimed_amount.saturating_add(amount);
         round.claimed_count = round.claimed_count.saturating_add(1);
         let escrow = &mut ctx.accounts.escrow;
-        escrow.claimed = escrow.claimed.checked_add(prize).ok_or(EscrowError::Overflow)?;
+        escrow.claimed = escrow.claimed.checked_add(amount).ok_or(EscrowError::Overflow)?;
 
-        emit!(PrizeClaimed {
+        emit!(ShareClaimed {
             escrow: escrow.key(),
             round: ctx.accounts.round.key(),
-            draw_index,
             holder,
-            amount: prize,
+            amount,
             position_value: value as u64,
         });
         Ok(())
@@ -1374,24 +1287,11 @@ pub struct RoundOpened {
     pub escrow: Pubkey,
     pub index: u32,
     pub root: [u8; 32],
-    pub total_weight: u128,
-    pub winner_count: u16,
-    pub prize: u64,
+    pub released: u64,
+    pub total: u64,
+    pub holder_count: u32,
     pub commit_slot: u64,
     pub snapshot_slot: u64,
-}
-#[event]
-pub struct RoundRetargeted {
-    pub escrow: Pubkey,
-    pub index: u32,
-    pub draw_slot: u64,
-}
-#[event]
-pub struct RoundDrawn {
-    pub escrow: Pubkey,
-    pub index: u32,
-    pub seed: [u8; 32],
-    pub slot: u64,
 }
 #[event]
 pub struct BuybackDone {
@@ -1412,10 +1312,9 @@ pub struct BuybackSkipped {
     pub threshold: u64,
 }
 #[event]
-pub struct PrizeClaimed {
+pub struct ShareClaimed {
     pub escrow: Pubkey,
     pub round: Pubkey,
-    pub draw_index: u16,
     pub holder: Pubkey,
     pub amount: u64,
     /// The position value the program measured at claim time, in lamports.
@@ -1755,7 +1654,8 @@ pub struct FireTrigger<'info> {
 /// The root may be published by the dev or by the platform authority: the
 /// platform runs the crank that snapshots and opens rounds, so launches do not
 /// depend on the dev staying online. Neither can choose the amount (it is what
-/// a trigger released) nor the winners (the randomness is drawn afterwards).
+/// a trigger released) nor who gets what: the allocation is a pure function of
+/// chain history and `released`, and every leaf is capped by the program.
 #[derive(Accounts)]
 #[instruction(index: u32)]
 pub struct OpenRound<'info> {
@@ -1780,23 +1680,8 @@ pub struct OpenRound<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Anyone may draw; the delay after the commit is what makes it fair.
 #[derive(Accounts)]
-pub struct Draw<'info> {
-    #[account(
-        mut,
-        seeds = [ROUND_SEED, round.escrow.as_ref(), &round.index.to_le_bytes()],
-        bump = round.bump
-    )]
-    pub round: Box<Account<'info, Round>>,
-    /// CHECK: pinned to the sysvar; read as raw bytes because it is too big to
-    /// deserialize.
-    #[account(address = SLOT_HASHES)]
-    pub slot_hashes: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-pub struct ClaimPrize<'info> {
+pub struct ClaimShare<'info> {
     #[account(mut)]
     pub holder: Signer<'info>,
     #[account(
@@ -1812,6 +1697,15 @@ pub struct ClaimPrize<'info> {
         constraint = round.escrow == escrow.key() @ EscrowError::HolderMismatch
     )]
     pub round: Box<Account<'info, Round>>,
+    /// One per (round, holder): a second claim fails here, on `init`.
+    #[account(
+        init,
+        payer = holder,
+        space = 8 + ClaimReceipt::INIT_SPACE,
+        seeds = [RECEIPT_SEED, round.key().as_ref(), holder.key().as_ref()],
+        bump
+    )]
+    pub receipt: Account<'info, ClaimReceipt>,
 
     #[account(address = escrow.mint)]
     pub mint: Box<InterfaceAccount<'info, anchor_spl::token_interface::Mint>>,
@@ -1841,6 +1735,7 @@ pub struct ClaimPrize<'info> {
     )]
     pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
     pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Permissionless buyback./// Permissionless buyback. `payer` only funds the transaction and any account

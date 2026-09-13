@@ -37,24 +37,18 @@ Fix: both knobs are signed by the platform (`NotPlatform` otherwise). Test F2.
 Production should still leave them at defaults; they exist so tests need not
 wait a week.
 
-### F3 — MEDIUM: draw randomness could be ground by any caller
-`draw` seeded the round with "the most recent slot hash" in the SlotHashes
-sysvar. That hash is public the moment the slot ends, so anyone (not just a
-block producer) could compute the seed, check whether they win, and submit
-`draw` only in a slot they like — one free re-roll per slot, for as long as
-nobody else drew. The crank draws within ~1 s, which narrows the window but
-does not close it: a bot can front-run the crank in the same slot.
-
-Fix: `open_round` fixes `draw_slot = commit_slot + 2`. `draw` looks up the hash
-of the first produced slot at or after `draw_slot` in the sysvar and seeds
-from that; when it is called makes no difference. If nobody draws for ~512
-slots and the entry has scrolled out, the round is re-targeted to a new future
-slot (`DrawRetargeted`, event `RoundRetargeted`) and the call is repeated —
-that reopens a choice only at 3.4-minute granularity, and only for a round the
-crank abandoned. Test F3: early draw fails; the seed equals
-`sha256(hash, slot, round, root)` recomputed from the sysvar entry for
-`draw_slot`. What remains: the leader of `draw_slot` can influence its hash
-(known limitation, the reason Switchboard is on the list).
+### F3 — MEDIUM: draw randomness could be ground by any caller (superseded)
+The original finding: `draw` seeded the round from "the most recent slot
+hash", so a caller could wait for a hash they liked. It was fixed by pinning
+the draw slot at commit time, then made moot on 2026-09-13 when the random
+draw was removed altogether: a round now pays **every** eligible holder pro
+rata (balance × time held) with a 10% per-wallet cap, so there is no seed to
+grind and no winner to pick. What the program enforces on its own: the leaf
+amount is ≤ `MAX_SHARE_BPS` of the recorded release, the release is ≤ what
+triggers freed (`pending`), claims cannot exceed the round total, one claim
+per wallet per round (receipt PDA). Test F3 now commits a doctored root that
+pays one wallet 40% and shows the claim is refused (`ShareOverCap`), and that
+an inflated release is refused at `open_round` (`AmountNotAuthorized`).
 
 ### F4 — MEDIUM: snapshot-then-dump
 `claim_prize` only checked that the holder still had *some* position worth
@@ -108,7 +102,8 @@ been a panic (whole tx fails, no state harm). Guarded with `EmptyCurve`.
   updated after the CPIs in every instruction (`buyback` also needs that
   order for the runtime's lamport check).
 - **Double spend.** Manual claims: one bit per list index and a cumulative
-  bps cap. Prizes: one bit per draw index. Rounds: `init` PDA per index.
+  bps cap. Shares: an `init` receipt PDA per (round, holder). Rounds: `init`
+  PDA per index.
   `open_round` cannot exceed `pending` (what triggers released) nor the free
   pool.
 - **Merkle.** Domain-separated leaves (`"leaf"`, `"manual"`) and nodes
@@ -125,15 +120,16 @@ been a panic (whole tx fails, no state harm). Guarded with `EmptyCurve`.
 ## Known limitations (not fixed here)
 
 1. **The root is trusted.** Whoever opens a round (dev or platform) can
-   publish a weight list that favours someone. What they cannot do: pay a
-   non-holder, pay below the minimum position, pay a dumped position (F4), or
-   pick the winner after the fact (F3). Mitigation is off-chain: the snapshot
-   is deterministic from `(mint, snapshot_slot)` and the slot is on chain, so
+   publish an allocation that favours someone. What they cannot do: pay a
+   non-holder, pay below the minimum position, pay a dumped position (F4),
+   pay any wallet more than 10% of the release, or release more than the
+   triggers freed. Mitigation is off-chain: the allocation is deterministic
+   from `(mint, snapshot_slot, released)` and all three are on chain, so
    anyone can reproduce and compare. A fraud-proof instruction would be the
    on-chain follow-up.
-2. **Slot-hash randomness is leader-influenceable** for the one slot that
-   matters (F3 narrowed it to that). Switchboard on-demand needs an oracle
-   that observes the chain; see PROGRESS.md for why it cannot run on localnet.
+2. **Cap remainder.** With ten or fewer eligible holders every wallet hits the
+   10% cap and part of the release stays `pending`; the crank re-offers it only
+   when a trigger releases more. No randomness remains in the protocol.
 3. **Volume is sampled, not measured.** Wash trades between two
    `check_trigger` calls are invisible; more frequent checks tighten it.
    Wash-trading *to* trigger a release costs ≥1% in pump fees per 1% of

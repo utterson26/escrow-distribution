@@ -10,8 +10,8 @@
  *   check_trigger  always — it samples volume, which is what the triggers run on
  *   fire_trigger   when a trigger is armed and its random delay has passed
  *   open_round     when a fired trigger left tokens pending: take the holder
- *                  snapshot with the indexer, commit its root
- *   draw           one slot later, for every round without randomness yet
+ *                  snapshot with the indexer, split the release pro rata
+ *                  (10% cap per wallet), commit the root
  *
  * open_round is the one step that is not permissionless — the root is the
  * trust point of the whole scheme — so it runs only when this wallet is the
@@ -21,7 +21,6 @@
  *   RPC_URL            default ANCHOR_PROVIDER_URL, else http://127.0.0.1:8899
  *   CRANK_KEYPAIR      default ANCHOR_WALLET, else ~/.config/solana/id.json
  *   CRANK_INTERVAL_MS  default 60000
- *   CRANK_WINNERS      draws per round, default 8 (max 256)
  *   CRANK_SNAPSHOT_DIR where snapshots are written, default crank/snapshots
  *   CRANK_LOG          optional JSONL file, one event per line
  *   --once             run a single tick and exit (for cron)
@@ -58,7 +57,6 @@ const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
 
 const RPC_URL = process.env.RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
 const INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? 60_000);
-const WINNERS = Math.min(256, Math.max(1, Number(process.env.CRANK_WINNERS ?? 8)));
 const SNAPSHOT_DIR = process.env.CRANK_SNAPSHOT_DIR ?? path.join(__dirname, "snapshots");
 const ONCE = process.argv.includes("--once");
 
@@ -147,32 +145,6 @@ async function main() {
       address: a.pubkey,
       state: program.coder.accounts.decode("round", a.account.data) as any,
     }));
-  }
-
-  /** `draw` for a round: waits until the slot whose hash seeds it has landed.
-   *  If the window was missed the program re-targets and asks for another call. */
-  async function drawRound(tick: number, coin: string, round: PublicKey, drawSlot: number, index: number) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      for (let i = 0; i < 40 && (await conn.getSlot("confirmed")) <= drawSlot; i++) await sleep(400);
-      try {
-        const ix = await program.methods.draw().accountsPartial({ round, slotHashes: SLOT_HASHES }).instruction();
-        const { sig, slot } = await send([ix]);
-        const r: any = await program.account.round.fetch(round, "confirmed");
-        log({ tick, coin, action: "draw", result: "ok", round: index, draw_slot: drawSlot, tx_slot: slot,
-              seed: Buffer.from(r.seed).toString("hex").slice(0, 16) + "…", sig });
-        return;
-      } catch (e) {
-        const name = errName(e);
-        const r: any = await program.account.round.fetch(round, "confirmed").catch(() => null);
-        if (/DrawRetargeted/.test(name) && r) {
-          drawSlot = r.drawSlot.toNumber();
-          log({ tick, coin, action: "draw", result: "retargeted", round: index, draw_slot: drawSlot });
-          continue;
-        }
-        log({ tick, coin, action: "draw", result: "error", round: index, error: name });
-        return;
-      }
-    }
   }
 
   async function crankCoin(tick: number, esc: { address: PublicKey; state: any; lamports: bigint }) {
@@ -312,16 +284,13 @@ async function main() {
       }
     }
 
-    // 5. rounds left without randomness (a crashed earlier tick, or a round the
-    //    dev opened by hand) get their draw; anyone may do that.
+    // 5. whatever the triggers released becomes a round: snapshot the holders,
+    //    allocate the release over them, commit the root. Only the dev or the
+    //    platform may commit. The cap can leave a remainder pending; it is
+    //    re-offered next time, so a coin with few holders does not spin a round
+    //    every tick — only when there is something new to hand out.
     st = await program.account.escrow.fetch(escrow, "confirmed");
     const rounds = await listRounds(escrow);
-    for (const r of rounds.filter((x) => !x.state.drawn)) {
-      await drawRound(tick, coin, r.address, r.state.drawSlot.toNumber(), r.state.index);
-    }
-
-    // 6. whatever the triggers released becomes a round: snapshot the holders,
-    //    commit the root, then draw. Only the dev or the platform may commit.
     const pending = BigInt(st.pending.toString());
     if (pending === 0n) return;
     const me = keypair.publicKey;
@@ -329,13 +298,17 @@ async function main() {
       log({ tick, coin, action: "open_round", result: "skip", reason: "not dev or platform", pending });
       return;
     }
-    const prize = pending / BigInt(WINNERS);
-    if (prize === 0n) return; // integer-division dust from an earlier round, not worth a line
+    const lastReleased = rounds.reduce((m, r) => (r.state.index >= m.i ? { i: r.state.index, v: BigInt(r.state.released.toString()) } : m), { i: -1, v: 0n });
+    const lastTotal = rounds.reduce((m, r) => (r.state.index >= m.i ? { i: r.state.index, v: BigInt(r.state.total.toString()) } : m), { i: -1, v: 0n });
+    if (lastReleased.i >= 0 && pending === lastReleased.v - lastTotal.v) {
+      log({ tick, coin, action: "open_round", result: "skip", reason: "only the cap remainder is pending", pending });
+      return;
+    }
     const index = rounds.reduce((m, r) => Math.max(m, r.state.index + 1), 0);
     const snapSlot = await conn.getSlot("confirmed");
     let snap;
     try {
-      snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId);
+      snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], pending);
     } catch (e) {
       log({ tick, coin, action: "snapshot", result: "error", error: errName(e) });
       return;
@@ -347,31 +320,30 @@ async function main() {
       return;
     }
     log({ tick, coin, action: "snapshot", result: "ok", slot: snapSlot, holders: snap.leaves.length,
-          excluded: snap.excluded.length, root: snap.root.slice(0, 16) + "…", file });
+          excluded: snap.excluded.length, released: pending, total: snap.total,
+          root: snap.root.slice(0, 16) + "…", file });
+    if (BigInt(snap.total) === 0n) return;
 
     const round = roundPda(escrow, index, program.programId);
     try {
       const ix = await program.methods
-        .openRound(index, [...Buffer.from(snap.root, "hex")], new anchor.BN(snap.totalWeight),
-                   WINNERS, new anchor.BN(prize.toString()), new anchor.BN(snapSlot))
+        .openRound(index, [...Buffer.from(snap.root, "hex")], new anchor.BN(pending.toString()),
+                   new anchor.BN(snap.total), snap.leaves.length, new anchor.BN(snapSlot))
         .accountsPartial({ publisher: me, escrow, round, systemProgram: SystemProgram.programId })
         .instruction();
       const { sig, slot } = await send([ix]);
-      log({ tick, coin, action: "open_round", result: "ok", round: index, winners: WINNERS,
-            prize, committed: prize * BigInt(WINNERS), commit_slot: slot, snapshot_slot: snapSlot, sig });
+      log({ tick, coin, action: "open_round", result: "ok", round: index, holders: snap.leaves.length,
+            released: pending, total: snap.total, commit_slot: slot, snapshot_slot: snapSlot, sig });
     } catch (e) {
       log({ tick, coin, action: "open_round", result: "error", round: index, error: errName(e) });
       return;
     }
-    const r: any = await program.account.round.fetch(round, "confirmed");
-    await drawRound(tick, coin, round, r.drawSlot.toNumber(), index);
   }
 
   let tick = 0;
   let busy = false;
   let stopping = false;
-  // finish the tick in progress before exiting, so a round is never left
-  // committed but undrawn by a restart
+  // finish the tick in progress before exiting
   const stop = () => { stopping = true; if (!busy) { logFile?.end(); process.exit(0); } };
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);

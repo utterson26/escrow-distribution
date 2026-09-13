@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const LABEL: Record<string, string> = {
-  PrizeClaimed: "Prize claimed", ManualClaimed: "Manual share claimed",
+  ShareClaimed: "Share claimed", ManualClaimed: "Manual share claimed",
   TriggerFired: "Trigger fired", RoundOpened: "Round opened",
   BuybackDone: "Buyback", Launched: "Coin launched",
   DeadCoinFlagged: "Flagged dead", Intervened: "Platform intervention",

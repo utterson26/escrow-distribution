@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 22 adım — 10'u devnet'te, 11–22 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
+## Sonuç: 23 adım — 10'u devnet'te, 11–23 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -48,6 +48,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 20 | güvenlik öz-denetimi: 5 bulgu düzeltildi + 4 regresyon testi | ✅ `SECURITY_REVIEW.md` |
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
+| 23 | **tasarım değişikliği:** rastgele çekiliş kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -673,13 +674,12 @@ olmalı. Devnet'ten klonlamayı denedim, olmadı: CLI'nin extend-program adımı
 eski ELF'i yeniden doğrularken `invalid file header` veriyor.
 
 ## Bilinçli olarak yapılmayanlar
-- **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için
-  aynı batch'teki tüm holder'lar aynı slot'u kullanıyor; manipüle edilebilir, üretime uygun değil.
+- ~~VRF yok~~ — 13 Eylül: rastgelelik tamamen kalktı (adım 23), VRF/Switchboard planı düştü.
 - `collect_fees` sonrası escrow'daki SOL'ü çekecek bir instruction yok.
 - Holder listesi/ağırlıkları zincir dışından geliyor; program doğrulamıyor.
 - **Eşik sabit 0,05 SOL, dolar değil.** Gerçek $10 için fiyat beslemesi (Pyth)
   gerekir; SOL fiyatı oynadıkça dolar karşılığı kayar.
-- **Rastgelelik slot hash.** Blok üreticisi sınırlı ölçüde oynayabilir; VRF sonra.
+- ~~Rastgelelik slot hash~~ — adım 23 ile kalktı; yalnızca dağıtım gecikmesi slot hash'ten türüyor.
 - **Ağırlık `u64`'e sığmalı** (bakiye × slot). Indexer taşarsa kırpıyor; çok uzun
   tutma sürelerinde ölçek küçültmek gerekir.
 - **Kapanmış token hesapları gözden kaçar** — ama zaten tamamen satmış demektir,
@@ -738,7 +738,7 @@ Aşağıdakiler kapandı; yeniden açılmayacak.
 3. **30 gün sonrası müdahale:** yalnızca **platform yetkilisi**, yalnızca
    **iki hedef** (dev cüzdanı / otomatik havuz). `intervene` tam bu.
 4. **Buyback sınırı %0,5/çağrı üretimde kalır.**
-5. **Switchboard beklemede** (localnet'te mümkün değil — adım 19).
+5. ~~Switchboard beklemede~~ — adım 23: çekiliş kalktı, Switchboard'a gerek kalmadı.
 
 ## pump.fun docs güncellemesi — holder rewards (13 Eylül) ✅
 
@@ -833,6 +833,83 @@ Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tablo
   anahtarından gönderildi: +446.026.143.433 = ödül, sonrasında claimable 0.
   Kırık bir şey çıkmadı. (Phantom tıklaması elle denenmedi; encoding ve API
   zincirde doğrulandı.)
+
+## Adım 23 — dağıtım modeli değişti: çekiliş yok, herkese pro-rata (13 Eylül) ✅
+
+**Karar (senden):** rastgele/ağırlıklı seçim kalktı. Her turda serbest bırakılan
+miktar TÜM uygun holder'lara ağırlık = bakiye × tutma süresi oranında bölünür;
+tek cüzdan turun en fazla **%10**'unu alır, fazlası diğerlerine oransal
+yeniden dağıtılır (tavan tekrar aşılırsa iterasyonla). Tetikleyiciler (hacim %1,
+kilometre taşı %5, 0–60 dk rastgele gecikme, TooEarly) aynen kaldı.
+
+**Program (`open_round` / `claim_share`):**
+- `Round`: `root, released, total, holder_count, claimed_amount, claimed_count,
+  commit_slot, snapshot_slot`. `seed/drawn/draw_slot/winner_count/prize/
+  claimed_bits` gitti; `draw` instruction'ı, `RoundDrawn/RoundRetargeted/
+  PrizeClaimed` event'leri, `MAX_WINNERS/DRAW_DELAY_SLOTS/SLOT_HASHES_WINDOW`
+  sabitleri ve 6 hata kodu silindi. Yeni: `MAX_SHARE_BPS = 1000`,
+  `ShareOverCap`, `RoundExhausted`, `TotalOverReleased`, `NoHolders`.
+- `open_round(index, root, released, total, holder_count, snapshot_slot)`:
+  `released ≤ pending` (tavan buna göre ölçüldüğü için şişirilemez),
+  `total ≤ released`, `total ≤ pending`; `pending -= total`. Tavan artığı
+  (`released − total`) **pending'de kalır**, sonraki tura devreder.
+- `claim_share(leaf_index, balance, amount, proof)`: leaf =
+  `sha256("leaf", index, holder, balance, amount)`. Sıra: ispat → tavan
+  (`amount ≤ released × 10%`) → tur toplamı → hâlâ tutuyor mu (F4, %100) →
+  ≥ 0,05 SOL. Çift claim: `ClaimReceipt` PDA (`["receipt", round, holder]`,
+  `init`, holder öder ~0,0009 SOL rent) — bitmap yok, holder sayısı sınırsız.
+- Tavan **zincirde de** uygulanır: publisher bir cüzdana %50 yazan kök işlese
+  claim `ShareOverCap` yer (test 8 ve F3).
+
+**Indexer (`indexer/snapshot.ts`):** `snapshot(rpc, mint, slot, program,
+excluded, released)`; `allocate(weights, released)` deterministik tam sayı:
+tavanı aşanlar tavana sabitlenir, kalan açık cüzdanlara yeniden bölünür,
+kimse aşmayana kadar; küsurat en ağır açık cüzdana (tavanı aşmıyorsa).
+Herkes tavandaysa artık dağıtılmaz. `Leaf.amount` eklendi, `cumStart`
+gitti; `Snapshot.released/capBps/total`. CLI: `--released <n>`; `verify`
+payları yeniden hesaplayıp tavanı denetler. 5 birim testi
+(`indexer/allocate.test.ts`): düz pro-rata, balina tavanı, kademeli tavan,
+herkes tavanda (3 holder → %30 dağıtılır), determinizm.
+
+**Tavanın sonucu — bilmen gereken:** ≤10 uygun holder varsa herkes tavana
+takılır, serbest miktarın bir kısmı dağıtılmaz ve pending'de birikir. Crank,
+bekleyen miktar yalnızca önceki turun artığıysa yeni tur açmıyor (yoksa her
+dakika aynı artıkla tur açardı). 11+ holder'da oransal paylar görünür; demo bu
+yüzden 12 cüzdanla koşuyor (Ayşe ve ilk 5 tavanda, 6 küçük %9,7→%7,1
+oransal, %100 dağıtıldı).
+
+**Crank/simülasyon:** `draw` adımı ve `CRANK_WINNERS` gitti; `open_round`
+`pending`'i `released` olarak verir. Simülasyon her holder için payını
+claim eder (`claim_share`, receipt PDA). Crank sim bu turda **koşulmadı**
+(10 dk; test suite'leri ve demo koştu).
+
+**Web:** `Round` decode yeni düzen; `/api/claim` her round için cüzdanın
+satırını bulur, receipt PDA varsa "already claimed" sayar, `sharePct` verir.
+`ClaimPanel` `claim_share` discriminator + receipt + system_program ile
+imzalar (birebir kopyasıyla zincirde doğrulandı: Küçük-8 +144.097.042.200 =
+payı). Liste ve coin sayfasında yeni alanlar: **holder payı** (escrow_bps),
+**cüzdan tavanı %10**, **coin tipi** (`regular` — creator ücreti escrow'a;
+pump holder-rewards coin'i basılmıyor), **platform ücreti %0** (programda
+platform ücreti yok; escrow creator ücretinin tamamını tutar). Feed
+`ShareClaimed` olayını çözüyor. Turlar tablosu: serbest / dağıtılan /
+holder / claim / snapshot slot / kök.
+
+**Demo/DEMO.md:** 12 cüzdan (4 isimli + 8 küçük), launch 650M coin (2× eşiği
+~1,05 SOL, alımlar net ~0,92 SOL — kilometre taşı hacimden önce tetiklenmesin
+diye). Adım 10 her holder'ın ağırlık yüzdesi, payı ve tavana takılıp
+takılmadığını; 11 kökün zincirdeki (slot, miktar) ile yeniden üretildiğini
+gösterir. Adım 12 sahte claim (BadProof), 13 herkes payını alır + ikinci claim
+reddi. Metinde slot yerine saniye; "0,2 SOL eklendi, üretimde tek kaynak
+creator ücretidir" notu; imzalar en altta "Ek: işlem imzaları", ana metinde
+adım başına tek satır. 3 ardışık koşu temiz (72/69/78 sn), kabukta
+`HELIUS_RPC_URL=devnet` iken.
+
+**Bu mesajda eksik gelen maddeler:** talimatın 2–7. maddeleri kesik geldi
+("EŞİK: Minimu…" diye bitiyor, sonra 8'e atlıyor). Uygulanan: 1 (model), 7'nin
+DEMO.md kısımları, 8, 9. **Uygulanmayan/bilinmeyen:** eşik ("minimum" neyin
+eşiği?), "coin tipi" ve "platform ücreti" tanımları — web'de mevcut bilgiyle
+(regular / %0) gösterildi, programda böyle bir alan yok. Kalan maddeleri
+gönderirsen ekleyeceğim.
 
 ## Senden karar bekleyenler (yeni)
 

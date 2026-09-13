@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import ClaimPanel from "@/components/ClaimPanel";
 import { fetchEscrows, fetchRounds, fetchMetadata, coinLabel } from "@/lib/data";
 import {
-  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network,
+  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network, MAX_SHARE_BPS,
 } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
@@ -61,19 +61,23 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
           <li><b>Trigger.</b> When trading volume since the last airdrop reaches 1% of market cap, 1% of the pool
             is released; when market cap doubles, 5%. The release fires at a random moment inside the next
             hour, so nobody knows the distribution slot in advance.</li>
-          <li><b>Draw.</b> A snapshot of holders is taken — weight is balance × time held, the dev and the
-            protocol&apos;s own accounts excluded — and only its Merkle root goes on chain, together with the
-            snapshot slot so anyone can rebuild it. Randomness is drawn one slot <i>later</i>, so whoever
-            publishes the root cannot pick the winners.</li>
-          <li><b>Claim.</b> A winner proves their leaf against the root and that the draw landed in their weight
-            range; the program checks on its own that they still hold at least 0.05 SOL worth. Each draw pays
-            once. Connect a wallet below to see what this coin owes you.</li>
+          <li><b>Split.</b> A snapshot of holders is taken — weight is balance × time held, the dev and the
+            protocol&apos;s own accounts excluded — and the release is split pro rata over all of them, no
+            wallet taking more than {MAX_SHARE_BPS / 100}% of a round (the excess goes to the others). Only the
+            Merkle root of the (wallet, amount) rows goes on chain, with the snapshot slot and the release, so
+            anyone can rebuild it. Nothing is random.</li>
+          <li><b>Claim.</b> A holder proves their row against the root; the program checks on its own that the
+            amount respects the cap and that they still hold what the snapshot credited them, worth at least
+            0.05 SOL. One claim per wallet per round. Connect a wallet below to see what this coin owes you.</li>
         </ol>
       </div>
 
       <div className="card grid">
-        <Stat k="Locked airdrop" v={`${e.escrowBps / 100}%`} sub="of the launch buy" />
-        <Stat k="Dev share" v={`${100 - e.escrowBps / 100}%`} sub="never in the airdrop" />
+        <Stat k="Holder share" v={`${e.escrowBps / 100}%`} sub="of the launch buy, locked for holders" />
+        <Stat k="Dev share" v={`${100 - e.escrowBps / 100}%`} sub="never in a distribution" />
+        <Stat k="Cap per wallet" v={`${MAX_SHARE_BPS / 100}%`} sub="of any one round" />
+        <Stat k="Coin type" v="regular" sub="creator fee → escrow, not pump holder rewards" />
+        <Stat k="Platform fee" v="0%" sub="the escrow keeps the whole creator fee" />
         <Stat k="Pool remaining" v={fmtTokens(pool)} sub="not yet committed" />
         <Stat k="Escrow holds" v={fmtTokens(escrowHeld)} sub="tokens on hand" />
         <Stat k="Market cap" v={curve ? `${fmtSol(marketCap(curve))} SOL` : "—"} />
@@ -100,15 +104,16 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       ) : (
         <div className="card" style={{ padding: 0, overflowX: "auto" }}>
           <table>
-            <thead><tr><th>#</th><th>Prize each</th><th>Winners</th><th>Claimed</th><th>Drawn</th><th>Root</th></tr></thead>
+            <thead><tr><th>#</th><th>Released</th><th>Distributed</th><th>Holders</th><th>Claimed</th><th>Snapshot slot</th><th>Root</th></tr></thead>
             <tbody>
               {rounds.map((r) => (
                 <tr key={r.address}>
                   <td>{r.index}</td>
-                  <td>{fmtTokens(r.prize)}</td>
-                  <td>{r.winnerCount}</td>
-                  <td>{r.claimedCount}</td>
-                  <td>{r.drawn ? <span className="pill on">yes</span> : <span className="pill warn">not yet</span>}</td>
+                  <td>{fmtTokens(r.released)}</td>
+                  <td>{fmtTokens(r.total)}</td>
+                  <td>{r.holderCount}</td>
+                  <td>{r.claimedCount}/{r.holderCount} · {fmtTokens(r.claimedAmount)}</td>
+                  <td>{r.snapshotSlot.toString()}</td>
                   <td className="mono">{r.root.slice(0, 12)}…</td>
                 </tr>
               ))}

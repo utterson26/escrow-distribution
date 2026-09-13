@@ -11,15 +11,15 @@
  *
  * Two extra holders buy once at the start so the snapshots have more than one
  * leaf. Nobody touches the chain by hand: the crank fires, snapshots, commits
- * the root and draws. Afterwards the script plays the holders: it rebuilds
- * each round's snapshot from the slot recorded on chain, checks the root,
- * works out which draws it won and claims them.
+ * the root. Afterwards the script plays the holders: it rebuilds each round's
+ * allocation from the slot and release recorded on chain, checks the root,
+ * and claims every share it is owed.
  *
  * Everything the crank logged is then checked against what it should have
  * done. The report goes to `crank/sim-report.md`.
  *
  * DEMO_WALLET=<pubkey> adds an outside wallet (e.g. your Phantom) as a holder:
- * it is funded with SOL and a slice of the dev's tokens, and any draw it wins
+ * it is funded with SOL and a slice of the dev's tokens, and any share it is owed
  * is left unclaimed so it can be claimed from the web site.
  *
  * Needs a running `scripts/localnet.sh` with the program deployed.
@@ -41,7 +41,6 @@ import * as os from "os";
 import * as path from "path";
 import { pumpAccounts, escrowPda, escrowAta, directBuyIx, TOKEN_2022, TOKEN, WSOL } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
-import { createHash } from "crypto";
 
 const RPC_URL = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
 const SIM_MINUTES = Number(process.env.SIM_MINUTES ?? 5);
@@ -286,17 +285,16 @@ async function main() {
   await Promise.race([exited, sleep(120_000)]);
   note("-", "crank stopped");
 
-  // ---- play the holders: rebuild each round from chain, claim what was won ----
-  const le16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
-  const leToBig = (b: Buffer) => { let v = 0n; for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]); return v; };
+  // ---- play the holders: rebuild each round from chain, claim what is owed ----
   const everyone = [trader, ...holders];
-  const claimStats = { rounds: 0, reproduced: 0, draws: 0, claimed: 0, leftForDemo: 0, errors: [] as string[] };
+  const claimStats = { rounds: 0, reproduced: 0, shares: 0, claimed: 0, leftForDemo: 0, errors: [] as string[] };
   for (const c of coins) {
     const rounds: any[] = await program.account.round.all([
       { memcmp: { offset: 8, bytes: c.escrow.toBase58() } }]);
-    for (const { publicKey: roundAddr, account: r } of rounds.filter((x: any) => x.account.drawn)) {
+    for (const { publicKey: roundAddr, account: r } of rounds) {
       claimStats.rounds++;
-      const snap = await snapshot(RPC_URL, c.mint.toBase58(), r.snapshotSlot.toNumber(), program.programId);
+      const snap = await snapshot(RPC_URL, c.mint.toBase58(), r.snapshotSlot.toNumber(), program.programId,
+                                  [], BigInt(r.released.toString()));
       const rootOnChain = Buffer.from(r.root).toString("hex");
       if (snap.root !== rootOnChain) {
         note(c.symbol, `round ${r.index} root mismatch`, `chain=${rootOnChain.slice(0, 12)} rebuilt=${snap.root.slice(0, 12)}`);
@@ -304,39 +302,37 @@ async function main() {
       }
       claimStats.reproduced++;
       const { layers } = buildTree(snap.leaves);
-      const total = BigInt(snap.totalWeight);
-      const seed = Buffer.from(r.seed);
-      for (let k = 0; k < r.winnerCount; k++) {
-        claimStats.draws++;
-        const h = createHash("sha256").update(Buffer.concat([seed, le16(k)])).digest();
-        const ticket = leToBig(h.subarray(0, 16)) % total;
-        const leaf = snap.leaves.find((l) => BigInt(l.cumStart) <= ticket && ticket < BigInt(l.cumStart) + BigInt(l.weight))!;
-        const winner = everyone.find((w) => w.publicKey.toBase58() === leaf.holder);
-        if (!winner && DEMO_WALLET && leaf.holder === DEMO_WALLET.toBase58()) {
+      for (const leaf of snap.leaves) {
+        if (BigInt(leaf.amount) === 0n) continue;
+        claimStats.shares++;
+        const who = everyone.find((w) => w.publicKey.toBase58() === leaf.holder);
+        if (!who && DEMO_WALLET && leaf.holder === DEMO_WALLET.toBase58()) {
           claimStats.leftForDemo++;
-          note(c.symbol, `claim round ${r.index} draw ${k}`, `left for the demo wallet (${short(DEMO_WALLET)}) to claim from the web site`);
+          note(c.symbol, `claim round ${r.index}`, `left for the demo wallet (${short(DEMO_WALLET)}) to claim from the web site`);
           continue;
         }
-        if (!winner) { claimStats.errors.push(`round ${r.index} draw ${k}: winner ${leaf.holder} is not one of ours`); continue; }
-        const ata = getAssociatedTokenAddressSync(c.mint, winner.publicKey, true, TOKEN_2022);
+        if (!who) { claimStats.errors.push(`round ${r.index}: holder ${leaf.holder} is not one of ours`); continue; }
+        const ata = getAssociatedTokenAddressSync(c.mint, who.publicKey, true, TOKEN_2022);
+        const receipt = PublicKey.findProgramAddressSync(
+          [Buffer.from("receipt"), roundAddr.toBuffer(), who.publicKey.toBuffer()], program.programId)[0];
         try {
           const before = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
           const sig = await program.methods
-            .claimPrize(k, leaf.index, new BN(leaf.balance), new BN(leaf.weight), new BN(leaf.cumStart),
+            .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount),
                         proofFor(layers, leaf.index).map((b) => [...b]))
             .accountsPartial({
-              holder: winner.publicKey, escrow: c.escrow, round: roundAddr, mint: c.mint,
+              holder: who.publicKey, escrow: c.escrow, round: roundAddr, receipt, mint: c.mint,
               escrowTokenAccount: escrowAta(c.escrow, c.mint), holderTokenAccount: ata,
-              bondingCurve: c.pa.bondingCurve, baseTokenProgram: TOKEN_2022,
-            }).signers([winner]).rpc({ commitment: "confirmed" });
+              bondingCurve: c.pa.bondingCurve, baseTokenProgram: TOKEN_2022, systemProgram: SystemProgram.programId,
+            }).signers([who]).rpc({ commitment: "confirmed" });
           const after = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
           const got = BigInt(after) - BigInt(before);
-          if (got !== BigInt(r.prize.toString())) claimStats.errors.push(`round ${r.index} draw ${k}: paid ${got}, prize ${r.prize}`);
+          if (got !== BigInt(leaf.amount)) claimStats.errors.push(`round ${r.index}: paid ${got}, owed ${leaf.amount}`);
           else claimStats.claimed++;
-          note(c.symbol, `claim round ${r.index} draw ${k}`,
-               `${winner === trader ? "trader" : short(winner.publicKey)} +${got} token sig=${sig}`);
+          note(c.symbol, `claim round ${r.index}`,
+               `${who === trader ? "trader" : short(who.publicKey)} +${got} token sig=${sig}`);
         } catch (e: any) {
-          claimStats.errors.push(`round ${r.index} draw ${k}: ${String(e?.message ?? e).slice(0, 100)}`);
+          claimStats.errors.push(`round ${r.index} ${short(who.publicKey)}: ${String(e?.message ?? e).slice(0, 100)}`);
         }
       }
     }
@@ -376,18 +372,15 @@ async function main() {
   checks.push({ name: "hiç tick atlanmadı",
     ok: !lines.some((l) => l.event === "tick_skipped"), detail: `${lines.filter((l) => l.event === "tick").length} tick` });
   const opened = lines.filter((l) => l.action === "open_round" && l.result === "ok");
-  const drawn = lines.filter((l) => l.action === "draw" && l.result === "ok");
   checks.push({ name: "her fire'dan sonra crank snapshot alıp round açtı",
     ok: opened.length > 0 && opened.length >= fires.filter((f) => sym(f.coin) !== f.coin).length,
-    detail: opened.map((o) => `${sym(o.coin)} round ${o.round} ${o.winners}×${o.prize} snap_slot=${o.snapshot_slot}`).join("; ") });
-  checks.push({ name: "her round'un çekilişi yapıldı",
-    ok: drawn.length === opened.length && drawn.length > 0, detail: `${opened.length} açıldı, ${drawn.length} çekildi` });
+    detail: opened.map((o) => `${sym(o.coin)} round ${o.round} ${o.holders} holder, ${o.total}/${o.released} snap_slot=${o.snapshot_slot}`).join("; ") });
   checks.push({ name: "snapshot zincirdeki slot'tan yeniden üretildi, kök tuttu",
     ok: claimStats.rounds > 0 && claimStats.reproduced === claimStats.rounds,
     detail: `${claimStats.reproduced}/${claimStats.rounds} round` });
-  checks.push({ name: "kazananlar elle müdahale olmadan claim etti",
-    ok: claimStats.draws > 0 && claimStats.claimed + claimStats.leftForDemo === claimStats.draws && claimStats.errors.length === 0,
-    detail: `${claimStats.claimed}/${claimStats.draws} çekiliş ödendi`
+  checks.push({ name: "holder'lar paylarını elle müdahale olmadan claim etti",
+    ok: claimStats.shares > 0 && claimStats.claimed + claimStats.leftForDemo === claimStats.shares && claimStats.errors.length === 0,
+    detail: `${claimStats.claimed}/${claimStats.shares} pay ödendi`
       + (claimStats.leftForDemo ? `, ${claimStats.leftForDemo} tanesi demo cüzdana (Phantom) bırakıldı` : "")
       + (claimStats.errors.length ? "; " + claimStats.errors.join("; ") : "") });
 

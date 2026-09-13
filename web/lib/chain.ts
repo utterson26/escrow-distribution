@@ -103,26 +103,25 @@ export function decodeEscrow(address: string, data: Buffer): Escrow {
 
 export interface Round {
   address: string; escrow: string; index: number; root: string;
-  totalWeight: bigint; winnerCount: number; prize: bigint;
-  commitSlot: bigint; seed: string; drawn: boolean;
-  claimedBits: Buffer; claimedCount: number;
-  /** slot the snapshot was taken at; absent on rounds from before it was recorded */
-  snapshotSlot?: bigint;
-  drawSlot?: bigint;
+  /** what the allocator was given; with snapshotSlot, all a reproducer needs */
+  released: bigint;
+  /** sum of leaf amounts (≤ released: the 10% per-wallet cap can leave a remainder) */
+  total: bigint;
+  holderCount: number;
+  claimedAmount: bigint; claimedCount: number;
+  commitSlot: bigint; snapshotSlot: bigint;
 }
 export function decodeRound(address: string, data: Buffer): Round {
   const r = new R(data);
-  const round: Round = {
+  return {
     address, escrow: r.key(), index: r.u32(), root: r.bytes(32).toString("hex"),
-    totalWeight: r.u128(), winnerCount: r.u16(), prize: r.u64(),
-    commitSlot: r.u64(), seed: r.bytes(32).toString("hex"), drawn: r.bool(),
-    claimedBits: r.bytes(32), claimedCount: r.u16(),
+    released: r.u64(), total: r.u64(), holderCount: r.u32(),
+    claimedAmount: r.u64(), claimedCount: r.u32(),
+    commitSlot: r.u64(), snapshotSlot: r.u64(),
   };
-  r.u8(); // bump
-  if (r.left() >= 8) round.snapshotSlot = r.u64();
-  if (r.left() >= 8) round.drawSlot = r.u64();
-  return round;
 }
+/** Most of one round a single wallet may receive (program constant MAX_SHARE_BPS). */
+export const MAX_SHARE_BPS = 1000;
 
 export const pda = (seeds: (Buffer | Uint8Array)[], prog = PROGRAM_ID) =>
   PublicKey.findProgramAddressSync(seeds, prog)[0];

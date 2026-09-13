@@ -12,8 +12,7 @@ Dakikada bir, programın çıkardığı **her coin** için:
 | `buyback` | escrow'un harcanabilir SOL'ü program eşiğini (0,01 SOL) geçiyorsa ve curve tamamlanmamışsa |
 | `check_trigger` | her zaman — hacim örneklemesi buradan geliyor |
 | `fire_trigger` | tetikleyici kurulu **ve** slot ≥ `fire_slot` ise; erken asla çağrılmaz |
-| `open_round` | fire sonrası `pending > 0` ise: indexer'la snapshot alır, kökü ve snapshot slot'unu zincire yazar (`crank/snapshots/<mint>-<round>.json` dosyası kalır) |
-| `draw` | kökü yazılmış ama çekilişi yapılmamış her round için, commit'ten en az bir slot sonra |
+| `open_round` | fire sonrası `pending > 0` ise: indexer'la snapshot alır, serbest miktarı bakiye × tutma süresi oranında böler (cüzdan başına en fazla %10), kökü, miktarı ve snapshot slot'unu zincire yazar (`crank/snapshots/<mint>-<round>.json` dosyası kalır). Bekleyen miktar yalnızca bir önceki turun tavan artığıysa yeni tur açmaz |
 
 `open_round` tek izinli adım: kök güven noktası olduğu için yalnızca coin'in
 **dev'i veya platform yetkilisi** yazabilir. Crank'in cüzdanı ikisinden biri
@@ -29,8 +28,8 @@ RPC_URL=https://api.devnet.solana.com CRANK_KEYPAIR=~/keeper.json npm run crank
 npm run crank -- --once
 ```
 
-Ortam: `RPC_URL`, `CRANK_KEYPAIR`, `CRANK_INTERVAL_MS` (60000), `CRANK_WINNERS`
-(round başına çekiliş, 8), `CRANK_SNAPSHOT_DIR`, `CRANK_LOG` (JSONL). Her olay tek satır: `tick coin action result …` ve varsa `sig`.
+Ortam: `RPC_URL`, `CRANK_KEYPAIR`, `CRANK_INTERVAL_MS` (60000),
+`CRANK_SNAPSHOT_DIR`, `CRANK_LOG` (JSONL). Her olay tek satır: `tick coin action result …` ve varsa `sig`.
 `fire_trigger` satırında `tx_slot` işlemin gerçekten indiği slot, `fire_slot`
 ise programın koyduğu eşik.
 
@@ -40,9 +39,9 @@ ise programın koyduğu eşik.
 crank cüzdanı), crank'i ayrı bir süreç ve **ayrı bir cüzdanla** başlatır,
 5 dakika piyasa oynatır (HOT: sık alım + bağış + balina; SLOW: seyrek küçük
 alım; iki de sabit holder). Kimse elle müdahale etmez: crank ateşler,
-snapshot alır, kökü yazar, çekilişi yapar. Sonra script holder'ları oynar —
-her round'u zincirdeki `snapshot_slot`'tan yeniden kurar, kökü karşılaştırır,
-kazandığı çekilişleri claim eder — ve crank kaydını beklenenle karşılaştırıp
+snapshot alır, payları böler, kökü yazar. Sonra script holder'ları oynar —
+her round'u zincirdeki `snapshot_slot` ve `released`'dan yeniden kurar, kökü
+karşılaştırır, payını claim eder — ve crank kaydını beklenenle karşılaştırıp
 `crank/sim-report.md` yazar.
 
 ```bash
@@ -51,7 +50,7 @@ DEMO_WALLET=<Phantom adresin> npm run crank:sim
 ```
 
 `DEMO_WALLET` verilirse o cüzdan da holder olur (SOL + dev'den 60M token) ve
-kazandığı çekilişler **claim edilmeden bırakılır** — web sitesinden Phantom ile
+payı **claim edilmeden bırakılır** — web sitesinden Phantom ile
 claim etmek için.
 
 ## Phantom ile localnet
@@ -75,9 +74,9 @@ ve `http://localhost:8899`'a bağlanır. Validator WSL2'de çalışıyor; Window
    cüzdana 2 SOL ve her coin'den 60M token gönderir.
 6. http://localhost:3000 → koşuda çıkan coin'e (HOT/SLOW) tıkla →
    **Connect wallet** → Phantom. "Your share" kutusu snapshot'ı zincirden
-   yeniden kurup kazandığın çekilişleri listeler (birkaç saniye sürer).
-7. Her satırdaki **Claim**'e bas → Phantom imza ister → onayla. Token
-   bakiyen ödül kadar artar; aynı çekiliş ikinci kez claim edilemez.
+   yeniden kurup sana düşen payı listeler (birkaç saniye sürer).
+7. **Claim**'e bas → Phantom imza ister → onayla. Token bakiyen pay kadar
+   artar; aynı tur ikinci kez claim edilemez.
 
 Sorun giderme:
 - Phantom "transaction may fail" diyorsa ağ hâlâ Devnet'tedir; 4. adımı

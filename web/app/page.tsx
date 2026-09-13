@@ -40,7 +40,8 @@ export default async function Home() {
         <table>
           <thead>
             <tr>
-              <th>Coin</th><th>Locked airdrop</th><th>Dev share</th>
+              <th>Coin</th><th>Holder share</th><th>Dev share</th><th>Cap / wallet</th>
+              <th>Type · platform fee</th>
               <th>Pool remaining</th><th>Market cap</th>
               <th>Last distribution</th><th>Next trigger</th>
             </tr>
@@ -54,11 +55,13 @@ export default async function Home() {
                 </td>
                 <td>{r.escrowPct}%</td>
                 <td>{r.devPct}%</td>
+                <td>{r.capPct}% of a round</td>
+                <td>{r.coinType} · {r.platformFeePct}%</td>
                 <td>{fmtTokens(BigInt(r.poolRemaining))}</td>
                 <td>{fmtSol(BigInt(r.marketCapLamports))} SOL</td>
                 <td>
                   {r.lastDistribution
-                    ? <>#{r.lastDistribution.index} · {r.lastDistribution.claimed}/{r.lastDistribution.winners} claimed</>
+                    ? <>#{r.lastDistribution.index} · {r.lastDistribution.claimed}/{r.lastDistribution.holders} holders claimed · {fmtTokens(BigInt(r.lastDistribution.total))}</>
                     : <span style={{ color: "var(--dim)" }}>none yet</span>}
                 </td>
                 <td><Next t={r.nextTrigger} /></td>
@@ -68,9 +71,10 @@ export default async function Home() {
         </table>
       </div>
       <div className="note">
-        Every number above is read live from the program on {net}. Percentages are of the
-        launch buy: the locked share went into escrow for airdrops, the rest stayed with the
-        dev wallet — which never takes part in the airdrop itself.
+        Every number above is read live from the program on {net}. Holder and dev shares are of the
+        launch buy: the holder share went into escrow for distributions, the rest stayed with the
+        dev wallet — which never takes part in a distribution itself. Each round is split pro rata
+        (balance × time held) over every eligible holder, no wallet taking more than the cap.
       </div>
     </>
   );
