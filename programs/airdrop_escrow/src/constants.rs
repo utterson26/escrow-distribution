@@ -94,6 +94,9 @@ pub const DEFAULT_PLATFORM_FEE_BPS: u16 = 1_000; // 10%
 /// A proposed platform fee only takes effect this many slots later: 7 days at
 /// ~400 ms per slot.
 pub const PLATFORM_FEE_DELAY_SLOTS: u64 = 1_512_000;
+/// Floor on the configurable fee delay. Anything this small is only for
+/// tests; `set_fee_delay` cannot go below it nor above the default.
+pub const MIN_FEE_DELAY_SLOTS: u64 = 5;
 /// Rent the fee PDA needs to open pump's 1024-byte sharing config, fronted by
 /// whoever calls `setup_fee_sharing`.
 pub const FEE_SHARING_RENT_LAMPORTS: u64 = 10_000_000; // 0.01 SOL

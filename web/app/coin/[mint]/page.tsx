@@ -75,6 +75,18 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         </ol>
       </div>
 
+      {e.isHolderReward && (
+        <div className="card">
+          <div className="k">Holder-rewards coin</div>
+          <div className="note">
+            Trading rewards for this coin are paid out by pump.fun itself: every trade&apos;s creator fee goes to
+            pump&apos;s holder pool, not to this escrow, so there is no fee sweep and no buyback here — only the
+            locked supply and its triggered distributions. See the coin on{" "}
+            <a href={`https://pump.fun/coin/${mint}`} target="_blank" rel="noreferrer">pump.fun</a>.
+          </div>
+        </div>
+      )}
+
       <div className="card grid">
         <Stat k="Holder share" v={`${e.escrowBps / 100}%`} sub="of the launch buy, locked for holders" />
         <Stat k="Dev share" v={`${100 - e.escrowBps / 100}%`} sub="never in a distribution" />

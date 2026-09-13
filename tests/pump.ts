@@ -87,7 +87,7 @@ export const buyerPda = (mint: PublicKey, program: PublicKey) =>
 export const baseAtaOf = (owner: PublicKey, mint: PublicKey) =>
   ata(owner, mint, TOKEN_2022);
 
-import { TransactionInstruction, SystemProgram } from "@solana/web3.js";
+import { TransactionInstruction, SystemProgram, Connection } from "@solana/web3.js";
 
 /**
  * A direct pump `buy_exact_quote_in_v2`, used by tests to move the market
@@ -198,3 +198,22 @@ export const shareholderMetas = (feeAuthority: PublicKey, platformFeeWallet: Pub
   { pubkey: feeAuthority, isWritable: true, isSigner: false },
   ...(platformBps > 0 ? [{ pubkey: platformFeeWallet, isWritable: true, isSigner: false }] : []),
 ];
+
+/**
+ * The shareholders pump will pay, read from the coin's sharing config on chain
+ * (fixed per coin at setup, so the current program config is not the source):
+ * bump u8, version u8, status u8, mint, admin, admin_revoked bool, vec<{address, share_bps u16}>.
+ */
+export async function shareholdersFromChain(conn: Connection, mint: PublicKey) {
+  const info = await conn.getAccountInfo(sharingConfigPda(mint), "confirmed");
+  if (!info) return null;
+  const d = info.data;
+  let o = 8 + 1 + 1 + 1 + 32 + 32 + 1;
+  const n = d.readUInt32LE(o); o += 4;
+  const out: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ pubkey: new PublicKey(d.subarray(o, o + 32)), isWritable: true, isSigner: false });
+    o += 34;
+  }
+  return out;
+}

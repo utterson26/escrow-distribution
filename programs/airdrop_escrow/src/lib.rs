@@ -40,7 +40,20 @@ pub mod airdrop_escrow {
             config.platform_fee_bps = DEFAULT_PLATFORM_FEE_BPS;
             config.pending_fee_bps = 0;
             config.fee_effective_slot = 0;
+            config.fee_delay_slots = PLATFORM_FEE_DELAY_SLOTS;
         }
+        Ok(())
+    }
+
+    /// Narrow the propose → apply delay. A test knob, like `set_delay_window`:
+    /// platform only, floored at MIN_FEE_DELAY_SLOTS, capped at the 7-day
+    /// default. Production keeps the default.
+    pub fn set_fee_delay(ctx: Context<PlatformFeeChange>, slots: u64) -> Result<()> {
+        require!(
+            slots >= MIN_FEE_DELAY_SLOTS && slots <= PLATFORM_FEE_DELAY_SLOTS,
+            EscrowError::BadFeeDelay
+        );
+        ctx.accounts.config.fee_delay_slots = slots;
         Ok(())
     }
 
@@ -53,7 +66,8 @@ pub mod airdrop_escrow {
         let config = &mut ctx.accounts.config;
         let now = Clock::get()?.slot;
         config.pending_fee_bps = new_bps;
-        config.fee_effective_slot = now.saturating_add(PLATFORM_FEE_DELAY_SLOTS);
+        let delay = if config.fee_delay_slots == 0 { PLATFORM_FEE_DELAY_SLOTS } else { config.fee_delay_slots };
+        config.fee_effective_slot = now.saturating_add(delay);
         emit!(PlatformFeeProposed {
             current_bps: config.platform_fee_bps,
             new_bps,

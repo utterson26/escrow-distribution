@@ -11,7 +11,8 @@
  *   F4  a holder who dumped after the snapshot cannot claim; holding it again
  *       makes the claim go through
  *   F5  a holder-rewards coin: fee sharing, collect_fees and buyback are refused
- *   F6  the platform fee only changes after a 7-day delay; early apply fails
+ *   F6  the platform fee only changes after a delay; early apply fails, a late
+ *       one lands and reaches the next coin set up (delay narrowed by a test knob)
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
@@ -215,24 +216,24 @@ describe("security review regressions (localnet)", () => {
     const round = roundPda(0);
     const { layers } = buildTree(snap.leaves);
     const leaf = snap.leaves[0];
-    const eligible holder = holders.find((k) => k.publicKey.toBase58() === leaf.holder)!;
-    const other = holders.find((k) => k !== eligible holder)!;
+    const holderA = holders.find((k) => k.publicKey.toBase58() === leaf.holder)!;
+    const other = holders.find((k) => k !== holderA)!;
 
     // dump half the position to the other holder
     const half = BigInt(leaf.balance) / 2n;
-    await send([createTransferCheckedInstruction(baseAta(eligible holder.publicKey), mint, baseAta(other.publicKey),
-      eligible holder.publicKey, half, 6, [], TOKEN_2022)], eligible holder);
+    await send([createTransferCheckedInstruction(baseAta(holderA.publicKey), mint, baseAta(other.publicKey),
+      holderA.publicKey, half, 6, [], TOKEN_2022)], holderA);
     const claim = () => program.methods
       .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((b) => [...b]))
-      .accountsPartial(claimAccounts(eligible holder.publicKey, round)).signers([eligible holder]).rpc({ commitment: "confirmed" });
+      .accountsPartial(claimAccounts(holderA.publicKey, round)).signers([holderA]).rpc({ commitment: "confirmed" });
     await expectError("claim after dumping", claim(), /HoldingBelowSnapshot/);
 
     // get it back, claim goes through and pays exactly the allocated amount
-    await send([createTransferCheckedInstruction(baseAta(other.publicKey), mint, baseAta(eligible holder.publicKey),
+    await send([createTransferCheckedInstruction(baseAta(other.publicKey), mint, baseAta(holderA.publicKey),
       other.publicKey, half, 6, [], TOKEN_2022)], other);
-    const before = BigInt((await conn.getTokenAccountBalance(baseAta(eligible holder.publicKey), "confirmed")).value.amount);
+    const before = BigInt((await conn.getTokenAccountBalance(baseAta(holderA.publicKey), "confirmed")).value.amount);
     await claim();
-    const after = BigInt((await conn.getTokenAccountBalance(baseAta(eligible holder.publicKey), "confirmed")).value.amount);
+    const after = BigInt((await conn.getTokenAccountBalance(baseAta(holderA.publicKey), "confirmed")).value.amount);
     assert.equal((after - before).toString(), leaf.amount);
   });
 
@@ -348,5 +349,44 @@ describe("security review regressions (localnet)", () => {
       /FeeChangeTooEarly/);
     const cfg2: any = await program.account.config.fetch(configPda(program.programId));
     assert.equal(cfg2.platformFeeBps, 1000, "still 10% after the early attempt");
+
+    // the delay is a test knob (platform only, floored at 5 slots) so the
+    // successful path can be exercised here: re-propose with a 5-slot delay,
+    // wait it out, apply, and see the new rate land on the next coin set up
+    await expectError("dev sets fee delay",
+      program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
+        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+    await expectError("delay under the floor",
+      program.methods.setFeeDelay(new BN(1)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+        .signers([platform]).rpc({ commitment: "confirmed" }), /BadFeeDelay/);
+    await program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc({ commitment: "confirmed" });
+    await program.methods.proposePlatformFee(500).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc({ commitment: "confirmed" });
+    const cfg3: any = await program.account.config.fetch(configPda(program.programId));
+    const eff = cfg3.feeEffectiveSlot.toNumber();
+    if ((await conn.getSlot("confirmed")) < eff) {
+      await expectError("apply early (short delay)",
+        program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+        /FeeChangeTooEarly/);
+    }
+    while ((await conn.getSlot("confirmed")) < eff) await sleep(300);
+    // anyone may apply once the delay has passed
+    await program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" });
+    const cfg4: any = await program.account.config.fetch(configPda(program.programId));
+    assert.equal(cfg4.platformFeeBps, 500, "rate applied after the delay");
+    assert.equal(cfg4.pendingFeeBps, 0); assert.equal(cfg4.feeEffectiveSlot.toNumber(), 0, "proposal cleared");
+    await expectError("apply twice",
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      /NoPendingFee/);
+
+    // the SEC coin was never set up: its split now uses the new 5%
+    await program.methods.setupFeeSharing()
+      .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, platform.publicKey))
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .rpc({ commitment: "confirmed" });
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(st.feeSharingSet);
+    assert.equal(st.platformFeeBps, 500, "a coin set up after the change carries the new rate");
   });
 });

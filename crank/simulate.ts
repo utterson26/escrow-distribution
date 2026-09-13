@@ -152,16 +152,25 @@ async function main() {
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
-    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
-    const bh = await conn.getLatestBlockhash("confirmed");
-    const msg = new TransactionMessage({
-      payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
-      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
-    }).compileToV0Message([lutAcc]);
-    const tx = new VersionedTransaction(msg);
-    const sig = await provider.sendAndConfirm(tx, [mintKp], {
-      commitment: "confirmed", skipPreflight: true, maxRetries: 10,
-    });
+    // the table is usable one slot after its last extension; the RPC may still
+    // see an older version for a moment ("invalid index"), so retry briefly
+    let sig = "";
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const lutAcc = (await conn.getAddressLookupTable(lut, { commitment: "confirmed" })).value!;
+        const bh = await conn.getLatestBlockhash("confirmed");
+        const msg = new TransactionMessage({
+          payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+          instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix],
+        }).compileToV0Message([lutAcc]);
+        const tx = new VersionedTransaction(msg);
+        sig = await provider.sendAndConfirm(tx, [mintKp], { commitment: "confirmed", skipPreflight: true, maxRetries: 10 });
+        break;
+      } catch (e: any) {
+        if (attempt >= 5 || !/invalid index|Blockhash not found/i.test(String(e?.message ?? e))) throw e;
+        await sleep(1500);
+      }
+    }
     await program.methods.setDelayWindow(new BN(DELAY_WINDOW))
       .accountsPartial({ platform: crankKp.publicKey, escrow }).signers([crankKp]).rpc({ commitment: "confirmed" });
     note(symbol, "launch", `mint=${mint.toBase58()} escrow=${escrow.toBase58()} sig=${sig}`);

@@ -86,6 +86,8 @@ pub enum EscrowError {
     NoPendingFee,
     #[msg("the platform fee change is not effective yet")]
     FeeChangeTooEarly,
+    #[msg("fee delay is outside the allowed range")]
+    BadFeeDelay,
     #[msg("bonding curve is complete; the coin has migrated")]
     CurveComplete,
     #[msg("buy returned fewer tokens than the on-chain quote allows")]

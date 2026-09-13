@@ -37,7 +37,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   pumpAccounts, escrowAta, buyerPda, baseAtaOf, feeAuthorityPda, sharingConfigPda,
-  setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, TOKEN_2022, WSOL, TOKEN,
+  setupFeeSharingAccounts, collectFeesAccounts, shareholdersFromChain, TOKEN_2022, WSOL, TOKEN,
 } from "../tests/pump";
 import { snapshot } from "../indexer/snapshot";
 
@@ -195,10 +195,13 @@ async function main() {
     const sweepable = vaultLamports > vaultFloor ? vaultLamports - vaultFloor : 0n;
     if (!holderReward && sweepable >= MIN_COLLECT_LAMPORTS) {
       try {
-        const cfg: any = await program.account.config.fetch(configPda, "confirmed");
+        // the shareholders are whatever this coin's sharing config says (fixed
+        // at setup; the program config may have moved on since)
+        const metas = await shareholdersFromChain(conn, mint);
+        if (!metas) throw new Error("sharing config missing");
         const ix = await program.methods.collectFees()
           .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, keypair.publicKey))
-          .remainingAccounts(shareholderMetas(feeAuthority, cfg.platformFeeWallet, esc.state.platformFeeBps))
+          .remainingAccounts(metas)
           .instruction();
         const before = BigInt(await conn.getBalance(escrow, "confirmed"));
         const { sig } = await send([ix]);

@@ -16,6 +16,9 @@ pub struct Config {
     /// A proposed new rate, live from `fee_effective_slot` on (0 = none).
     pub pending_fee_bps: u16,
     pub fee_effective_slot: u64,
+    /// Slots between proposing and applying a rate; PLATFORM_FEE_DELAY_SLOTS
+    /// (7 days) unless a test narrowed it with `set_fee_delay`.
+    pub fee_delay_slots: u64,
 }
 
 #[account]
