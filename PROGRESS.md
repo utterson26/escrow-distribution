@@ -1250,6 +1250,26 @@ işine ertelendi (README, SECURITY_REVIEW §5.11).
   publisher/taban yolu dahil), manual 7/7, allocate 6/6. `DEMO.md` yeni
   adreslerle yeniden üretildi.
 
+## Adım 30 — devnet: adım 29 sürümü deploy edildi, üç suite + demo devnet'te (14 Eylül) ✅
+
+- Deploy: 5,54 SOL ile başladı. Yeni binary 751.280 bayt > 736.272; extend
+  15.008 (≥ 10.240 olduğu için CLI kendisi yaptı), `--use-rpc`, slot
+  497927299, dump = yerel build. Maliyet ~0,08 SOL.
+- `migrate_config` (Config büyüdü; `publishers` boş, `minPosition` 0 =
+  varsayılan) → `set-publishers <platform>`. Devnet Config'te 7 günlük
+  bekleyen %5 ücret önerisi F6'nın yeni koşusunda üstüne yazıldı/temizlendi
+  (`pendingFeeBps: 0`).
+- Sonuçlar (Helius RPC): ana **20/20** (1,12 SOL), security **6/6**
+  (ilk koşuda F3 düştü: devnet listesinde dev cüzdanı da vardı — `set-publishers`
+  ile ben eklemiştim; test artık "dev round açamaz" kontrolünden önce listeyi
+  yalnız platforma sabitliyor; ikinci koşu 6/6, ~0,5 SOL net), manual **7/7**
+  (0,14 SOL), `npm run demo -- --devnet` temiz (321 sn, 1,04 SOL net;
+  `DEMO-devnet.md` yenilendi, coin `GvF6…NQn6`).
+- Koşu sonunda devnet Config: platform = dev cüzdanı, ücret %7 →
+  `5dAf…kVSV` (demonun set_platform'u), tavan 50 SOL, taban 0,1 SOL,
+  publishers = yalnız platform (test anahtarları listeden çıkarıldı).
+- **SOL: 5,54 → 2,17.** 1 SOL sınırının altına inilmedi.
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**

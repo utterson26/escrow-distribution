@@ -2,28 +2,30 @@
 
 Bu belge, 2026-09-13 tarihinde **Solana devnet'te, gerçek pump.fun devnet programıyla** tek koşuda üretildi: `npm run demo -- --devnet`. Her adımın işlem imzası en alttaki ekte, explorer linkleriyle; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.
 
-**Fikir tek cümlede:** coin basılırken bir kısmı kilitli havuza gider; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.
+**Fikir tek cümlede:** coin basılırken bir kısmı kilitlenir — bir dilimi launch'ta sabitlenen cüzdan listesine, kalanı holder havuzuna; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.
 
 ## Aktörler
 
 | Kim | Cüzdan | Rol |
 |---|---|---|
 | Dev | `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` | coin'i basan; hazine sayılır, dağıtıma girmez |
-| Ayşe | `Gh6eYZsGsc1NVvcdp3vG3P3tq14shdYf6y5oQiAoCsde` | büyük alır ve tutar (tavana takılır) |
-| Burak | `EjdYPzmakQLb2nmhXxv4vjVNHgyAnLW65nZ9PT6uDYJS` | alır ve tutar |
-| Ceren | `E9Fka3FVThG6BD6M9cjpdQRPa251SuBtFC1zK4QWUcmH` | alır ve tutar |
-| Deniz | `HSqEHFyUqYHXfyHhUVpWD1i6Ekviqs8pUKj4bPZ1z7Qc` | alır, sonra hepsini satar |
-| Küçük-1 | `FYo5MnRXPFFg1sqEfJh8WbZoZ7uBmhkpdF61ot5qYRnS` | alır ve tutar |
-| Küçük-2 | `E4PLTt9g52zmh94g2kb6f4rL982rCrGU7aa1oh8UMCtH` | alır ve tutar |
-| Küçük-3 | `DACvSX5DRsbZDN63hVDQLGDgebp2VB3gj6ms2V53D7d6` | alır ve tutar |
-| Küçük-4 | `BFEeYj5rnnG5ufxecDJicWH7YW4onxRkoskCKPTTK6be` | alır ve tutar |
-| Küçük-5 | `BXKBuKsEaZXu7wB3inNV1CorQd5dxgdFyRmQ6q1AVBGY` | alır ve tutar |
-| Küçük-6 | `66NHPTF4hfRzCUoBT8tUoTQHZompYtkoAXhTYzzqyma5` | alır ve tutar |
-| Küçük-7 | `5KYYzsPA5KMz2e3QjyssXaWSKLztyk4j5TfanmEBNHqG` | alır ve tutar |
-| Küçük-8 | `Bn5oxNj8vF65YdThWZMu8Zy86NQbkPH74K3rP5EHxFbf` | alır ve tutar |
-| Escrow | `B2dje7pLbDNn58x1nGuZ4WW43Pe1MYvrhSrzSrWWytCT` | kilitli havuz (program hesabı, insan anahtarı yok) |
+| Ayşe | `2XagqzaQAqyR1ES1LnGkr5Lcba8pHdbYL6KLcUcVqVFr` | büyük alır ve tutar (tavana takılır) |
+| Burak | `CUSZvkkyubJbm4mDgZ692fzfvX6VTYXYpdQFumLZ9bSJ` | alır ve tutar |
+| Ceren | `84b1bEx2kQkBR7mwB6VjzdrvULptxrnGqowYsNppiE5s` | alır ve tutar |
+| Deniz | `B3uq4wxAJoc7Z6Y4RMuZUCTZT9PSTyyzpTkomxpZATCt` | alır, sonra hepsini satar |
+| Küçük-1 | `5qHyZPZFDLuQx2tWbSWqKNLt9Zv3DDJCvg4yyBR1KnQm` | alır ve tutar |
+| Küçük-2 | `4wsGvvQSxZHGrvVz6cF7S4PSp9WrrAWmRdVB667jLp9i` | alır ve tutar |
+| Küçük-3 | `ApLADAmWQ8DYFruqt1DbVQZrCknHo4FU2txemvdxamht` | alır ve tutar |
+| Küçük-4 | `9qFwnHJZPgC546R5fFJaoAghoyYAbL5fmuwEfibJtGuv` | alır ve tutar |
+| Küçük-5 | `D9iaHYa78tPiN5HnaUTN9QC9NiLGjyo9JVGctzUSUSAK` | alır ve tutar |
+| Küçük-6 | `AqmBAAZZPk5bPK55qHz13oL8epzUiAAbVFsmde22DL8W` | alır ve tutar |
+| Küçük-7 | `GZmW466LgPgjxC4JVguUwYh7g436zdMiPA1JjHJYg5CX` | alır ve tutar |
+| Küçük-8 | `FjYoHcaRcD2gafJHVd1tV6emA9U1szdDwHJj9VT7LQkx` | alır ve tutar |
+| Ekip-1 | `FLxngoESGAgED3pJdJN84dr4XhdiqGTmbXKVvgFrnF4V` | sabit listede %60 |
+| Ekip-2 | `23DJHE5gAj2NedAuGzjxdnUumN6SfraUQVDjiPmnA4dw` | sabit listede %40 |
+| Escrow | `J9qSiDzsSo79QeQ2hY5Xgd6YVUnYKzmBJUvXeUjGwkDF` | kilitli havuz (program hesabı, insan anahtarı yok) |
 
-Coin: `3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw` (DEMO) — [explorer](https://explorer.solana.com/address/3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw?cluster=devnet) · [pump.fun](https://pump.fun/coin/3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw)
+Coin: `GvF6QdUih9NYU6p5JiQQJQoNLmaZQhe2gPH85fwZNQn6` (DEMO) — [explorer](https://explorer.solana.com/address/GvF6QdUih9NYU6p5JiQQJQoNLmaZQhe2gPH85fwZNQn6?cluster=devnet) · [pump.fun](https://pump.fun/coin/GvF6QdUih9NYU6p5JiQQJQoNLmaZQhe2gPH85fwZNQn6)
 
 ## Adımlar
 
@@ -31,31 +33,45 @@ Coin: `3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw` (DEMO) — [explorer](https
 
 Platform yetkilisi ve platform ücret cüzdanı belirlendi, adres tablosu kuruldu (büyük işlemler sığsın diye).
 
-- platform ücreti: creator ücretinin %10'u → Ggqm…kPiy (kilitli havuzdan asla pay alınmaz)
-- tablo 4qAwqEUjS4fbEzb94zQBDqkynbgyU18zsBmqJukKHq1q (53 adres)
+- platform ücreti: creator ücretinin %7'u → 5dAf…kVSV (kilitli havuzdan asla pay alınmaz)
+- tablo GaBjy3LiHAzLueZjKnftf5oCebU4BjnmkU5oAL77Gqt1 (53 adres)
 - 2 işlem: set_platform; lookup_table (imzalar: ek, adım 1)
 
-### 2. Coin basıldı ve %30'u kilitlendi
+### 2. Coin basıldı, %30'u kilitlendi: %25 holder havuzu + %5 sabit liste
 
-Tek işlemde: pump.fun'da coin yaratıldı, dev 300M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti.
+Tek işlemde: pump.fun'da coin yaratıldı, dev 300M coin aldı; alımın %25'i holder havuzuna (escrow), %5'i launch'ta sabitlenen cüzdan+yüzde listesine (Ekip-1 %60, Ekip-2 %40) kilitlendi. Kilit toplam arzın en az %1'i olmak zorunda (platform sabiti), yoksa launch reddedilir.
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| escrow coin | 0 coin | 90.00M coin |
+| holder havuzu | 0 coin | 75.00M coin |
+| sabit liste | 0 coin | 15.00M coin |
 | dev coin | 0 coin | 210.00M coin |
 
-- coin: 3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw
-- escrow: B2dje7pLbDNn58x1nGuZ4WW43Pe1MYvrhSrzSrWWytCT
+- kilit 90.00M coin ≥ arzın %1'i (10.00M coin) ✓; liste kökü 9b1c2091eba88f8e… zincirde
+- coin: GvF6QdUih9NYU6p5JiQQJQoNLmaZQhe2gPH85fwZNQn6
+- escrow: J9qSiDzsSo79QeQ2hY5Xgd6YVUnYKzmBJUvXeUjGwkDF
 - 1 işlem: launch (imzalar: ek, adım 2)
 
 ### 3. Ücret paylaşımı kuruldu: %90 havuz, %10 platform
 
 pump.fun'ın ücret paylaşım ayarı bu coin için açıldı: her alım-satımın creator ücreti otomatik olarak %90 escrow'a, %10 platform cüzdanına gider. Bu bölünme kilitli havuza dokunmaz; yalnızca ücret bölünür.
 
-- coin tipi: regular — platform payı %10, pump'taki paylaşım kaydı HNMN…JtW3
+- coin tipi: regular — platform payı %7, pump'taki paylaşım kaydı DvnM…md9Y
 - 1 işlem: setup_fee_sharing (imzalar: ek, adım 3)
 
-### 4. On iki cüzdan piyasadan aldı
+### 4. Sabit liste zincirde, Ekip-1 payını aldı
+
+Launch'ta kökü yazılan liste satır satır zincire yayınlandı (herkes kökü yeniden hesaplayıp doğrulayabilir); Ekip-1 kendi cüzdanıyla ispat verip listedeki %60'ını çekti. Liste launch'tan sonra değiştirilemez, kimse kendini ekleyemez.
+
+| | Öncesi | Sonrası |
+|---|---|---|
+| sabit liste | 15.00M coin | 6.00M coin |
+| Ekip-1 coin | 0 coin | 9.00M coin |
+
+- listenin %60'ı çekildi; Ekip-2'nin %40'ı bekliyor. Holder havuzu (75.00M coin) bu listeden bağımsız
+- 2 işlem: publish_manual_list; claim_manual (Ekip-1) (imzalar: ek, adım 4)
+
+### 5. On iki cüzdan piyasadan aldı
 
 Ayşe (büyük), Burak, Ceren, Deniz ve sekiz küçük yatırımcı doğrudan pump.fun'dan coin aldı; her alımın küçük bir kısmı creator ücreti olarak birikti.
 
@@ -63,16 +79,16 @@ Ayşe (büyük), Burak, Ceren, Deniz ve sekiz küçük yatırımcı doğrudan pu
 |---|---|---|
 | creator ücreti kasası | 0.0000 SOL | 0.0050 SOL |
 
-- 12 işlem: Ayşe 0.15 SOL ile aldı → 74.54M coin; Burak 0.12 SOL ile aldı → 50.03M coin; Ceren 0.12 SOL ile aldı → 43.34M coin; Deniz 0.12 SOL ile aldı → 37.91M coin; Küçük-1 0.12 SOL ile aldı → 33.44M coin; Küçük-2 0.12 SOL ile aldı → 29.72M coin; Küçük-3 0.12 SOL ile aldı → 26.58M coin; Küçük-4 0.12 SOL ile aldı → 23.92M coin; Küçük-5 0.12 SOL ile aldı → 21.64M coin; Küçük-6 0.12 SOL ile aldı → 19.67M coin; Küçük-7 0.12 SOL ile aldı → 17.95M coin; Küçük-8 0.12 SOL ile aldı → 16.45M coin (imzalar: ek, adım 4)
+- 12 işlem: Ayşe 0.15 SOL ile aldı → 74.54M coin; Burak 0.12 SOL ile aldı → 50.03M coin; Ceren 0.12 SOL ile aldı → 43.34M coin; Deniz 0.12 SOL ile aldı → 37.91M coin; Küçük-1 0.12 SOL ile aldı → 33.44M coin; Küçük-2 0.12 SOL ile aldı → 29.72M coin; Küçük-3 0.12 SOL ile aldı → 26.58M coin; Küçük-4 0.12 SOL ile aldı → 23.92M coin; Küçük-5 0.12 SOL ile aldı → 21.64M coin; Küçük-6 0.12 SOL ile aldı → 19.67M coin; Küçük-7 0.12 SOL ile aldı → 17.95M coin; Küçük-8 0.12 SOL ile aldı → 16.45M coin (imzalar: ek, adım 5)
 
-### 5. Tetikleyici başlangıç noktası
+### 6. Tetikleyici başlangıç noktası
 
 Program piyasa değerini ilk kez kaydetti; bundan sonraki hacim ve fiyat hareketleri bu noktaya göre ölçülür (üretimde bu kaydı keeper her dakika yapar).
 
 - piyasa değeri: 7.5166 SOL — dağıtım gecikme penceresi demo için ~60 sn (üretimde 60 dk)
-- 2 işlem: set_delay_window; check_trigger (imzalar: ek, adım 5)
+- 2 işlem: set_delay_window; check_trigger (imzalar: ek, adım 6)
 
-### 6. Deniz hepsini sattı
+### 7. Deniz hepsini sattı
 
 Deniz elindeki coin'in tamamını pump.fun'a geri sattı; elinde coin kalmadı, dağıtımda sayılmayacak.
 
@@ -81,119 +97,119 @@ Deniz elindeki coin'in tamamını pump.fun'a geri sattı; elinde coin kalmadı, 
 | Deniz coin | 37.91M coin | 0 coin |
 | Deniz SOL | 0.0786 SOL | 0.3344 SOL |
 
-- 1 işlem: sell (imzalar: ek, adım 6)
+- 1 işlem: sell (imzalar: ek, adım 7)
 
-### 7. Biriken ücret dağıtıldı: %90 havuza, %10 platforma
+### 8. Biriken ücret dağıtıldı: %90 havuza, %10 platforma
 
 pump.fun kasasında biriken creator ücreti paylaşım ayarına göre ödendi: %90 escrow'a (holder'lar için harcanacak), %10 platform cüzdanına.
 
 | | Öncesi | Sonrası |
 |---|---|---|
 | creator ücreti kasası | 0.0058 SOL | 0.0007 SOL |
-| escrow SOL | 0.0025 SOL | 0.0071 SOL |
-| platform cüzdanı | 0.0100 SOL | 0.0105 SOL |
+| escrow SOL | 0.0025 SOL | 0.0072 SOL |
+| platform cüzdanı | 0.0100 SOL | 0.0104 SOL |
 
-- escrow +0.0046 SOL (%90), platform +0.0005 SOL; programın kaydettiği toplam ücret: 0.0046 SOL
-- 1 işlem: collect_fees (imzalar: ek, adım 7)
+- escrow +0.0048 SOL (%93), platform +0.0004 SOL; programın kaydettiği toplam ücret: 0.0048 SOL
+- 1 işlem: collect_fees (imzalar: ek, adım 8)
 
-### 8. Topluluk bağışı ve parça parça geri alım
+### 9. Topluluk bağışı ve parça parça geri alım
 
 Escrow'a 0.2 SOL eklendi. Buyback bunu tek seferde değil, her çağrıda piyasanın en fazla %0,5'i kadar harcayarak coin'e çevirdi (demo 5 parça gösterir, kalan sonraki çağrılara kalır); alınan coin havuza eklendi.
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| escrow SOL | 0.2071 SOL | 0.1306 SOL |
-| havuz coin | 90.00M coin | 100.11M coin |
+| escrow SOL | 0.2072 SOL | 0.1307 SOL |
+| havuz coin | 75.00M coin | 85.11M coin |
 
 - Demo'da 12 küçük alım yeterli ücret üretmediği için musluğu göstermek üzere escrow'a 0.2 SOL eklendi; üretimde tek kaynak creator ücretidir.
-- aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz (~0,4 sn'de bir), escrow SOL değişmedi (0.1306 SOL = 0.1306 SOL)
+- aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz (~0,4 sn'de bir), escrow SOL değişmedi (0.1307 SOL = 0.1307 SOL)
 - her parça ayrı blokta (~0,4 sn): %0,5 sınırı üst üste bindirilemez, musluk blok başına bir kez akar
 - 5 parça, toplam 0.0652 SOL harcandı, 10.11M coin alındı
-- 6 işlem: 0.2 SOL eklendi; parça 1: 0.0129 SOL harcandı → +2.04M coin, sonraya 0.1817 SOL; parça 2: 0.0130 SOL harcandı → +2.03M coin, sonraya 0.1674 SOL; parça 3: 0.0130 SOL harcandı → +2.02M coin, sonraya 0.1544 SOL; parça 4: 0.0131 SOL harcandı → +2.01M coin, sonraya 0.1413 SOL; parça 5: 0.0132 SOL harcandı → +2.00M coin, sonraya 0.1281 SOL (imzalar: ek, adım 8)
+- 6 işlem: 0.2 SOL eklendi; parça 1: 0.0129 SOL harcandı → +2.04M coin, sonraya 0.1819 SOL; parça 2: 0.0130 SOL harcandı → +2.03M coin, sonraya 0.1676 SOL; parça 3: 0.0130 SOL harcandı → +2.02M coin, sonraya 0.1545 SOL; parça 4: 0.0131 SOL harcandı → +2.01M coin, sonraya 0.1414 SOL; parça 5: 0.0132 SOL harcandı → +2.00M coin, sonraya 0.1283 SOL (imzalar: ek, adım 9)
 
-### 9. Hacim tetikleyiciyi kurdu
+### 10. Hacim tetikleyiciyi kurdu
 
 Alım-satım hacmi eşiği geçti: program havuzun %1'ini dağıtmaya karar verdi ve rastgele bir gecikme belirledi (kimse dağıtım anını önceden bilemez).
 
-- tür: hacim, serbest bırakılacak: 1.00M coin (havuzun %1'i)
-- dağıtım ~37 sn sonra serbest kalacak (rastgele gecikme; üretimde 0–60 dk)
+- tür: hacim, serbest bırakılacak: 851.1K coin (havuzun %1'i)
+- dağıtım ~16 sn sonra serbest kalacak (rastgele gecikme; üretimde 0–60 dk)
 - erken ateşleme denendi → reddedildi (TooEarly): süre dolmadan kimse dağıtamaz
-- 1 işlem: check_trigger (imzalar: ek, adım 9)
+- 1 işlem: check_trigger (imzalar: ek, adım 10)
 
-### 10. Süre doldu, dağıtım serbest bırakıldı
+### 11. Süre doldu, dağıtım serbest bırakıldı
 
 Gecikme geçince herkesin çağırabildiği fire_trigger havuzun %1'ini dağıtıma açtı.
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| dağıtıma açık coin | 0 coin | 1.00M coin |
+| dağıtıma açık coin | 0 coin | 851.1K coin |
 
-- 1 işlem: fire_trigger (imzalar: ek, adım 10)
+- 1 işlem: fire_trigger (imzalar: ek, adım 11)
 
-### 11. Holder listesi ve paylar hesaplandı
+### 12. Holder listesi ve paylar hesaplandı
 
 Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Serbest bırakılan miktar ağırlık (bakiye × tutma süresi) oranında TÜM uygun holder'lara bölündü; tek cüzdan turun en fazla %10'unu alır, fazlası diğerlerine oransal dağıtıldı.
 
-- Ayşe (Gh6e…Csde): 74.54M coin, 149 sn tutuyor, ağırlık %24.0 → pay 100.1K coin (%10.0) ← tavan
-- Burak (EjdY…DYJS): 50.03M coin, 145 sn tutuyor, ağırlık %15.6 → pay 100.1K coin (%10.0) ← tavan
-- Ceren (E9Fk…UcmH): 43.34M coin, 140 sn tutuyor, ağırlık %13.1 → pay 100.1K coin (%10.0) ← tavan
-- Küçük-1 (FYo5…YRnS): 33.44M coin, 131 sn tutuyor, ağırlık %9.4 → pay 100.1K coin (%10.0) ← tavan
-- Küçük-2 (E4PL…MCtH): 29.72M coin, 127 sn tutuyor, ağırlık %8.1 → pay 100.1K coin (%10.0) ← tavan
-- Küçük-3 (DACv…D7d6): 26.58M coin, 123 sn tutuyor, ağırlık %7.0 → pay 100.1K coin (%10.0) ← tavan
-- Küçük-4 (BFEe…K6be): 23.92M coin, 114 sn tutuyor, ağırlık %5.9 → pay 100.1K coin (%10.0) ← tavan
-- Küçük-5 (BXKB…VBGY): 21.64M coin, 109 sn tutuyor, ağırlık %5.1 → pay 90.8K coin (%9.1)
-- Küçük-6 (66NH…yma5): 19.67M coin, 105 sn tutuyor, ağırlık %4.5 → pay 79.5K coin (%7.9)
-- Küçük-7 (5KYY…NHqG): 17.95M coin, 101 sn tutuyor, ağırlık %3.9 → pay 69.6K coin (%6.9)
-- Küçük-8 (Bn5o…xFbf): 16.45M coin, 96 sn tutuyor, ağırlık %3.4 → pay 60.5K coin (%6.0)
-- Deniz (HSqE…z7Qc) listede YOK — hepsini sattığı için
-- serbest 1.00M coin, dağıtılan 1.00M coin; tavanın tuttuğu 0 coin havuzda kalıyor (sızmaz, sonraki tetikleyiciyle yeniden değerlendirilir)
-- dev cüzdanı hazine sayılır, listede yok. kök: c437b4d08d818c50… slot 497795463
+- Ayşe (2Xag…qVFr): 74.54M coin, 543 sn tutuyor, ağırlık %21.7 → pay 85.1K coin (%10.0) ← tavan
+- Burak (CUSZ…9bSJ): 50.03M coin, 539 sn tutuyor, ağırlık %14.4 → pay 85.1K coin (%10.0) ← tavan
+- Ceren (84b1…iE5s): 43.34M coin, 534 sn tutuyor, ağırlık %12.4 → pay 85.1K coin (%10.0) ← tavan
+- Küçük-1 (5qHy…KnQm): 33.44M coin, 525 sn tutuyor, ağırlık %9.4 → pay 85.1K coin (%10.0) ← tavan
+- Küçük-2 (4wsG…Lp9i): 29.72M coin, 520 sn tutuyor, ağırlık %8.3 → pay 85.1K coin (%10.0) ← tavan
+- Küçük-3 (ApLA…amht): 26.58M coin, 511 sn tutuyor, ağırlık %7.3 → pay 85.1K coin (%10.0) ← tavan
+- Küçük-4 (9qFw…tGuv): 23.92M coin, 506 sn tutuyor, ağırlık %6.5 → pay 83.1K coin (%9.8)
+- Küçük-5 (D9ia…USAK): 21.64M coin, 501 sn tutuyor, ağırlık %5.8 → pay 74.4K coin (%8.7)
+- Küçük-6 (AqmB…DL8W): 19.67M coin, 497 sn tutuyor, ağırlık %5.2 → pay 67.1K coin (%7.9)
+- Küçük-7 (GZmW…g5CX): 17.95M coin, 493 sn tutuyor, ağırlık %4.7 → pay 60.7K coin (%7.1)
+- Küçük-8 (FjYo…LQkx): 16.45M coin, 488 sn tutuyor, ağırlık %4.3 → pay 55.1K coin (%6.5)
+- Deniz (B3uq…ATCt) listede YOK — hepsini sattığı için
+- serbest 851.1K coin, dağıtılan 851.1K coin; tavanın tuttuğu 0 coin havuzda kalıyor (sızmaz, sonraki tetikleyiciyle yeniden değerlendirilir)
+- dev cüzdanı hazine sayılır, listede yok. kök: bbe09c1f1a6e852d… slot 497932819
 
-### 12. Paylaşım zincire mühürlendi
+### 13. Paylaşım zincire mühürlendi
 
 Listenin kökü, serbest bırakılan miktar ve snapshot anı zincire yazıldı: kim ne alacak artık sabit ve herkes aynı girdilerle aynı sonucu üretebilir. Rastgelelik yok, seçim yok.
 
 - zincirdeki (slot, miktar) ile yeniden üretildi: kök birebir tuttu
-- 11 holder, 1.00M coin dağıtımda, tavan cüzdan başına 100.1K coin
-- 1 işlem: open_round (imzalar: ek, adım 12)
+- 11 holder, 851.1K coin dağıtımda, tavan cüzdan başına 85.1K coin
+- 1 işlem: open_round (imzalar: ek, adım 13)
 
-### 13. Satan cüzdan pay alamadı
+### 14. Satan cüzdan pay alamadı
 
 Deniz, Ayşe'nin listedeki satırını kendi cüzdanıyla kullanıp pay almayı denedi; program ispatı imzalayan cüzdana göre kontrol ettiği için reddetti.
 
 - reddedildi (BadProof): Deniz listede yok, başkasının satırı kendi cüzdanıyla işe yaramadı
 
-### 14. Herkes kendi payını aldı
+### 15. Herkes kendi payını aldı
 
 Listedeki her holder kendi cüzdanıyla claim etti, payı havuzdan cüzdanına geçti; aynı cüzdan ikinci kez alamaz.
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| Ayşe (Gh6e…Csde) coin | 74.54M coin | 74.64M coin |
-| Burak (EjdY…DYJS) coin | 50.03M coin | 50.13M coin |
-| Ceren (E9Fk…UcmH) coin | 43.34M coin | 43.44M coin |
-| havuz coin | 99.11M coin | 99.11M coin |
+| Ayşe (2Xag…qVFr) coin | 74.54M coin | 74.63M coin |
+| Burak (CUSZ…9bSJ) coin | 50.03M coin | 50.11M coin |
+| Ceren (84b1…iE5s) coin | 43.34M coin | 43.42M coin |
+| havuz coin | 84.26M coin | 84.26M coin |
 
-- Ayşe (Gh6e…Csde) ikinci kez denedi → reddedildi (makbuz zaten var)
-- 11/11 holder aldı, 1.00M coin / 1.00M coin
-- 11 işlem: Ayşe (Gh6e…Csde) +100.1K coin; Küçük-1 (FYo5…YRnS) +100.1K coin; Burak (EjdY…DYJS) +100.1K coin; Ceren (E9Fk…UcmH) +100.1K coin; Küçük-2 (E4PL…MCtH) +100.1K coin; Küçük-3 (DACv…D7d6) +100.1K coin; Küçük-4 (BFEe…K6be) +100.1K coin; Küçük-5 (BXKB…VBGY) +90.8K coin; Küçük-6 (66NH…yma5) +79.5K coin; Küçük-7 (5KYY…NHqG) +69.6K coin; Küçük-8 (Bn5o…xFbf) +60.5K coin (imzalar: ek, adım 14)
+- Burak (CUSZ…9bSJ) ikinci kez denedi → reddedildi (makbuz zaten var)
+- 11/11 holder aldı, 851.1K coin / 851.1K coin
+- 11 işlem: Burak (CUSZ…9bSJ) +85.1K coin; Küçük-3 (ApLA…amht) +85.1K coin; Ceren (84b1…iE5s) +85.1K coin; Küçük-1 (5qHy…KnQm) +85.1K coin; Küçük-2 (4wsG…Lp9i) +85.1K coin; Ayşe (2Xag…qVFr) +85.1K coin; Küçük-4 (9qFw…tGuv) +83.1K coin; Küçük-5 (D9ia…USAK) +74.4K coin; Küçük-6 (AqmB…DL8W) +67.1K coin; Küçük-7 (GZmW…g5CX) +60.7K coin; Küçük-8 (FjYo…LQkx) +55.1K coin (imzalar: ek, adım 15)
 
 ## Sonuç
 
 | | |
 |---|---|
-| Havuza kilitlenen | 100.11M coin |
-| Ücretlerden toplanan | 0.0046 SOL |
+| Havuza kilitlenen | 85.11M coin |
+| Ücretlerden toplanan | 0.0048 SOL |
 | Geri alıma harcanan | 0.0652 SOL → 10.11M coin havuza eklendi |
-| Bu turda dağıtılan | 1.00M coin |
-| Havuzda kalan | 99.11M coin |
-| Süre | 159 sn |
+| Bu turda dağıtılan | 851.1K coin |
+| Havuzda kalan | 84.26M coin |
+| Süre | 321 sn |
 
 Kurallar özet: dağıtım anı rastgele gecikmeli (üretimde 0–60 dk); pay = bakiye × tutma süresi oranı, tek cüzdan turun en fazla %10'u, fazlası diğerlerine; liste ve miktar zincire yazılır, herkes aynı sonucu yeniden üretebilir; pay yalnızca listedeki cüzdana ve hâlâ tutuyorsa ödenir; geri alım tek seferde piyasanın %0,5'inden fazlasını harcamaz ve aynı blokta iki kez çalışmaz.
 
 ## Web'de görmek
 
-`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw (bu coin: holder payı, tavan, havuz, turlar, "Your share" paneli).
+`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/GvF6QdUih9NYU6p5JiQQJQoNLmaZQhe2gPH85fwZNQn6 (bu coin: holder payı, tavan, havuz, turlar, "Your share" paneli).
 Bir payı web'den claim etmek için demoyu `DEMO_LEAVE_LAST=1 npm run demo` ile koş; cüzdanın anahtarı `demo-wallets.json` içine yazılır, Phantom'a aktarıp butona basarsın.
 
 ## Ek: işlem imzaları
@@ -202,76 +218,81 @@ Doğrulamak için: `solana confirm -v <imza> --url devnet` ya da explorer linkle
 
 **Adım 1 — Hazırlık**
 
-- set_platform: [`3tiLKc3MgtwFeaQGykf7…`](https://explorer.solana.com/tx/3tiLKc3MgtwFeaQGykf7pEKPL5QehF37yxF1EbpGij8nrPVdkZpHjRBRHm4F4KbY4yWJVMz6GUMSrdTLuAmq9hsP?cluster=devnet)
-- lookup_table: [`4hHQdbA6FYKSk2WkuKqL…`](https://explorer.solana.com/tx/4hHQdbA6FYKSk2WkuKqLdjrMHzcjkw78DZsbB3ZLU9okEaoWwkbstKob48wB62vcGkvYD2ZpqtJg9qwCiSz7WtCQ?cluster=devnet)
+- set_platform: [`5xr8j2aLsMNDf6xwdwPn…`](https://explorer.solana.com/tx/5xr8j2aLsMNDf6xwdwPn6dq3f5a6h2wEJopiDqrN1v5CgYNZs97hdUEwMohBtxhfuqX5nspB91kyPwo4y1UJTP5C?cluster=devnet)
+- lookup_table: [`3ax7WwWjXw2SrmC3rZTA…`](https://explorer.solana.com/tx/3ax7WwWjXw2SrmC3rZTAqFbKDpq5bWCtwW4o8ATRpWZHg4UENGBqVWcgWcakKbvJPTiH1fFrsE5hLvfXeuPw8ofx?cluster=devnet)
 
-**Adım 2 — Coin basıldı ve %30'u kilitlendi**
+**Adım 2 — Coin basıldı, %30'u kilitlendi: %25 holder havuzu + %5 sabit liste**
 
-- launch: [`3prSkMFzG76X2wHXN2p1…`](https://explorer.solana.com/tx/3prSkMFzG76X2wHXN2p15xUma2sd47bdEYrwagbUHGuZQyJGN7oRz1fVrAFQD3oc7gUyTxqFvVQNndGSL9QgUrtF?cluster=devnet)
+- launch: [`2XVR67XT1gwR3BbucqLs…`](https://explorer.solana.com/tx/2XVR67XT1gwR3BbucqLsxMuDRoCxKAC1mfd7ENn2udyy21xW8xjWLKzG5TdaHhUiHZfbiDK1YkSxx7Leorbm2ZvU?cluster=devnet)
 
 **Adım 3 — Ücret paylaşımı kuruldu: %90 havuz, %10 platform**
 
-- setup_fee_sharing: [`4JStsb4SKsFWVoBo2ohb…`](https://explorer.solana.com/tx/4JStsb4SKsFWVoBo2ohbpNaSCEyqZhFusAGnMJfzej1r7zpDqDDksVYUqGtwUEc7rU3j5eYhkUaEExKgfhmEnkWL?cluster=devnet)
+- setup_fee_sharing: [`3syFo5z8YsD6x3EZ61oL…`](https://explorer.solana.com/tx/3syFo5z8YsD6x3EZ61oLvNTej7Ak3D7zcLsBVhVHJJFaRXekVUjGvCrX27VkzZLHgj3jX2TtvT6EiRhZJBoJ5KEd?cluster=devnet)
 
-**Adım 4 — On iki cüzdan piyasadan aldı**
+**Adım 4 — Sabit liste zincirde, Ekip-1 payını aldı**
 
-- Ayşe 0.15 SOL ile aldı → 74.54M coin: [`3W54ZGu7rojGQkVKimzH…`](https://explorer.solana.com/tx/3W54ZGu7rojGQkVKimzH8aUWF9pyAYKHXMbnnbkrZp4yCsmMZnmneurHyuwtf4zFRAT2xTPYaUjHuhdA97xjgt23?cluster=devnet)
-- Burak 0.12 SOL ile aldı → 50.03M coin: [`619eZauu1XVg6R33jZiK…`](https://explorer.solana.com/tx/619eZauu1XVg6R33jZiKqLU1SDR9FqhRaABivUUHknPhuMw841xMGR7f98tJLqYSCn2bj3ps5xRNaroLTBbcr8x2?cluster=devnet)
-- Ceren 0.12 SOL ile aldı → 43.34M coin: [`5c9rKcMy2iEiEp4vVLcL…`](https://explorer.solana.com/tx/5c9rKcMy2iEiEp4vVLcLYA3Xiv2C7mMm1N7hosFg9scPdVeRA9tDJvd1Hh5Aetikp8gy43aNXR9hHsK5ifCGC73y?cluster=devnet)
-- Deniz 0.12 SOL ile aldı → 37.91M coin: [`FWhiUitkt1MuxTL9VqrV…`](https://explorer.solana.com/tx/FWhiUitkt1MuxTL9VqrVuZcZpQT5YzniYcsBkkVJofqVqCwQDnrDXfPAHKNgZTeP9keJdYr1sYr45yASmtjCMRG?cluster=devnet)
-- Küçük-1 0.12 SOL ile aldı → 33.44M coin: [`S5yD288i2qhepSy51dhd…`](https://explorer.solana.com/tx/S5yD288i2qhepSy51dhdjG29Pc33Xy8baWbGPRNvtrhVQk7JQns7GuTDRCQwL49Y5SZ9W9X5NX2zQLvp34HkVeP?cluster=devnet)
-- Küçük-2 0.12 SOL ile aldı → 29.72M coin: [`649haDM2Pf6EEnAvecxo…`](https://explorer.solana.com/tx/649haDM2Pf6EEnAvecxoxLRchbfh1BUQuydZ2fzNcGEUjPofUppR4znx6m1RM5pNQzGwSGCJAmfb4FYK6X3NHApK?cluster=devnet)
-- Küçük-3 0.12 SOL ile aldı → 26.58M coin: [`4HnVf3jH4Raju6H4E4KP…`](https://explorer.solana.com/tx/4HnVf3jH4Raju6H4E4KPBNsd9oMntJgriBxZZFmGwEf51u9mARfyDkw2CkScosftGvq3Nh6zapbEd9JvtpYVwpag?cluster=devnet)
-- Küçük-4 0.12 SOL ile aldı → 23.92M coin: [`5nwJXCnuAwz3fhBVFdpR…`](https://explorer.solana.com/tx/5nwJXCnuAwz3fhBVFdpRrLQ4hUMiW5PqNhgJuDpgiYPPhUSgZpLhQJ754topeGA9TNdbMEwqtJpwRqdyiqmchSPL?cluster=devnet)
-- Küçük-5 0.12 SOL ile aldı → 21.64M coin: [`2PBvywhR2jRZD5TpxoAd…`](https://explorer.solana.com/tx/2PBvywhR2jRZD5TpxoAdjn92oLDWiKP4cqkmHniQCvhLifJvKEkzfRAcZGbxXvGeTJSkS7Q7REsy36v6dgP3tMRv?cluster=devnet)
-- Küçük-6 0.12 SOL ile aldı → 19.67M coin: [`P2WDDGiy1KU9zf4pQqbk…`](https://explorer.solana.com/tx/P2WDDGiy1KU9zf4pQqbkShDR5uYmhv5dcbmFrvEXmkC9JBgSqmAJsGEhpE1nNJYCcMsnTrV4fLa9vJF9i4KP1BT?cluster=devnet)
-- Küçük-7 0.12 SOL ile aldı → 17.95M coin: [`ufY2CDY15YrSZYarcnKx…`](https://explorer.solana.com/tx/ufY2CDY15YrSZYarcnKxsCm7Kne1Rzw9TPKBJHsnLY9aRd4UHBoVYDitBNJVYc7dmkWNUmRsxoAKvt83oJGtzcG?cluster=devnet)
-- Küçük-8 0.12 SOL ile aldı → 16.45M coin: [`ke4pkovNp5xj7SaBrVLy…`](https://explorer.solana.com/tx/ke4pkovNp5xj7SaBrVLy4EmtStJ8t5336G7QociKd5jaSHT9gr4BhnEWqvuPSVvKiLuv7YPbGrBxgb68kYgvHR7?cluster=devnet)
+- publish_manual_list: [`5iRGLw85pUzfAiSzoJog…`](https://explorer.solana.com/tx/5iRGLw85pUzfAiSzoJog5dXHhNN3XhQZUmfNr7DMkqe4GiqZVwivCkXryi6VGi8gbcDkMLQFF9TndfjdZXnPx6to?cluster=devnet)
+- claim_manual (Ekip-1): [`2PEazzVp2YUMq5Gnpk2B…`](https://explorer.solana.com/tx/2PEazzVp2YUMq5Gnpk2BQUGRasxFfWvvSrnFBn5saoL9WvfJat3t8CoWTNx3d7pBFkQtGq9R1Z2KpwFn251Ra8St?cluster=devnet)
 
-**Adım 5 — Tetikleyici başlangıç noktası**
+**Adım 5 — On iki cüzdan piyasadan aldı**
 
-- set_delay_window: [`28jsagLF4M9K2mCBjXUa…`](https://explorer.solana.com/tx/28jsagLF4M9K2mCBjXUa7YGYgHdzTMJqGeGjwMydvMYJ7TXL4UNYHdNx9hXSkTXXtY1PwwB2PZ55mTwe4UUCHVbU?cluster=devnet)
-- check_trigger: [`2fqjjiZ2U9Sq4MeYXo1C…`](https://explorer.solana.com/tx/2fqjjiZ2U9Sq4MeYXo1CXFKqnXJdKJtQvcDLUYJUfqK4GbHBWd4JzkqmGxSYSh7zxrd4iCqL7yjFhbbCtKuxxuAd?cluster=devnet)
+- Ayşe 0.15 SOL ile aldı → 74.54M coin: [`2GL83jaNg7i4LSBd7BVp…`](https://explorer.solana.com/tx/2GL83jaNg7i4LSBd7BVpjVmSZkko6Ev3vXoVh6hneZ1kwWJF39QWpomhCgK1mzaK1963o5xwM357WQy6FiYQ8oZa?cluster=devnet)
+- Burak 0.12 SOL ile aldı → 50.03M coin: [`ozHPY53SYsU2CdLEeu42…`](https://explorer.solana.com/tx/ozHPY53SYsU2CdLEeu42BemBhSKGgNG4WZphfebtQ1pPk7S5aLmdDPdenCP7pyYN9sa5Bx1Vp5GeajLf9ac9GuD?cluster=devnet)
+- Ceren 0.12 SOL ile aldı → 43.34M coin: [`MVK17JyLDvgT7qB3E4xt…`](https://explorer.solana.com/tx/MVK17JyLDvgT7qB3E4xtQsosGiZaL2a1viSS1oi6hBpvvC4n3JaY1atnpfuEXsZTPwg2NDznJ2AChUa4PxDY9ub?cluster=devnet)
+- Deniz 0.12 SOL ile aldı → 37.91M coin: [`5tLyAvccSdm8s65H7mVm…`](https://explorer.solana.com/tx/5tLyAvccSdm8s65H7mVmRbA3y8ajsMeGZKiXizbat374CRfx3pT7Qa71TRhbbwM7cWcPWAR5XN8DgtZqHfJhNpaC?cluster=devnet)
+- Küçük-1 0.12 SOL ile aldı → 33.44M coin: [`36YUDTpkZyt15Sjxvnc2…`](https://explorer.solana.com/tx/36YUDTpkZyt15Sjxvnc2Y74PxHHaFrNxDJCtPC6dHArVcVNUfHi9ncn3iCgKhpmDjafknWsDKSATfuj54DrrvmVB?cluster=devnet)
+- Küçük-2 0.12 SOL ile aldı → 29.72M coin: [`2RxQpKvGcPvHdHPWiQ2n…`](https://explorer.solana.com/tx/2RxQpKvGcPvHdHPWiQ2n6PmZypcoGvBwzseNedQhEWYcc3jQQvebWGYQcYHriffWHv4DF9Njwwp7mRpNHdLGmSpv?cluster=devnet)
+- Küçük-3 0.12 SOL ile aldı → 26.58M coin: [`3Md16PkV3VbgL1tiHYAe…`](https://explorer.solana.com/tx/3Md16PkV3VbgL1tiHYAeEuNshJdWodN9wEXnipFttYSkfjWUn838ZRUe4kBhxQiKPJumYZYhTyRAjESFPLhjGSHd?cluster=devnet)
+- Küçük-4 0.12 SOL ile aldı → 23.92M coin: [`53HAWfervr7aTwjWrVgJ…`](https://explorer.solana.com/tx/53HAWfervr7aTwjWrVgJQXh3z9CTHXDx6kzUa98kWD49SCosFZTEdJT5UXakBE77Zys7DJ11LWQu7EFpFz81MZph?cluster=devnet)
+- Küçük-5 0.12 SOL ile aldı → 21.64M coin: [`smit2gHiiMmQubm4JgZe…`](https://explorer.solana.com/tx/smit2gHiiMmQubm4JgZeQrcCHpkoo6BYoZcTLDQfuwy4jjExJhRwGDTYyLcSigc2NNsA6NgQ4CNNcsa3j1rAnjz?cluster=devnet)
+- Küçük-6 0.12 SOL ile aldı → 19.67M coin: [`3A1kUHG6pZp6rPnjPaQQ…`](https://explorer.solana.com/tx/3A1kUHG6pZp6rPnjPaQQLyX95tna6QAMVQBKvz94nWRPDypfzDNZxxbA2CMwUzQiV4eABT53pyqW5XNhbYPiRe9q?cluster=devnet)
+- Küçük-7 0.12 SOL ile aldı → 17.95M coin: [`PERGKkQEv8BjjAVJ1wV7…`](https://explorer.solana.com/tx/PERGKkQEv8BjjAVJ1wV7o6xKG4VajU8C1VGwN9gkKgJdpytCiKFqTD5MNPxVUuGidUF8FXeaj2iSnbGACpokbA2?cluster=devnet)
+- Küçük-8 0.12 SOL ile aldı → 16.45M coin: [`5kHcHmeLtQTovErdHWGo…`](https://explorer.solana.com/tx/5kHcHmeLtQTovErdHWGo5kp4M8owAdCuN1tAWT2vrxSE4oVnDR9uZLMCVuc7uJgf8SYrekbv39y5kg8F1RaUSsMz?cluster=devnet)
 
-**Adım 6 — Deniz hepsini sattı**
+**Adım 6 — Tetikleyici başlangıç noktası**
 
-- sell: [`5G1vj3CirAqdyA5bwt1q…`](https://explorer.solana.com/tx/5G1vj3CirAqdyA5bwt1qpHvJ3YaPN36abVJTPwDR4CC7hYYnYKy3XGZnk4psxT6CHdBTfnnWBBwr3UM4rVjYvupT?cluster=devnet)
+- set_delay_window: [`5nWsF6XMa3FjNSzcbPGF…`](https://explorer.solana.com/tx/5nWsF6XMa3FjNSzcbPGFCvFg67tRdTu6EyuhFjQ7cgqiDjyQYHyiiW9UUdXBUUTEXm6NHmPq91J8Kfjimj4eux7d?cluster=devnet)
+- check_trigger: [`5XYcQw6hkoAayoY98FQy…`](https://explorer.solana.com/tx/5XYcQw6hkoAayoY98FQyqjLqtg7brZcBnvrGX1bKumomBPkSX6rcEG8cMHc369BatMt9ZUcUbkjbB4cYov8VqeXn?cluster=devnet)
 
-**Adım 7 — Biriken ücret dağıtıldı: %90 havuza, %10 platforma**
+**Adım 7 — Deniz hepsini sattı**
 
-- collect_fees: [`3gWqke974MGXBrtUFVta…`](https://explorer.solana.com/tx/3gWqke974MGXBrtUFVtapnMAEXMUi1idgYfhjGrZ9MmGtocgGHcoFMGfz3m6SR7B25Cauh4igmuA351HoWyG9aqL?cluster=devnet)
+- sell: [`2sRdEfuhHqJ9gmSTnv1G…`](https://explorer.solana.com/tx/2sRdEfuhHqJ9gmSTnv1GsH8ps6oo3aehDbmGAApNsnACi8uSyNtyHTL3BCGExnapF7aB1TGYyMcqnbwtuEGU1gUW?cluster=devnet)
 
-**Adım 8 — Topluluk bağışı ve parça parça geri alım**
+**Adım 8 — Biriken ücret dağıtıldı: %90 havuza, %10 platforma**
 
-- 0.2 SOL eklendi: [`2VegPGidqqGrykw8zHek…`](https://explorer.solana.com/tx/2VegPGidqqGrykw8zHekVpZ6oDpLWp4gpsL7on2TjSPXsfTvfeK1iMcaoxSbcMDgjkJk29RjY2VriiLH2DroLekT?cluster=devnet)
-- parça 1: 0.0129 SOL harcandı → +2.04M coin, sonraya 0.1817 SOL: [`5sbeiaVyvs6DD6CzXDDB…`](https://explorer.solana.com/tx/5sbeiaVyvs6DD6CzXDDBFQNJLmKVnewnN4jjFjswb5r8mHVTAMFwbbcKrU6ikb6mq7eVp9hmRgXgycJtn6hT4mgh?cluster=devnet)
-- parça 2: 0.0130 SOL harcandı → +2.03M coin, sonraya 0.1674 SOL: [`z3bpzHiacSpJnYzMSNqK…`](https://explorer.solana.com/tx/z3bpzHiacSpJnYzMSNqK46LDM4ijqPBwPk2detG12Mq8NBcELFsWkgwnddrKHEyEoVj4NA5YYsZKhJjx3rqfyMQ?cluster=devnet)
-- parça 3: 0.0130 SOL harcandı → +2.02M coin, sonraya 0.1544 SOL: [`3pLyiqzSPeq2G5LTRLzF…`](https://explorer.solana.com/tx/3pLyiqzSPeq2G5LTRLzFE2tN2zTBT3UmzA4m2KdwE7jMiTS9btrJSQFS7vvR9RkNtSLveRvpfvyqWhSA5CUYmdCC?cluster=devnet)
-- parça 4: 0.0131 SOL harcandı → +2.01M coin, sonraya 0.1413 SOL: [`57wRXhiWZjoezAfjSNvH…`](https://explorer.solana.com/tx/57wRXhiWZjoezAfjSNvHcCQpFHBWBUNyDNTZHNSsbUfvuiZdC5gifZ7oDKHPgVegSbYVBKSEW5xAmb2bWc23NyNX?cluster=devnet)
-- parça 5: 0.0132 SOL harcandı → +2.00M coin, sonraya 0.1281 SOL: [`5FDhPZVVqc1PbYXrA9nS…`](https://explorer.solana.com/tx/5FDhPZVVqc1PbYXrA9nS3aNUcHb9wrcG5fpzJZRi7yJuCUwm3sFfdSMnF4EmWZZRjMmQXpx8Ry4PC8k8QUDPVSqX?cluster=devnet)
+- collect_fees: [`5MQKf61V2S6CHGLCsmzD…`](https://explorer.solana.com/tx/5MQKf61V2S6CHGLCsmzDA9u6ZJi1Ki5GS2RLsksThVE4fad3xnUmbb6asiGtpkDmqt3fDR6drNiM5G2U4EsZJ7oW?cluster=devnet)
 
-**Adım 9 — Hacim tetikleyiciyi kurdu**
+**Adım 9 — Topluluk bağışı ve parça parça geri alım**
 
-- check_trigger: [`MYAQVgZrj7SjzrYRMMSS…`](https://explorer.solana.com/tx/MYAQVgZrj7SjzrYRMMSSLvLo5GX8ExURaHaVZVEE1ToujTXW3tQFrbRzQJZfBQQXcwe9DJF2f1wkUTDAMq5N4jJ?cluster=devnet)
+- 0.2 SOL eklendi: [`2RVfz8Qdjao5wUxixryd…`](https://explorer.solana.com/tx/2RVfz8Qdjao5wUxixrydbqGaWf4BsmiBk8UT118yb2oCy6tZ7cN4ZyoYdqXmpXRxFj9wVSGqmsFFE6GGy5Zt9w9w?cluster=devnet)
+- parça 1: 0.0129 SOL harcandı → +2.04M coin, sonraya 0.1819 SOL: [`5DX3CWkRZ2oauq1nXssw…`](https://explorer.solana.com/tx/5DX3CWkRZ2oauq1nXsswWxJ7o9jpSQZdHMvpiJH4reeJo7zriWCf4Qq3d43z9CmcUJSoh2Vqv77LM7byrCjqQPym?cluster=devnet)
+- parça 2: 0.0130 SOL harcandı → +2.03M coin, sonraya 0.1676 SOL: [`3coGNqb7ZARPTTYQydPj…`](https://explorer.solana.com/tx/3coGNqb7ZARPTTYQydPjJfPsZrHrd2bjeyEeAqPMGrg4zHTYJ3oLxAR42T9FRokbbQbvPNF6jqPbUmU9vDM7Zs8C?cluster=devnet)
+- parça 3: 0.0130 SOL harcandı → +2.02M coin, sonraya 0.1545 SOL: [`BgRcoAEahb73a8dp1Vdj…`](https://explorer.solana.com/tx/BgRcoAEahb73a8dp1Vdj17xmkCZv3PAuLtr5E2kTJU4TFxT7c4sTdy4rmmi9UCm7T2vLWECPWAjkhJ9twCj3gMy?cluster=devnet)
+- parça 4: 0.0131 SOL harcandı → +2.01M coin, sonraya 0.1414 SOL: [`5kr9VcMPRVC72ptyZMbL…`](https://explorer.solana.com/tx/5kr9VcMPRVC72ptyZMbLk85eknK488aKw4NawDQVaa1XQHrQYardaA1iCkVwRYYSeXyibPvCsfD72DWeJbTVrHqz?cluster=devnet)
+- parça 5: 0.0132 SOL harcandı → +2.00M coin, sonraya 0.1283 SOL: [`4PskwP2cPeXo6hZjLaPe…`](https://explorer.solana.com/tx/4PskwP2cPeXo6hZjLaPexnDJJnn6yaJZNJCYXrZyzMrTj9ZGxzRk7xHjx9yjkaDFwSBw8KENmticmAVwpFy94BCq?cluster=devnet)
 
-**Adım 10 — Süre doldu, dağıtım serbest bırakıldı**
+**Adım 10 — Hacim tetikleyiciyi kurdu**
 
-- fire_trigger: [`48WxjHyJy6NK8ZPXefga…`](https://explorer.solana.com/tx/48WxjHyJy6NK8ZPXefgaU5Sqn4EY5j7t6QxwqhxvPutiK72q2Uu4rzfPcoTfMGJT66kUwhf3csqdZpa7VG7pbF2M?cluster=devnet)
+- check_trigger: [`3YQQbUeGBhVFCBZcRiDg…`](https://explorer.solana.com/tx/3YQQbUeGBhVFCBZcRiDg9hNQzef6PkeEvFJCNWUfX687F9okLsiCQEYbMo5HBcLGh1NHJB96Je6q8jqqgbhzwmyj?cluster=devnet)
 
-**Adım 12 — Paylaşım zincire mühürlendi**
+**Adım 11 — Süre doldu, dağıtım serbest bırakıldı**
 
-- open_round: [`33CQjSkb6hCVsqqb1fdQ…`](https://explorer.solana.com/tx/33CQjSkb6hCVsqqb1fdQ7S3UC2rpFu6mT3xZkdrA1Nc2TNootUtAcgLDN98daXhMeq7dW4E6C8kZge1NKwU3PW15?cluster=devnet)
+- fire_trigger: [`2KAE8DD7PpCQD4pjF3eY…`](https://explorer.solana.com/tx/2KAE8DD7PpCQD4pjF3eY9Xs1xoiVXRxtfni7pWmcmh4sncBY9373b84t1S2knXNq75QpmwAAbLAvoFTDco4vu3G7?cluster=devnet)
 
-**Adım 14 — Herkes kendi payını aldı**
+**Adım 13 — Paylaşım zincire mühürlendi**
 
-- Ayşe (Gh6e…Csde) +100.1K coin: [`2DBSH5r4BgvPYv3YuBxy…`](https://explorer.solana.com/tx/2DBSH5r4BgvPYv3YuBxyw7SmUccwE3Pc52E15gZ77oi1uMRXGEmSxVYzFPU8LmedpHXJL2gwAbHsDQxVruTxRCVs?cluster=devnet)
-- Küçük-1 (FYo5…YRnS) +100.1K coin: [`5FzcPTG3t7woNTXFtgF6…`](https://explorer.solana.com/tx/5FzcPTG3t7woNTXFtgF6X7LLGF21YQzEJ6mCvyFKVZtjodq2DLiAKpmm1SviDhpokxuqE5qjt8t8E9GHbfjmZ6bc?cluster=devnet)
-- Burak (EjdY…DYJS) +100.1K coin: [`4r2rU8dtoiaWpKkFgwmi…`](https://explorer.solana.com/tx/4r2rU8dtoiaWpKkFgwmiwiceAuP7VQqYxQ78cRbx1WZX122HvjNaSEv2CPna8BiCfb2qSkCQpfbszYCqAFSLeAvj?cluster=devnet)
-- Ceren (E9Fk…UcmH) +100.1K coin: [`2mFPRs1PEN55HUkALBBm…`](https://explorer.solana.com/tx/2mFPRs1PEN55HUkALBBmghXasrq5NhTL14Fzn11iNgcCMiFYZsDTaZCNsKv52pj2wW1HrA4JfANPU96KfRopS7ME?cluster=devnet)
-- Küçük-2 (E4PL…MCtH) +100.1K coin: [`ELSwcMQ6ZrQgScr1fyXu…`](https://explorer.solana.com/tx/ELSwcMQ6ZrQgScr1fyXu6D624jL5ktDFwxKFNdBvU7rhquAAcyWGG5nR8nAepGCfUMLDUcaks3QMfVkDPyt9a7S?cluster=devnet)
-- Küçük-3 (DACv…D7d6) +100.1K coin: [`2m53ysHFcM6m5aM6t8Xb…`](https://explorer.solana.com/tx/2m53ysHFcM6m5aM6t8XbJgNwRUGZXCoi5aGVa3BKcAsxX4gpcGkvDQ5xp3nwrrWF7XwiVgyteDxS5fYq6UMvc7S4?cluster=devnet)
-- Küçük-4 (BFEe…K6be) +100.1K coin: [`3H2dAnjpFuwCBwc5zZYZ…`](https://explorer.solana.com/tx/3H2dAnjpFuwCBwc5zZYZ1YxnXEKiGFiAcx69b4LTyNTtqh3JEw5Ky362uCsFXh2VhxvuwrY7yV2Fv1HGVzfft798?cluster=devnet)
-- Küçük-5 (BXKB…VBGY) +90.8K coin: [`odJWJLLH5EaPVUFaSHMn…`](https://explorer.solana.com/tx/odJWJLLH5EaPVUFaSHMnzo2fVjNgtkJ3tVdknNJ8cKzxrzEV6ycojtrYZDohGGnvoWBTKYRoSMVrU1Rj718p5Pz?cluster=devnet)
-- Küçük-6 (66NH…yma5) +79.5K coin: [`5WmptAzV6tUkUHyHUACb…`](https://explorer.solana.com/tx/5WmptAzV6tUkUHyHUACbADQPXNyuohTFZii43JFUiTWbyboacoa4aF4vczB1Wyb9q6r344L9NeQ7wNJ8Dtqgkn92?cluster=devnet)
-- Küçük-7 (5KYY…NHqG) +69.6K coin: [`zyY2VjCnhBCGTaZNyc3Q…`](https://explorer.solana.com/tx/zyY2VjCnhBCGTaZNyc3Q4w69S3nDt3y1H6DpsBHogFFKshrDzK6hw4uSNLvTsFyXrwHTvP6kw1b7HTpHSV1t2rK?cluster=devnet)
-- Küçük-8 (Bn5o…xFbf) +60.5K coin: [`2uNSDkTW4x4ddx87tRN9…`](https://explorer.solana.com/tx/2uNSDkTW4x4ddx87tRN95ibKQ5LLWrA4cwGqPaHW9b75Q8f6HcXKCxNZBBppi4gC6yvPjGZ7zDF78tZwi3mzqSJQ?cluster=devnet)
+- open_round: [`55s1RTiNdLrrdySs5puv…`](https://explorer.solana.com/tx/55s1RTiNdLrrdySs5puvDPMANUWJYjhYMxReMLxqTghFVJ7DmJDpsWZwvBMYcD1mFfcTKWxWfVznPxhHh9DMKwDo?cluster=devnet)
+
+**Adım 15 — Herkes kendi payını aldı**
+
+- Burak (CUSZ…9bSJ) +85.1K coin: [`5tutWcPeDSSuKyQwTdiL…`](https://explorer.solana.com/tx/5tutWcPeDSSuKyQwTdiLgf25acE6fpfZBVG9wTNtJRFws8MLHKGrmsb8bF9eCt6ViXtrfmawhS7Leqq52N53kd4v?cluster=devnet)
+- Küçük-3 (ApLA…amht) +85.1K coin: [`5CSLhY9Ya3uFdgfPCKvM…`](https://explorer.solana.com/tx/5CSLhY9Ya3uFdgfPCKvMrERJXw494jEVNUjuTBLVxxVpwEqaQn3PDdqoU5NvMw4D4sb6u5F96FQo9ocsdrkU167h?cluster=devnet)
+- Ceren (84b1…iE5s) +85.1K coin: [`2EJYWhKNz6DJshXqTkR4…`](https://explorer.solana.com/tx/2EJYWhKNz6DJshXqTkR46XPeQK5socoE4DKbDSEZ5k2T1L4UmWNqnA1dNpwkNXwKm3ep8kTP2SG1nMW2BkRFJLqr?cluster=devnet)
+- Küçük-1 (5qHy…KnQm) +85.1K coin: [`5Q2b7oUfbcCuNbk9x2kk…`](https://explorer.solana.com/tx/5Q2b7oUfbcCuNbk9x2kk9C2j7FsbX3pJpz9xLT3fDEh5Ggyb5TvJ6kuyaaTWXn9ybmn1r5ns6paVUPC49fW3djMz?cluster=devnet)
+- Küçük-2 (4wsG…Lp9i) +85.1K coin: [`2d9CM4PvN5PkpvMcKWhb…`](https://explorer.solana.com/tx/2d9CM4PvN5PkpvMcKWhbXKrsMmRofKntCaGQnFYmfh9GdHf6SrXWzZsJF1wbZnhNQVdfw5iC4Gh1Vu2o4xT9ktYU?cluster=devnet)
+- Ayşe (2Xag…qVFr) +85.1K coin: [`5sitmNVKK2hZLddV7WxP…`](https://explorer.solana.com/tx/5sitmNVKK2hZLddV7WxPETdkpYmPnwh7SUwuibYyLJNmFH2PZxnY1Kph6BpQy8wm4CBLbMjMcMHtt2xjCj9PfWtT?cluster=devnet)
+- Küçük-4 (9qFw…tGuv) +83.1K coin: [`2HYJ1FocVKc9Dm5RYMPU…`](https://explorer.solana.com/tx/2HYJ1FocVKc9Dm5RYMPUPdrHbbfpQcE4kio7iH14Hm6MF59ZckjVV1ExRJWynSF36x5DhkeRiZB5oXib24RsHtJd?cluster=devnet)
+- Küçük-5 (D9ia…USAK) +74.4K coin: [`5NGj4Xwm36cF9r7dTXZ5…`](https://explorer.solana.com/tx/5NGj4Xwm36cF9r7dTXZ5fv1avJJH5rJdomnjuXyVPXSHkPVExexuLurNaFeQZEyzk1ZPe5xThSrbU7C781BToTyb?cluster=devnet)
+- Küçük-6 (AqmB…DL8W) +67.1K coin: [`314v7qU8TRqY1biF4kPY…`](https://explorer.solana.com/tx/314v7qU8TRqY1biF4kPYTLgNvNC1GsvknnihHjByZhYBHbaonH76h48oACLMziVBtfxdj4bvaa2KMkck2DEbc3Vi?cluster=devnet)
+- Küçük-7 (GZmW…g5CX) +60.7K coin: [`DMjuJ1FnD3a8wtXHG9eQ…`](https://explorer.solana.com/tx/DMjuJ1FnD3a8wtXHG9eQpPXFoCUjFjAUxdzsBNyjkajochxUNKdkt9eAiVawtb2c1hTEDHa2gJDZ1P111RCvEAj?cluster=devnet)
+- Küçük-8 (FjYo…LQkx) +55.1K coin: [`5UYv1hMRpLqmsvWUt64b…`](https://explorer.solana.com/tx/5UYv1hMRpLqmsvWUt64bzCXt5y8usbgU5gAC4r6FkHQnrvY6KnxF6nAXqiREmH3H3XcCNnjBMAXo5pAfd532USuz?cluster=devnet)

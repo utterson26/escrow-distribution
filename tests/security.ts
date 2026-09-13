@@ -250,7 +250,11 @@ describe("security review regressions (localnet)", () => {
     const again = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released, floor);
     assert.equal(again.root, snap.root, "reproducible");
 
-    // beta: only listed publishers may commit a root — the dev is not one
+    // beta: only listed publishers may commit a root — the dev is not one.
+    // Off localnet the list is whatever an earlier run (or ops) left there,
+    // possibly the dev wallet itself; pin it to the platform alone first.
+    await program.methods.setPublishers([platform.publicKey, PublicKey.default, PublicKey.default, PublicKey.default])
+      .accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
     const round = roundPda(0);
     await expectError("dev opens a round",
       program.methods.openRound(0, [...Buffer.from(snap.root, "hex")], new BN(released.toString()), new BN(snap.total),
