@@ -15,7 +15,7 @@ reads happen in server components and API routes.
 - `/` — every coin the program has launched: locked airdrop share, dev share,
   pool remaining, market cap, last distribution, progress toward the next trigger.
 - `/coin/<mint>` — the same in detail, plus distribution rounds, your own
-  claimable prizes (connect a wallet), the manual airdrop list when the coin has
+  claimable shares (connect a wallet), the manual airdrop list when the coin has
   one, and a note on why the dev wallet is excluded from the airdrop.
 - `/feed` — recent airdrops, decoded from the program's own event logs.
 
