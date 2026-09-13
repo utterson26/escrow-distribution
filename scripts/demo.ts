@@ -26,6 +26,7 @@ import {
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { createHash } from "crypto";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
   feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
@@ -67,6 +68,34 @@ function decodeBuybackDone(logs: string[]) {
   o += 16; // quoted, floor
   const left = b.readBigUInt64LE(o);
   return { spent, bought, left };
+}
+
+const u16le = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+const sha = (...p: Buffer[]) => createHash("sha256").update(Buffer.concat(p)).digest();
+/** manual-list leaf/node hashing, byte-identical to the program's */
+const manualLeaf = (index: number, wallet: PublicKey, bps: number) =>
+  sha(Buffer.from("manual"), u16le(index), wallet.toBuffer(), u16le(bps));
+function manualTree(leaves: Buffer[]) {
+  let level = leaves; const layers = [level];
+  while (level.length > 1) {
+    const next: Buffer[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      if (i + 1 === level.length) { next.push(level[i]); continue; }
+      const [a, b] = [level[i], level[i + 1]];
+      next.push(Buffer.compare(a, b) <= 0 ? sha(Buffer.from("node"), a, b) : sha(Buffer.from("node"), b, a));
+    }
+    level = next; layers.push(level);
+  }
+  return { root: level[0], layers };
+}
+function manualProof(layers: Buffer[][], index: number) {
+  const proof: Buffer[] = []; let idx = index;
+  for (let l = 0; l < layers.length - 1; l++) {
+    const sib = idx % 2 === 0 ? idx + 1 : idx - 1;
+    if (sib < layers[l].length) proof.push(layers[l][sib]);
+    idx = Math.floor(idx / 2);
+  }
+  return proof;
 }
 
 interface Step {
@@ -125,7 +154,16 @@ async function main() {
   // 4 isimli + 8 küçük cüzdan: 11 holder kalır, tavan (%10) ve oransal paylaşım aynı turda görünsün
   const NAMES = ["Ayşe", "Burak", "Ceren", "Deniz", ...Array.from({ length: 8 }, (_, i) => `Küçük-${i + 1}`)];
   const wallets = NAMES.map(() => Keypair.generate());
-  const nameOf = (k: string) => { const i = wallets.findIndex((w) => w.publicKey.toBase58() === k); return i < 0 ? short(k) : `${NAMES[i]} (${short(k)})`; };
+  // the manual-list wallets are declared just before launch; they hold coin too,
+  // so they show up in snapshots like anyone else
+  const extraSigners: { name: string; kp: Keypair }[] = [];
+  const nameOf = (k: string) => {
+    const i = wallets.findIndex((w) => w.publicKey.toBase58() === k);
+    if (i >= 0) return `${NAMES[i]} (${short(k)})`;
+    const t = extraSigners.find((x) => x.kp.publicKey.toBase58() === k);
+    return t ? `${t.name} (${short(k)})` : short(k);
+  };
+  const signerOf = (k: string) => wallets.find((w) => w.publicKey.toBase58() === k) ?? extraSigners.find((x) => x.kp.publicKey.toBase58() === k)?.kp;
   const SELLER = 3; // Deniz alır, sonra hepsini satar
 
   const coinBal = async (owner: PublicKey) => {
@@ -214,22 +252,30 @@ async function main() {
   // localnet 550M: 12 alım (~1,5 SOL) curve'ü tamamlamasın (gerçek rezerv 243M kalır, alımlar ~218M alır);
   // devnet 300M: gerçek SOL harcanıyor, launch alımı 0,39 SOL'e iner (baseline alımlardan sonra alındığı için yeterli)
   const AMOUNT = (DEVNET ? 300_000_000n : 550_000_000n) * DEC;
-  // ---- 1. launch ----
-  step("Coin basıldı ve %30'u kilitlendi",
-    `Tek işlemde: pump.fun'da coin yaratıldı, dev ${Number(AMOUNT / DEC) / 1e6}M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti`);
+  // ---- 1. launch: kilitli pay iki kalem — %25 holder havuzu + %5 sabit liste ----
+  const TEAM = ["Ekip-1", "Ekip-2"].map((n) => ({ name: n, kp: Keypair.generate() }));
+  const TEAM_BPS = [6000, 4000]; // listenin %60'ı / %40'ı
+  const HOLDER_BPS = 2500, MANUAL_BPS = 500;
+  extraSigners.push(...TEAM);
+  const teamLeaves = TEAM.map((t, i) => manualLeaf(i, t.kp.publicKey, TEAM_BPS[i]));
+  const teamTree = manualTree(teamLeaves);
+  step("Coin basıldı, %30'u kilitlendi: %25 holder havuzu + %5 sabit liste",
+    `Tek işlemde: pump.fun'da coin yaratıldı, dev ${Number(AMOUNT / DEC) / 1e6}M coin aldı; alımın %25'i holder havuzuna (escrow), %5'i launch'ta sabitlenen cüzdan+yüzde listesine (Ekip-1 %60, Ekip-2 %40) kilitlendi. Kilit toplam arzın en az %1'i olmak zorunda (platform sabiti), yoksa launch reddedilir`);
   {
     const ix = await program.methods
-      .launch("Demo Coin", "DEMO", "https://example.com/demo.json", 3000,
-              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, false)
+      .launch("Demo Coin", "DEMO", "https://example.com/demo.json",
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...teamTree.root], MANUAL_BPS, HOLDER_BPS, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
-    before({ "escrow coin": "0 coin", "dev coin": "0 coin" });
+    before({ "holder havuzu": "0 coin", "sabit liste": "0 coin", "dev coin": "0 coin" });
     sig("launch", await sendV0([ix], [mintKp]));
     const st = await escrowState();
-    after({ "escrow coin": tok(st.escrowed.toString()), "dev coin": tok(await coinBal(dev.publicKey)) });
+    after({ "holder havuzu": tok(st.escrowed.toString()), "sabit liste": tok(st.manualTotal.toString()), "dev coin": tok(await coinBal(dev.publicKey)) });
+    const supplyMin = 1_000_000_000n * DEC / 100n;
+    note(`kilit ${tok(BigInt(st.escrowed.toString()) + BigInt(st.manualTotal.toString()))} ≥ arzın %1'i (${tok(supplyMin)}) ✓; liste kökü ${teamTree.root.toString("hex").slice(0, 16)}… zincirde`);
     note(`coin: ${mint.toBase58()}`);
     note(`escrow: ${escrow.toBase58()}`);
   }
@@ -244,6 +290,30 @@ async function main() {
       .rpc(provider.opts));
     const st = await escrowState();
     note(`coin tipi: ${st.isHolderReward ? "holder-rewards" : "regular"} — platform payı %${st.platformFeeBps / 100}, pump'taki paylaşım kaydı ${short(sharingConfig)}`);
+  }
+
+  // ---- 2b. sabit liste: zincire yayın + bir claim ----
+  step("Sabit liste zincirde, Ekip-1 payını aldı",
+    "Launch'ta kökü yazılan liste satır satır zincire yayınlandı (herkes kökü yeniden hesaplayıp doğrulayabilir); Ekip-1 kendi cüzdanıyla ispat verip listedeki %60'ını çekti. Liste launch'tan sonra değiştirilemez, kimse kendini ekleyemez");
+  {
+    const entries = TEAM.map((t, i) => ({ index: i, wallet: t.kp.publicKey, bps: TEAM_BPS[i] }));
+    sig("publish_manual_list", await rpc(program.methods.publishManualList(entries).accountsPartial({ dev: dev.publicKey, escrow })));
+    const t0w = TEAM[0];
+    await send([
+      SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: t0w.kp.publicKey, lamports: 0.01 * LAMPORTS_PER_SOL }),
+      createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, coinAta(t0w.kp.publicKey), t0w.kp.publicKey, mint, TOKEN_2022),
+    ]);
+    const st0 = await escrowState();
+    before({ "sabit liste": tok(st0.manualTotal.toString()), "Ekip-1 coin": tok(await coinBal(t0w.kp.publicKey)) });
+    sig("claim_manual (Ekip-1)", await rpc(program.methods
+      .claimManual(0, TEAM_BPS[0], manualProof(teamTree.layers, 0).map((b) => [...b]))
+      .accountsPartial({
+        wallet: t0w.kp.publicKey, escrow, manualAuthority: manualPda, mint,
+        manualTokenAccount: manualAta, walletTokenAccount: coinAta(t0w.kp.publicKey), baseTokenProgram: TOKEN_2022,
+      }).signers([t0w.kp])));
+    const st1 = await escrowState();
+    after({ "sabit liste": tok(BigInt(st1.manualTotal.toString()) * BigInt(10000 - st1.manualClaimedBps) / 10000n), "Ekip-1 coin": tok(await coinBal(t0w.kp.publicKey)) });
+    note(`listenin %${st1.manualClaimedBps / 100}'ı çekildi; Ekip-2'nin %40'ı bekliyor. Holder havuzu (${tok(st1.escrowed.toString())}) bu listeden bağımsız`);
   }
 
   // ---- 3. dört cüzdan alır ----
@@ -514,7 +584,7 @@ async function main() {
     const leaveLast = process.env.DEMO_LEAVE_LAST === "1";
     const order = [...snap.leaves].sort((x: any, y: any) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1));
     for (const [i, leaf] of order.entries()) {
-      const w = wallets.find((x) => x.publicKey.toBase58() === leaf.holder)!;
+      const w = signerOf(leaf.holder)!;
       if (leaveLast && i === order.length - 1) {
         note(`${nameOf(leaf.holder)} payı ${tok(leaf.amount)}, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)`);
         continue;
@@ -525,7 +595,7 @@ async function main() {
       sig(`${nameOf(leaf.holder)} +${tok(leaf.amount)}`, s);
     }
     // ikinci claim
-    const first = order[0]; const w0 = wallets.find((x) => x.publicKey.toBase58() === first.holder)!;
+    const first = order[0]; const w0 = signerOf(first.holder)!;
     try {
       await rpc(program.methods
         .claimShare(first.index, new BN(first.balance), new BN(first.amount), proofFor(layers, first.index).map((x) => [...x]))
@@ -542,7 +612,8 @@ async function main() {
     note(`${rr.claimedCount}/${rr.holderCount} holder aldı, ${tok(rr.claimedAmount.toString())} / ${tok(rr.total.toString())}`);
     // cüzdanlar (gizli anahtarlarıyla) — Phantom'a aktarıp web'den claim denemek için; gitignore'da
     fs.writeFileSync(path.join(__dirname, "../demo-wallets.json"), JSON.stringify(
-      Object.fromEntries(wallets.map((w, i) => [NAMES[i], { pubkey: w.publicKey.toBase58(), secretKey: [...w.secretKey] }])), null, 2));
+      Object.fromEntries([...wallets.map((w, i) => [NAMES[i], w] as const), ...extraSigners.map((t) => [t.name, t.kp] as const)]
+        .map(([n, w]) => [n, { pubkey: w.publicKey.toBase58(), secretKey: [...w.secretKey] }])), null, 2));
   }
 
   // ---- devnet: throwaway wallets give their leftover SOL back (real SOL) ----
@@ -580,11 +651,12 @@ async function main() {
     (DEVNET
       ? `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde **Solana devnet'te, gerçek pump.fun devnet programıyla** tek koşuda üretildi: \`npm run demo -- --devnet\`. Her adımın işlem imzası en alttaki ekte, explorer linkleriyle; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`
       : `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde yerel test ağında (localnet, pump.fun programı devnet'ten kopyalanmış) tek koşuda üretildi: \`npm run demo\`. Her adımın zincir üstü işlem imzası en alttaki ekte; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`), "",
-    `**Fikir tek cümlede:** coin basılırken bir kısmı kilitli havuza gider; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.`, "",
+    `**Fikir tek cümlede:** coin basılırken bir kısmı kilitlenir — bir dilimi launch'ta sabitlenen cüzdan listesine, kalanı holder havuzuna; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.`, "",
     `## Aktörler`, "",
     `| Kim | Cüzdan | Rol |`, `|---|---|---|`,
     `| Dev | \`${dev.publicKey.toBase58()}\` | coin'i basan; hazine sayılır, dağıtıma girmez |`,
     ...wallets.map((w, i) => `| ${NAMES[i]} | \`${w.publicKey.toBase58()}\` | ${i === SELLER ? "alır, sonra hepsini satar" : i === 0 ? "büyük alır ve tutar (tavana takılır)" : "alır ve tutar"} |`),
+    ...TEAM.map((t, i) => `| ${t.name} | \`${t.kp.publicKey.toBase58()}\` | sabit listede %${TEAM_BPS[i] / 100} |`),
     `| Escrow | \`${escrow.toBase58()}\` | kilitli havuz (program hesabı, insan anahtarı yok) |`, "",
     `Coin: \`${mint.toBase58()}\` (DEMO)` + (DEVNET ? ` — [explorer](https://explorer.solana.com/address/${mint.toBase58()}?cluster=devnet) · [pump.fun](https://pump.fun/coin/${mint.toBase58()})` : ""), "",
     `## Adımlar`, "");

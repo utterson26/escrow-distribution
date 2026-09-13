@@ -49,6 +49,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 | 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 26 | min kilit %1 arz + kilitli pay = manual_bps + holder_bps (alımın yüzdesi) | ✅ 20/20, 6/6, 7/7, demo 2/2 |
 | 25 | devnet deploy (slot 497793986) + gerçek pump.fun ile devnet demo 14/14; devnet test koşusu yarım (SOL) | ⚠️ bakiye 0,50 SOL |
 | 24 | gorev.md: tavan artığı havuza, ≤10 holder tavansız, $20 eşik, pump ücret paylaşımı %90/%10 + 7 günlük oran değişimi, holder-rewards modu, terminoloji temizliği | ✅ 20/20, 6/6, 7/7, demo 3/3 |
 
@@ -1044,6 +1045,36 @@ Devnet'te test paketi **yeşil değil** (security 1/6, manual 5/7, ana suite
 koşulmadı); düzeltmeler localnet'te doğrulandı (6/6, 7/7, demo temiz). Devnet
 tekrarı için tahmini ihtiyaç: security ~0,8, manual ~0,2, ana suite ~2,7 SOL
 → **~4 SOL** üstüne 1 SOL marj.
+
+## Adım 26 — minimum kilit + kilitli payın iki kalemi (13 Eylül) ✅
+
+- **Minimum kilit:** `MIN_LOCK_SUPPLY_BPS = 100` (platform sabiti). `launch`,
+  pump'ın yeni yazdığı bonding curve'den `token_total_supply`'ı okuyup
+  `holder + manual kilit ≥ arzın %1'i` ister; altında `LockTooSmall`.
+- **İki kalem:** `launch(name, symbol, uri, amount, max_sol, manual_root,
+  manual_bps, holder_bps, is_holder_reward)`. Her iki bps de **alımın**
+  yüzdesi; `holder_bps` → escrow havuzu (`escrow_bps` alanında saklanıyor),
+  `manual_bps` → sabit liste hesabı (`manual_total`). İkisi de sıfır olamaz,
+  toplam ≤ %100 (`BadLockSplit`); `manual_bps > 0` ⇔ kök ≠ 0
+  (`ManualRootMismatch`). Holder-only = `manual_bps 0`, manual-only =
+  `holder_bps 0`. Eski davranışta manual pay **dev'in kalanının** yüzdesiydi;
+  artık alımın yüzdesi (web eski coin'lerde generation<5 ise eski hesabı
+  gösteriyor). `Launched` event'ine `manual` alanı eklendi.
+- **Indexer hatası bulundu ve düzeltildi:** manual liste PDA'sının token
+  hesabı snapshot'ta holder sayılıyordu (demo'da "Fn3s…" satırı). `protocolOwners`
+  artık `["manual", mint]` PDA'sını da dışlıyor.
+- **Testler:** manual_airdrop 7/7 (launch öncesi simülasyonla: sıfır bölünme,
+  köksüz liste / listesiz kök, %1 altı kilit reddi; liste %35 = 7M token),
+  ana 20/20, security 6/6, allocate 6/6. Ana testin 1c/2'si ve F6 ledger'daki
+  Config oranına göre çalışıyor (aynı ledger'da art arda koşulabilsin).
+- **Web:** liste ve coin sayfasında "Locked X% (holders Y% + list Z%)", min %1
+  notu; "Fixed wallet list" bölümü.
+- **Demo:** launch %25 holder + %5 sabit liste (Ekip-1 %60, Ekip-2 %40); yeni
+  adım 4: liste zincire yayınlandı, Ekip-1 payını `claim_manual` ile aldı,
+  Ekip-2'ninki bekliyor. Ekip-1 coin tuttuğu için sonraki turda holder olarak
+  da pay aldı. 2/2 temiz (83/115 sn).
+- Devnet'e **deploy edilmedi** (bakiye 0,50 SOL); program devnet'te bir sürüm
+  geride (adım 25).
 
 ## Senden karar bekleyenler (yeni)
 

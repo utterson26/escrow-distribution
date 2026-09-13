@@ -3,6 +3,7 @@ import bs58 from "bs58";
 import {
   conn, PROGRAM_ID, anchorDisc, decodeEscrow, decodeRound, decodeCurve,
   bondingCurve, ata, marketCap, short, Escrow, Round, Curve, Config, decodeConfig, MAX_SHARE_BPS, CAP_MIN_HOLDERS,
+  MIN_LOCK_SUPPLY_BPS,
 } from "./chain";
 
 /** The program config (platform authority, platform fee); null before `set_platform`. */
@@ -40,8 +41,12 @@ export interface CoinRow {
   curve: Curve | null;
   marketCapLamports: string;
   poolRemaining: string;      // escrowed - allocated
-  escrowPct: number;          // locked airdrop share of the launch buy
+  escrowPct: number;          // holder-pool slice of the launch buy
+  manualPct: number;          // fixed-list slice of the launch buy (generation ≥ 5: of the buy; older coins: of the dev share)
+  lockedPct: number;          // the two together
   devPct: number;             // what stayed with the dev
+  /** platform constant: the lock must be at least this share of total supply */
+  minLockSupplyPct: number;
   lastDistribution: { index: number; total: string; holders: number; claimed: number; claimedAmount: string } | null;
   /** per-wallet cap on one round, percent; applies from `capMinHolders` eligible holders on */
   capPct: number;
@@ -116,6 +121,13 @@ function nextTrigger(e: Escrow, curve: Curve | null, slot: number): NextTrigger 
   };
 }
 
+/** The manual slice as a percent of the launch buy. Before generation 5 it was a percent of the dev's remainder. */
+export function manualPctOf(e: Escrow): number {
+  const bps = e.manualBps ?? 0;
+  if (!bps) return 0;
+  return e.generation >= 5 ? bps / 100 : ((100 - e.escrowBps / 100) * bps) / 10000;
+}
+
 export async function buildRows(): Promise<CoinRow[]> {
   const c = conn();
   const [escrows, rounds, slot] = await Promise.all([
@@ -142,7 +154,10 @@ export async function buildRows(): Promise<CoinRow[]> {
       marketCapLamports: curve ? marketCap(curve).toString() : "0",
       poolRemaining: (e.escrowed - e.allocated).toString(),
       escrowPct: e.escrowBps / 100,
-      devPct: 100 - e.escrowBps / 100,
+      manualPct: manualPctOf(e),
+      lockedPct: e.escrowBps / 100 + manualPctOf(e),
+      devPct: 100 - e.escrowBps / 100 - manualPctOf(e),
+      minLockSupplyPct: MIN_LOCK_SUPPLY_BPS / 100,
       lastDistribution: last
         ? { index: last.index, total: last.total.toString(), holders: last.holderCount,
             claimed: last.claimedCount, claimedAmount: last.claimedAmount.toString() }

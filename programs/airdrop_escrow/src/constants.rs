@@ -53,6 +53,10 @@ pub const DEFAULT_MAX_DELAY_SLOTS: u64 = 9_000;
 /// tests: a narrow window makes the distribution moment predictable again.
 pub const MIN_MAX_DELAY_SLOTS: u64 = 5;
 
+/// Smallest lock a launch may commit to, as a share of the coin's total
+/// supply: manual + holder slices together must reach it. Platform constant.
+pub const MIN_LOCK_SUPPLY_BPS: u64 = 100; // 1% of supply
+
 /// Manual airdrop list size. The list itself never goes on chain — only its
 /// root — but the index is bounded so the claim bitmap stays fixed.
 pub const MAX_MANUAL_ENTRIES: u16 = 50;

@@ -4,6 +4,12 @@ use anchor_lang::prelude::*;
 pub enum EscrowError {
     #[msg("escrow_bps must be <= 10000")]
     InvalidBps,
+    #[msg("manual_bps + holder_bps must be > 0 and <= 10000")]
+    BadLockSplit,
+    #[msg("locked tokens are below MIN_LOCK_SUPPLY_BPS of the total supply")]
+    LockTooSmall,
+    #[msg("manual_bps > 0 needs a manual root, and a root needs manual_bps > 0")]
+    ManualRootMismatch,
     #[msg("buy amount must be greater than zero")]
     ZeroAmount,
     #[msg("buyback already spent in this slot; try again next slot")]

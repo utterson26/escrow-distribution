@@ -92,24 +92,35 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
-    /// Atomically create a pump coin whose `creator` is this program's escrow PDA,
-    /// buy `amount` base tokens with the dev's SOL, and split the proceeds:
-    /// `escrow_bps` to the escrow token account, the remainder stays with the dev.
+    /// Atomically create a pump coin whose `creator` is this program's fee PDA,
+    /// buy `amount` base tokens with the dev's SOL, and lock part of the buy:
+    /// `holder_bps` into the escrow token account (the pool the triggers
+    /// distribute) and `manual_bps` into the manual-list account (fixed
+    /// wallets + percentages, claimed by proof). The two slices are the locked
+    /// share — at least one must be set, together at most 100%, and together
+    /// at least MIN_LOCK_SUPPLY_BPS of the coin's total supply. A holder-only
+    /// coin is `manual_bps = 0`, a manual-only coin `holder_bps = 0`. The
+    /// remainder stays with the dev.
     pub fn launch(
         ctx: Context<Launch>,
         name: String,
         symbol: String,
         uri: String,
-        escrow_bps: u16,
         amount: u64,
         max_sol_cost: u64,
         manual_root: [u8; 32],
         manual_bps: u16,
+        holder_bps: u16,
         is_holder_reward: bool,
     ) -> Result<()> {
-        require!(manual_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
-        require!(escrow_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
+        let locked_bps = manual_bps as u64 + holder_bps as u64;
+        require!(locked_bps > 0 && locked_bps <= BPS_DENOM, EscrowError::BadLockSplit);
+        require!(
+            (manual_bps > 0) == (manual_root != [0u8; 32]),
+            EscrowError::ManualRootMismatch
+        );
         require!(amount > 0, EscrowError::ZeroAmount);
+        let escrow_bps = holder_bps;
 
         let mint_key = ctx.accounts.mint.key();
         let escrow_key = ctx.accounts.escrow.key();
@@ -144,7 +155,7 @@ pub mod airdrop_escrow {
         // ---- 3. buy_v2: dev pays, dev receives -------------------------------
         cpi_buy_v2(&ctx.accounts, amount, max_sol_cost)?;
 
-        // ---- 4. split: escrow_bps of the buy goes to the escrow ATA -----------
+        // ---- 4. split: holder_bps of the buy goes to the escrow ATA -----------
         let escrow_cut = (amount as u128)
             .checked_mul(escrow_bps as u128)
             .ok_or(EscrowError::Overflow)?
@@ -168,10 +179,9 @@ pub mod airdrop_escrow {
             )?;
         }
 
-        // ---- 5. set aside the dev's manual airdrop list share -----------------
-        let dev_share = amount.saturating_sub(escrow_cut);
-        let manual_total = if manual_bps > 0 && manual_root != [0u8; 32] {
-            let t = (dev_share as u128)
+        // ---- 5. manual_bps of the buy goes to the manual-list account ----------
+        let manual_total = if manual_bps > 0 {
+            let t = (amount as u128)
                 .checked_mul(manual_bps as u128)
                 .ok_or(EscrowError::Overflow)?
                 / BPS_DENOM as u128;
@@ -205,6 +215,21 @@ pub mod airdrop_escrow {
         } else {
             0
         };
+
+        // ---- 6. the lock must be at least MIN_LOCK_SUPPLY_BPS of total supply --
+        // (read off the bonding curve pump just wrote: token_total_supply sits
+        // after the discriminator and four u64 reserves)
+        let supply = {
+            let data = ctx.accounts.bonding_curve.try_borrow_data()?;
+            require!(data.len() >= 48, EscrowError::EmptyCurve);
+            u64::from_le_bytes(data[40..48].try_into().unwrap())
+        };
+        let min_lock = (supply as u128)
+            .checked_mul(MIN_LOCK_SUPPLY_BPS as u128)
+            .ok_or(EscrowError::Overflow)?
+            / BPS_DENOM as u128;
+        let locked = (escrow_cut as u128).saturating_add(manual_total as u128);
+        require!(locked >= min_lock, EscrowError::LockTooSmall);
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.dev = ctx.accounts.dev.key();
@@ -257,6 +282,7 @@ pub mod airdrop_escrow {
             dev: escrow.dev,
             bought: amount,
             escrowed: escrow_cut,
+            manual: manual_total,
         });
         Ok(())
     }
@@ -1466,6 +1492,8 @@ pub struct Launched {
     pub dev: Pubkey,
     pub bought: u64,
     pub escrowed: u64,
+    /// tokens locked for the manual list (0 on a holder-only coin)
+    pub manual: u64,
 }
 #[event]
 pub struct FeeSharingSet {

@@ -79,7 +79,8 @@ describe("manual airdrop (localnet)", () => {
 
   // deliberately NOT the dev: intervention is a separate authority
   const platform = Keypair.generate();
-  const MANUAL_BPS = 5000;               // half the dev's own allocation
+  // the locked share is manual + holder slices of the buy: 35% fixed list, 30% pool
+  const MANUAL_BPS = 3500;
   const AMOUNT = new BN(20_000_000).mul(new BN(10 ** 6));
   const ESCROW_BPS = 3000;
   let lut: PublicKey;
@@ -133,10 +134,42 @@ describe("manual airdrop (localnet)", () => {
     }
     await sleep(1000);
 
+    const launchAccounts = {
+      dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
+      manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
+      ...pa, systemProgram: SystemProgram.programId,
+    };
+    const lutAcc0 = (await conn.getAddressLookupTable(lut)).value!;
+    const tryLaunch = async (manualBps: number, holderBps: number, rootArg: number[], amount: BN) => {
+      const bad = await program.methods
+        .launch("Manual Test", "MAN", "https://example.com/man.json", amount, new BN(0.4 * LAMPORTS_PER_SOL),
+                rootArg, manualBps, holderBps, false)
+        .accountsPartial(launchAccounts).instruction();
+      const bh0 = await conn.getLatestBlockhash("confirmed");
+      const m = new TransactionMessage({
+        payerKey: dev.publicKey, recentBlockhash: bh0.blockhash,
+        instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), bad],
+      }).compileToV0Message([lutAcc0]);
+      const t = new VersionedTransaction(m);
+      // simulate only: a rejected launch must not cost a mint keypair
+      t.sign([dev, mintKp]);
+      const sim = await conn.simulateTransaction(t, { commitment: "confirmed" });
+      return (sim.value.logs ?? []).join("\n") + JSON.stringify(sim.value.err ?? "");
+    };
+    // the lock rules, checked before the real launch on the same mint:
+    //  - both slices zero → nothing locked
+    //  - manual slice without a root (and vice versa)
+    //  - a lock under 1% of supply: 20M × 0.4% = 80K tokens, far below 10M
+    assert.match(await tryLaunch(0, 0, [...Buffer.alloc(32)], AMOUNT), /BadLockSplit/, "zero split refused");
+    assert.match(await tryLaunch(0, 3000, [...root], AMOUNT), /ManualRootMismatch/, "root without a manual slice refused");
+    assert.match(await tryLaunch(3500, 0, [...Buffer.alloc(32)], AMOUNT), /ManualRootMismatch/, "manual slice without a root refused");
+    assert.match(await tryLaunch(0, 40, [...Buffer.alloc(32)], AMOUNT), /LockTooSmall/, "lock under 1% of supply refused");
+    console.log("  kilit kurallari: sifir bolunme, koksuz liste, %1 alti kilit reddedildi (simulasyon)");
+
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
-              ESCROW_BPS, AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
-              [...root], MANUAL_BPS, false)
+              AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
+              [...root], MANUAL_BPS, ESCROW_BPS, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
@@ -160,11 +193,11 @@ describe("manual airdrop (localnet)", () => {
 
     const st: any = await program.account.escrow.fetch(escrow);
     assert.equal(st.platform.toBase58(), platform.publicKey.toBase58(), "platform authority copied from config");
-    const devShare = AMOUNT.sub(AMOUNT.muln(ESCROW_BPS).divn(10000));
-    const expected = devShare.muln(MANUAL_BPS).divn(10000);
+    const expected = AMOUNT.muln(MANUAL_BPS).divn(10000); // 35% of the buy: 7M tokens
     assert.equal(Buffer.from(st.manualRoot).toString("hex"), root.toString("hex"),
       "root stored exactly as committed");
-    assert.equal(st.manualTotal.toString(), expected.toString(), "dev share set aside");
+    assert.equal(st.manualTotal.toString(), expected.toString(), "manual slice set aside");
+    assert.equal(st.escrowBps, ESCROW_BPS, "holder slice recorded");
     assert.equal(st.manualBps, MANUAL_BPS);
     assert.equal(st.manualClaimedBps, 0);
 

@@ -87,8 +87,9 @@ describe("airdrop_escrow (devnet)", () => {
   const buyer = buyerPda(mint, program.programId);
   const buyerTa = baseAtaOf(buyer, mint);
   const pb = pumpAccounts(mint, buyer, sharingConfig); // pump accounts keyed on the buyer
-  // where the platform's 10% of the creator fee goes
+  // where the platform's cut of the creator fee goes; the rate comes from the config
   const feeWallet = Keypair.generate();
+  let platformBps = 1000;
   const baseAta = (owner: PublicKey) =>
     getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022);
   const quoteAta = (owner: PublicKey) =>
@@ -166,8 +167,8 @@ describe("airdrop_escrow (devnet)", () => {
     const escrowBps = 3000; // 30% to escrow
 
     const ix = await program.methods
-      .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost,
-              [...Buffer.alloc(32)], 0, false)  // manuel liste kapali, holder-rewards kapali
+      .launch("Airdrop Test", "ADT", "https://example.com/adt.json", amount, maxSolCost,
+              [...Buffer.alloc(32)], 0, escrowBps, false)  // manual 0 / holder 30%: holder-only coin, holder-rewards off
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda(mint, program.programId),
@@ -220,7 +221,11 @@ describe("airdrop_escrow (devnet)", () => {
     sigs.setupFeeSharing = sig;
     const st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.feeSharingSet);
-    assert.equal(st.platformFeeBps, 1000, "10% recorded on the escrow");
+    // the config outlives test runs on a reused ledger (F6 may have moved the
+    // rate), so the coin must carry whatever the config said at setup time
+    const cfg: any = await program.account.config.fetch(configPda(program.programId));
+    assert.equal(st.platformFeeBps, cfg.platformFeeBps, "config rate recorded on the escrow");
+    platformBps = cfg.platformFeeBps;
     const raw = (await conn.getAccountInfo(pa.bondingCurve, "confirmed"))!.data;
     assert.equal(new PublicKey(raw.subarray(49, 81)).toBase58(), sharingConfig.toBase58(),
       "pump now routes the creator fee through the sharing config");
@@ -274,7 +279,7 @@ describe("airdrop_escrow (devnet)", () => {
     const sig = await withRetry("collect_fees", () => program.methods
       .collectFees()
       .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, dev.publicKey))
-      .remainingAccounts(shareholderMetas(feeAuthority, feeWallet.publicKey, 1000))
+      .remainingAccounts(shareholderMetas(feeAuthority, feeWallet.publicKey, platformBps))
       .rpc(provider.opts));
     sigs.collectFees = sig;
 
@@ -284,12 +289,12 @@ describe("airdrop_escrow (devnet)", () => {
 
     assert.isAbove(escGain, 0, "escrow received its share");
     assert.isAbove(platGain, 0, "platform received its share");
-    // 90 / 10 within rounding: platform ≈ escrow / 9
+    // the config split within rounding (10% by default: platform ≈ escrow / 9)
     const ratio = platGain / escGain;
-    assert.closeTo(ratio, 1 / 9, 0.005, `split should be 90/10, got ${escGain}/${platGain}`);
+    assert.closeTo(ratio, platformBps / (10000 - platformBps), 0.005, `split should follow the config, got ${escGain}/${platGain}`);
     assert.equal(st.feesCollected.toNumber(), escGain, "escrow books only its own share");
     assert.equal(await conn.getBalance(feeAuthority, "confirmed"), 0, "fee PDA keeps nothing");
-    console.log(`  vault ${vaultBefore} -> escrow +${escGain} (90%), platform +${platGain} (10%) sig=${sig}`);
+    console.log(`  vault ${vaultBefore} -> escrow +${escGain} (${100 - platformBps / 100}%), platform +${platGain} (${platformBps / 100}%) sig=${sig}`);
   });
 
   /** every account `buyback` needs, shared by both buyback tests */

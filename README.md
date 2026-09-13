@@ -101,9 +101,13 @@ Every run mints a new coin; on localnet that is free.
 
 ## How the distribution stays honest
 
-- **Lock.** `launch` does `create_v2` + `buy_v2` in one transaction and moves
-  `escrow_bps` of the buy into an escrow ATA owned by a PDA. No withdraw
-  instruction exists.
+- **Lock.** `launch` does `create_v2` + `buy_v2` in one transaction and locks
+  part of the buy in two slices: `holder_bps` into the escrow ATA (the pool the
+  triggers distribute) and `manual_bps` into the fixed-list account (wallets +
+  percentages committed as a Merkle root at launch, published on chain,
+  claimed by proof). Either slice may be zero, not both; together they must be
+  at least `MIN_LOCK_SUPPLY_BPS` (1% of total supply) or the launch is refused.
+  No withdraw instruction exists.
 - **Release.** `check_trigger` (permissionless) samples the curve; 1% of
   market cap in volume releases 1% of the pool, a 2× market cap releases 5%.
   The release fires at a random slot inside the next hour.

@@ -179,7 +179,7 @@ async function historyFor(c: Connection, acct: PublicKey, snapshotSlot: number) 
 
 /**
  * Accounts that hold the coin but are not holders: the curve itself, the mayhem
- * vault, and this program's own escrow and buyer PDAs. All derived from the mint,
+ * vault, and this program's own escrow, buyer and manual-list PDAs. All derived from the mint,
  * so every reproducer computes the same set. The dev wallet is excluded too
  * (see PROGRESS.md, "dev cüzdanı airdrop'a katılmaz"); it is read from the
  * escrow account by `snapshot`, since it is not derivable from the mint.
@@ -192,6 +192,8 @@ export function protocolOwners(mint: PublicKey, escrowProgram: PublicKey): strin
     pda([Buffer.from("sol-vault")], MAYHEM),
     pda([Buffer.from("escrow"), mint.toBuffer()], escrowProgram),
     pda([Buffer.from("buyer"), mint.toBuffer()], escrowProgram),
+    // the manual list's unclaimed slice sits on this PDA; it is not a holder
+    pda([Buffer.from("manual"), mint.toBuffer()], escrowProgram),
   ];
 }
 

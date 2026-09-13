@@ -28,7 +28,9 @@ pub struct Escrow {
     pub dev: Pubkey,
     /// The pump coin mint (Token-2022).
     pub mint: Pubkey,
-    /// Share of the initial buy kept in escrow, in basis points.
+    /// Share of the initial buy locked for holders (the pool), in basis
+    /// points of the buy. The manual list's slice is `manual_bps`; the two
+    /// together are the locked share, ≥ MIN_LOCK_SUPPLY_BPS of total supply.
     pub escrow_bps: u16,
     /// Base tokens bought by `launch`.
     pub bought: u64,

@@ -146,6 +146,8 @@ export function decodeRound(address: string, data: Buffer): Round {
 export const MAX_SHARE_BPS = 1000;
 /** ...once a round has this many eligible holders (program constant CAP_MIN_HOLDERS). */
 export const CAP_MIN_HOLDERS = 11;
+/** A launch must lock at least this share of total supply (program constant MIN_LOCK_SUPPLY_BPS). */
+export const MIN_LOCK_SUPPLY_BPS = 100;
 
 export const pda = (seeds: (Buffer | Uint8Array)[], prog = PROGRAM_ID) =>
   PublicKey.findProgramAddressSync(seeds, prog)[0];

@@ -41,7 +41,7 @@ export default async function Home() {
         <table>
           <thead>
             <tr>
-              <th>Coin</th><th>Holder share</th><th>Dev share</th><th>Cap / wallet</th>
+              <th>Coin</th><th>Locked</th><th>Dev share</th><th>Cap / wallet</th>
               <th>Type · platform fee</th>
               <th>Pool remaining</th><th>Market cap</th>
               <th>Last distribution</th><th>Next trigger</th>
@@ -54,7 +54,7 @@ export default async function Home() {
                   <a href={`/coin/${r.escrow.mint}`}><b>{coinLabel(r.escrow.mint, r.meta)}</b></a>
                   <div className="k mono">{short(r.escrow.mint, 6)}</div>
                 </td>
-                <td>{r.escrowPct}%</td>
+                <td>{r.lockedPct}% <span className="k">(holders {r.escrowPct}%{r.manualPct ? ` + list ${r.manualPct}%` : ""})</span></td>
                 <td>{r.devPct}%</td>
                 <td>{r.capPct}% (from {r.capMinHolders} holders)</td>
                 <td>{r.coinType} · {r.platformFeePct === null ? "fee split not set up" : `${r.platformFeePct}% platform`}</td>
@@ -72,8 +72,9 @@ export default async function Home() {
         </table>
       </div>
       <div className="note">
-        Every number above is read live from the program on {net}. Holder and dev shares are of the
-        launch buy: the holder share went into escrow for distributions, the rest stayed with the
+        Every number above is read live from the program on {net}. The locked share is a slice of the
+        launch buy, split between the holder pool (triggered distributions) and, optionally, a fixed
+        wallet list committed at launch; it must be at least 1% of total supply. The rest stayed with the
         dev wallet — which never takes part in a distribution itself. Each round is split pro rata
         (balance × time held) over every eligible holder, no wallet taking more than the cap once
         there are enough holders. The platform fee is a cut of pump&apos;s creator fee only — it is

@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import ClaimPanel from "@/components/ClaimPanel";
-import { fetchEscrows, fetchRounds, fetchMetadata, coinLabel } from "@/lib/data";
+import { fetchEscrows, fetchRounds, fetchMetadata, coinLabel, manualPctOf } from "@/lib/data";
 import {
   conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network, MAX_SHARE_BPS, CAP_MIN_HOLDERS,
 } from "@/lib/chain";
@@ -52,8 +52,9 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       <div className="card">
         <div className="k">How it works</div>
         <ol className="note" style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
-          <li><b>Lock.</b> At launch the dev buys the coin and {e.escrowBps / 100}% of that buy is locked in
-            an escrow account owned by the program. Nobody can withdraw it, the dev included.</li>
+          <li><b>Lock.</b> At launch the dev buys the coin and {e.escrowBps / 100 + manualPctOf(e)}% of that buy is
+            locked by the program: {e.escrowBps / 100}% as the holder pool{manualPctOf(e) ? ` and ${manualPctOf(e)}% for a fixed wallet list committed at launch` : ""}.
+            The lock must be at least 1% of total supply. Nobody can withdraw it, the dev included.</li>
           <li><b>Fees.</b> The coin&apos;s creator on pump.fun is a program-owned account, and pump&apos;s
             fee-sharing config splits every trade&apos;s creator fee {e.feeSharingSet ? `${100 - (e.platformFeeBps ?? 0) / 100}% to the escrow, ${(e.platformFeeBps ?? 0) / 100}% to the platform` : "between the escrow and the platform"}.
             The platform never takes from the locked pool. (A holder-rewards coin keeps its creator fee on pump
@@ -88,8 +89,9 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       )}
 
       <div className="card grid">
-        <Stat k="Holder share" v={`${e.escrowBps / 100}%`} sub="of the launch buy, locked for holders" />
-        <Stat k="Dev share" v={`${100 - e.escrowBps / 100}%`} sub="never in a distribution" />
+        <Stat k="Locked" v={`${e.escrowBps / 100 + manualPctOf(e)}%`}
+              sub={`of the launch buy: holders ${e.escrowBps / 100}%${manualPctOf(e) ? ` + fixed list ${manualPctOf(e)}%` : ""} · min 1% of supply`} />
+        <Stat k="Dev share" v={`${100 - e.escrowBps / 100 - manualPctOf(e)}%`} sub="never in a distribution" />
         <Stat k="Cap per wallet" v={`${MAX_SHARE_BPS / 100}%`} sub={`of a round, from ${CAP_MIN_HOLDERS} eligible holders on`} />
         <Stat k="Coin type" v={e.isHolderReward ? "holder-rewards" : "regular"}
               sub={e.isHolderReward ? "pump pays the creator fee to its holder pool; no sweep, no buyback here"
@@ -145,10 +147,10 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       <h2>Your share</h2>
       <ClaimPanel mint={mint} escrow={e.address} />
 
-      <h2>Manual airdrop list</h2>
+      <h2>Fixed wallet list</h2>
       {e.generation >= 4 && (e.manualTotal ?? 0n) > 0n ? (
         <div className="card grid">
-          <Stat k="Set aside" v={fmtTokens(e.manualTotal ?? 0n)} sub={`${(e.manualBps ?? 0) / 100}% of the dev share`} />
+          <Stat k="Set aside" v={fmtTokens(e.manualTotal ?? 0n)} sub={e.generation >= 5 ? `${(e.manualBps ?? 0) / 100}% of the launch buy` : `${(e.manualBps ?? 0) / 100}% of the dev share (older layout)`} />
           <Stat k="Claimed" v={`${(e.manualClaimedBps ?? 0) / 100}%`} />
           <Stat k="Locked until" v={e.manualUnlockTs
             ? new Date(Number(e.manualUnlockTs) * 1000).toISOString().slice(0, 10) : "—"} />
@@ -157,9 +159,9 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       ) : (
         <div className="card">
           <div className="note">
-            This coin has no manual airdrop list. The feature ships with the next program
-            upgrade; existing coins were launched before it and cannot gain one, because the
-            list is fixed at launch and never afterwards.
+            This coin has no fixed wallet list: its whole lock is the holder pool. A list can
+            only be committed at launch (wallets + percentages, published on chain, claimed by
+            proof) and never afterwards.
           </div>
         </div>
       )}
