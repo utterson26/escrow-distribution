@@ -75,6 +75,15 @@ then set Phantom to **Solana Localnet** (Settings → Developer Settings →
 Testnet Mode → Localnet; extension only) — details in
 [crank/README.md](crank/README.md#phantom-ile-localnet).
 
+## Demo
+
+`npm run demo` (localnet up, env as above) plays the whole story once — launch,
+four buyers, one sells out, fee sweep, chunked buyback, volume trigger, random
+delay, snapshot, commit-then-draw, claims, a forged claim refused — printing a
+signature per step and writing it up in [DEMO.md](DEMO.md). `DEMO_LEAVE_LAST=1`
+leaves the last prize unclaimed and drops the wallets in `demo-wallets.json`
+so you can claim it from the web page with Phantom.
+
 ## Tests
 
 ```bash

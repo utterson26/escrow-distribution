@@ -19,3 +19,6 @@ package-lock.json
 snapshot.json
 .localnet/
 crank/snapshots/
+demo-wallets.json
+demo-summary.json
+web/.cache/

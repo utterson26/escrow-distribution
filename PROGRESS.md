@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 21 adım — 10'u devnet'te, 11–21 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
+## Sonuç: 22 adım — 10'u devnet'te, 11–22 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -47,6 +47,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 19 | Switchboard on-demand localnet'te | ❌ oracle gerektiriyor, slot hash kaldı (not aşağıda) |
 | 20 | güvenlik öz-denetimi: 5 bulgu düzeltildi + 4 regresyon testi | ✅ `SECURITY_REVIEW.md` |
 | 21 | README (10 dakikada localnet) | ✅ |
+| 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -782,6 +783,38 @@ kullanıyor. Değişenler ve bize etkisi:
   `target/deploy/airdrop_escrow-keypair.json` (`6aVJ…`, program keypair'i
   **değil**, yukarıdaki nota bak) `/mnt/c/Users/pc/solana-keys-backup/` altına
   kopyalandı.
+
+## Adım 22 — uçtan uca demo (`npm run demo`, `DEMO.md`) ✅
+
+`scripts/demo.ts` tek koşuda (localnet, ~50–80 sn) tüm akışı oynatıyor ve
+`DEMO.md`'yi üretiyor: coin bas + %30 escrow → 4 cüzdan pump'tan alır (Ayşe,
+Burak, Ceren, Deniz) → Deniz hepsini **gerçekten satar** (`sell_v2`,
+`tests/pump.ts`'e `directSellIx` eklendi) → creator ücreti `collect_fees` ile
+escrow'a → 0,2 SOL bağış + **5 parça buyback** (her parça ~0,0095 SOL = rezervin
+%0,5'i, kalan sonraya) → hacim tetikleyicisi kurulur, erken `fire` TooEarly →
+süre dolunca fire → snapshot (Deniz listede yok) → `open_round` → `draw` →
+Deniz kazanan satırla sahte claim dener → **BadProof** → kazananlar claim eder.
+Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tabloları.
+
+- Alım tutarları küçük tutuldu (0,12/0,10/0,08/0,06 SOL): toplam net alım
+  ~0,62 SOL'ü geçerse piyasa değeri 2× olup **kilometre taşı** hacimden önce
+  kurulur (program ikisi de hazırsa taşı seçer). Demo hacim tetikleyicisini
+  göstermek istiyor.
+- Sahte claim adımı kazananların claim'inden **önce**: sonra denenince ret
+  sebebi `AlreadyClaimed` çıkıyor, ispat değil. Ayrıca satır olarak 1.
+  çekilişi gerçekten kazanan leaf kullanılıyor; rastgele satırla ret
+  `TicketOutOfRange` oluyor.
+- `DEMO_LEAVE_LAST=1`: son çekiliş claim edilmez, cüzdan anahtarları
+  `demo-wallets.json`'a (gitignore) yazılır → Phantom'a aktarıp web'den
+  claim butonunu denemek için. Son koşu böyle bırakıldı: coin
+  `GkswtFFVcetgfsnSGyLpgk8Fa2iLdKXNYPBK274uGUx5`, Burak'ın 446K coin'i bekliyor.
+- **Web kontrolü (localnet):** `/api/escrows` demo coin'leri listeliyor,
+  `/`, `/coin/<mint>`, `/feed` 200; `/api/claim/<mint>?wallet=…` snapshot'ı
+  slot'tan yeniden üretip kazanan çekilişi buluyor (0,4 sn). Claim butonunun
+  yaptığı işlem `ClaimPanel.tsx`'teki encoding'in birebir kopyasıyla Ayşe'nin
+  anahtarından gönderildi: +446.026.143.433 = ödül, sonrasında claimable 0.
+  Kırık bir şey çıkmadı. (Phantom tıklaması elle denenmedi; encoding ve API
+  zincirde doğrulandı.)
 
 ## Senden karar bekleyenler (yeni)
 

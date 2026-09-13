@@ -5,7 +5,8 @@
   "scripts": {
     "test": "ts-mocha -p ./tsconfig.json -t 600000 tests/**/*.ts",
     "crank": "ts-node --compiler-options '{\"module\":\"commonjs\"}' crank/crank.ts",
-    "crank:sim": "./scripts/crank-sim.sh"
+    "crank:sim": "./scripts/crank-sim.sh",
+    "demo": "ts-node -T --compiler-options '{\"module\":\"commonjs\"}' scripts/demo.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
