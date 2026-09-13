@@ -739,6 +739,37 @@ Aşağıdakiler kapandı; yeniden açılmayacak.
 4. **Buyback sınırı %0,5/çağrı üretimde kalır.**
 5. **Switchboard beklemede** (localnet'te mümkün değil — adım 19).
 
+## pump.fun docs güncellemesi — holder rewards (13 Eylül) ✅
+
+`docs/pump` upstream `f216b67`'ye çekildi (holder rewards, cashback
+kaldırıldı). `idls/pump.json` yenilendi; program `declare_program!` ile bunu
+kullanıyor. Değişenler ve bize etkisi:
+
+- **`create_v2` iki yeni opsiyonel kuyruk argümanı aldı:** `creator_fee_bps`
+  (`OptionU64`) ve `is_holder_reward` (`OptionBool`). CPI'mız ikisini de açıkça
+  geçiyor: `0` (SOL çiftinde standart tarife) ve **`false`** — holder-rewards
+  coin'de creator ücreti pump'ın holder havuzuna gider, bizim modelde ise
+  escrow'a gelip buyback'e dönüşüyor; o yüzden kapalı kalmalı. `is_cashback_enabled`
+  zaten `false`ydı; artık `true` reddediliyor, bizi etkilemiyor.
+- **`BondingCurve` büyüdü:** `creator_fee_bps`, `can_edit_creator_fee`,
+  `is_holder_reward` eklendi (117 bayt + discriminator). **Devnet'teki pump
+  henüz bu sürümde değil** — bugün klonlanan program 124 baytlık curve yazıyor
+  (`is_holder_reward` yok), devnet'te 10.158 eski 115 baytlık curve var.
+  Ham `declare_program!` tipi kısa hesabı **açamaz** (borsh EOF); bu yüzden
+  `pump_state.rs`'de `Padded<T>` sarmalayıcısı var: kısa buffer'ı güncel
+  boyuta sıfırla doldurup okur (docs'un `pump_rust_client::AccountWrapper`
+  deseni; crate'i almadım çünkü 0.1.13'ün gömülü IDL'inde `is_holder_reward`
+  daha yok). `BondingCurve` ve `Global` bu tiple okunuyor. 6 birim testi:
+  tam yapı, 124 ve 115 baytlık eski yapılar (eksik alanlar 0/false), IDL'den
+  uzun buffer, yanlış discriminator, kısa `Global`.
+- TS tarafı (indexer, crank, web) curve'ü baştaki sabit offset'lerden okuyor
+  (rezervler, arz); etkilenmedi. `TradeEvent`/`CreateEvent` alanlarını
+  çözmüyoruz.
+- Localnet pump devnet'ten yeniden klonlandı, testler: `airdrop_escrow`
+  18/18, `security` 4/4, `manual_airdrop` 7/7 (ilk iki koşuda ölü-coin testi
+  `Blockhash not found` ile düştü — `.rpc()` çağrılarında retry yok, üçüncü
+  koşu temiz; program hatası değil).
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**

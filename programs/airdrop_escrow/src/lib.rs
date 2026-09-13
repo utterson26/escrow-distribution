@@ -6,6 +6,7 @@ use anchor_spl::token_interface::{self, TransferChecked};
 
 pub mod constants;
 pub mod error;
+pub mod pump_state;
 pub mod state;
 
 pub use constants::*;
@@ -1189,8 +1190,10 @@ fn cpi_create_v2<'info>(
             symbol,
             uri,
             creator,
-            false,                 // is_mayhem_mode
-            pump::types::OptionBool(false), // is_cashback_enabled = off
+            false,                          // is_mayhem_mode
+            pump::types::OptionBool(false), // is_cashback_enabled: deprecated, must stay off
+            pump::types::OptionU64(0),      // creator_fee_bps: 0 = standard schedule (SOL pair)
+            pump::types::OptionBool(false), // is_holder_reward: fees go to the escrow, not pump's holder pool
         )?;
 
     Ok(())
@@ -1727,7 +1730,7 @@ pub struct CheckTrigger<'info> {
         bump,
         seeds::program = pump::ID
     )]
-    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
+    pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
     /// CHECK: pinned to the sysvar, read as raw bytes.
     #[account(address = SLOT_HASHES)]
     pub slot_hashes: UncheckedAccount<'info>,
@@ -1746,7 +1749,7 @@ pub struct FireTrigger<'info> {
         bump,
         seeds::program = pump::ID
     )]
-    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
+    pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
 }
 
 /// The root may be published by the dev or by the platform authority: the
@@ -1836,7 +1839,7 @@ pub struct ClaimPrize<'info> {
         bump,
         seeds::program = pump::ID
     )]
-    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
+    pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
     pub base_token_program: Interface<'info, anchor_spl::token_interface::TokenInterface>,
 }
 
@@ -1880,7 +1883,7 @@ pub struct Buyback<'info> {
     // ---- pump: same 27 accounts as buy_v2 ----
     /// Read on-chain for the fee rates, so it is pinned to the pump PDA.
     #[account(seeds = [b"global"], bump, seeds::program = pump::ID)]
-    pub global: Box<Account<'info, pump::accounts::Global>>,
+    pub global: Box<Account<'info, pump_state::Global>>,
     /// CHECK: wSOL
     pub quote_mint: UncheckedAccount<'info>,
     /// CHECK: token program for the quote mint
@@ -1905,7 +1908,7 @@ pub struct Buyback<'info> {
         bump,
         seeds::program = pump::ID
     )]
-    pub bonding_curve: Box<Account<'info, pump::accounts::BondingCurve>>,
+    pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
     /// CHECK: ATA
     #[account(mut)]
     pub associated_base_bonding_curve: UncheckedAccount<'info>,
