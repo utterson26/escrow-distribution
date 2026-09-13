@@ -10,7 +10,7 @@ import {
 } from "@solana/spl-token";
 import { createHash } from "crypto";
 import { assert } from "chai";
-import { pumpAccounts, escrowPda, escrowAta, TOKEN_2022, WSOL, TOKEN } from "./pump";
+import { pumpAccounts, escrowPda, escrowAta, TOKEN_2022, WSOL, TOKEN, patchProvider } from "./pump";
 import { configPda, setPlatform } from "./config";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -51,10 +51,9 @@ describe("manual airdrop (localnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
     commitment: "confirmed",
-    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
-    // node is "Blockhash not found" on the next, so simulate against finalized
-    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
+    preflightCommitment: "confirmed",
   });
+  patchProvider(provider);
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
   const conn = provider.connection;

@@ -30,7 +30,7 @@ import { createHash } from "crypto";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
   feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
-  TOKEN_2022, TOKEN, WSOL,
+  TOKEN_2022, TOKEN, WSOL, patchProvider,
 } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 
@@ -109,10 +109,9 @@ async function main() {
   const dev = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(devPath, "utf8"))));
   const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(dev), {
     commitment: "confirmed",
-    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
-    // node is "Blockhash not found" on the next, so simulate against finalized
-    preflightCommitment: /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint) ? "confirmed" : "finalized",
+    preflightCommitment: "confirmed",
   });
+  patchProvider(provider);
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8"));
   const program = new Program(idl, provider) as any;
   const t0 = new Date();

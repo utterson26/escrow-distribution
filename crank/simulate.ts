@@ -41,7 +41,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   pumpAccounts, escrowPda, escrowAta, directBuyIx, feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts,
-  TOKEN_2022, TOKEN, WSOL,
+  TOKEN_2022, TOKEN, WSOL, patchProvider,
 } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 
@@ -64,6 +64,7 @@ async function main() {
   const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(dev), {
     commitment: "confirmed", preflightCommitment: "confirmed",
   });
+  patchProvider(provider);
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8"));
   const program = new Program(idl, provider) as any;
 

@@ -147,8 +147,10 @@ What is trusted, what is not, and what was found in review:
 ## Devnet
 
 Program id `5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe`, current build
-deployed 2026-09-13 (slot 497793986). `npm run demo -- --devnet` runs the
+deployed 2026-09-13 (slot 497817683). `npm run demo -- --devnet` runs the
 whole flow against the real pump.fun devnet program through `HELIUS_RPC_URL`
 (~2 SOL per run; the throwaway wallets are swept back at the end) and writes
 `DEMO-devnet.md`. A redeploy of this size needs ~3.7 SOL for the buffer
-(refunded) plus rent for any growth. `PROGRESS.md` has the signatures.
+(refunded) plus rent for any growth (`solana program extend` wants at least
+10240 bytes at a time). The devnet RPC is load-balanced: keep `patchProvider`
+(tests/pump.ts) on any provider you build, or "Blockhash not found" will bite. `PROGRESS.md` has the signatures.

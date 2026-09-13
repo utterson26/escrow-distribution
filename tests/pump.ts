@@ -217,3 +217,46 @@ export async function shareholdersFromChain(conn: Connection, mint: PublicKey) {
   }
   return out;
 }
+
+/**
+ * Error text for an assertion: message + logs. With preflight skipped (devnet)
+ * a failed transaction surfaces through anchor as "Unknown action 'undefined'"
+ * with no logs, so fall back to the newest failed transaction touching `addr`.
+ */
+export async function failureText(conn: Connection, e: any, addr?: PublicKey): Promise<string> {
+  let text = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+  if (addr && !/Error Code|custom program error|ConstraintSeeds/.test(text)) {
+    for (let i = 0; i < 5; i++) {
+      const sigs = await conn.getSignaturesForAddress(addr, { limit: 5 }, "confirmed");
+      const failed = sigs.find((x) => x.err);
+      if (failed) {
+        const tx = await conn.getTransaction(failed.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+        const logs = tx?.meta?.logMessages ?? [];
+        if (logs.length) return text + " " + logs.join(" ");
+      }
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+  return text;
+}
+
+/**
+ * Off localnet the RPC is load-balanced and a "confirmed" blockhash from one
+ * node is "Blockhash not found" on the next. Anchor's `.rpc()` has no retry, so
+ * wrap the provider's sendAndConfirm: a legacy transaction gets a fresh
+ * blockhash on every attempt (anchor sets it inside), so simply trying again
+ * is enough. Preflight stays on, so program errors keep their logs.
+ */
+export function patchProvider(provider: any, tries = 6) {
+  const orig = provider.sendAndConfirm.bind(provider);
+  provider.sendAndConfirm = async (tx: any, signers?: any, opts?: any) => {
+    for (let i = 0; ; i++) {
+      try { return await orig(tx, signers, opts); } catch (e: any) {
+        const m = String(e?.message ?? e);
+        if (i >= tries - 1 || !/Blockhash not found|429|Too Many Requests|block height exceeded|invalid index/i.test(m)) throw e;
+        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+      }
+    }
+  };
+  return provider;
+}

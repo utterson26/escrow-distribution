@@ -28,7 +28,7 @@ import {
 import { assert } from "chai";
 import {
   pumpAccounts, escrowPda, escrowAta, directBuyIx, feeAuthorityPda, setupFeeSharingAccounts,
-  collectFeesAccounts, buyerPda, baseAtaOf, TOKEN_2022, TOKEN, WSOL,
+  collectFeesAccounts, buyerPda, baseAtaOf, failureText, TOKEN_2022, TOKEN, WSOL, patchProvider,
 } from "./pump";
 import { snapshot, buildTree, proofFor, Snapshot } from "../indexer/snapshot";
 import { configPda, setPlatform } from "./config";
@@ -41,10 +41,9 @@ describe("security review regressions (localnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
     commitment: "confirmed",
-    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
-    // node is "Blockhash not found" on the next, so simulate against finalized
-    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
+    preflightCommitment: "confirmed",
   });
+  patchProvider(provider);
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
   const conn = provider.connection;
@@ -79,20 +78,35 @@ describe("security review regressions (localnet)", () => {
       try {
         const bh = await conn.getLatestBlockhash("finalized");
         const tx = new Transaction({ ...bh, feePayer: payer.publicKey }).add(...ixs);
-        return await sendAndConfirmTransaction(conn, tx, [payer, ...extra], { commitment: "confirmed" });
+        return await sendAndConfirmTransaction(conn, tx, [payer, ...extra], { commitment: "confirmed", skipPreflight: provider.opts.skipPreflight });
       } catch (e: any) {
         if (i >= 4 || !/Blockhash not found|429|Too Many Requests|timed out/i.test(String(e?.message ?? e))) throw e;
         await sleep(1500 * (i + 1));
       }
     }
   }
-  async function expectError(label: string, p: Promise<unknown>, re: RegExp) {
+  async function expectError(label: string, p: Promise<unknown>, re: RegExp, addr: PublicKey = escrow) {
     try { await p; } catch (e: any) {
-      assert.match(errOf(e) + JSON.stringify(e?.logs ?? ""), re, `${label}: wrong error`);
+      assert.match(errOf(e) + (await failureText(conn, e, addr)), re, `${label}: wrong error`);
       return;
     }
     assert.fail(`${label}: should have been rejected`);
   }
+
+  after(async () => {
+    // off localnet the throwaway keys give their SOL back
+    if (/127\.0\.0\.1|localhost/.test(conn.rpcEndpoint)) return;
+    let swept = 0;
+    for (const k of [platform, stranger, ...holders]) {
+      try {
+        const bal = await conn.getBalance(k.publicKey, "confirmed");
+        if (bal <= 900_000) continue;
+        await send([SystemProgram.transfer({ fromPubkey: k.publicKey, toPubkey: dev.publicKey, lamports: bal - 900_000 })], dev, [k]);
+        swept += bal - 900_000;
+      } catch { /* best effort */ }
+    }
+    console.log(`  swept ${swept / LAMPORTS_PER_SOL} SOL back`);
+  });
 
   before(async () => {
     // localnet has a faucet; on devnet the faucet is rate-limited, so the dev
@@ -103,7 +117,9 @@ describe("security review regressions (localnet)", () => {
         const sig = await conn.requestAirdrop(k.publicKey, 3 * LAMPORTS_PER_SOL);
         await conn.confirmTransaction(sig, "confirmed");
       } else {
-        await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: k.publicKey, lamports: 0.3 * LAMPORTS_PER_SOL })]);
+        // holders buy 0.15 SOL each; the platform/stranger keys only pay fees
+        const sol = holders.includes(k) ? 0.2 : 0.05;
+        await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: k.publicKey, lamports: sol * LAMPORTS_PER_SOL })]);
       }
     }
   });
@@ -115,7 +131,7 @@ describe("security review regressions (localnet)", () => {
         [program.programId.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0],
       systemProgram: SystemProgram.programId,
     }).instruction();
-    await expectError("stranger sets platform", send([ix], stranger), /NotUpgradeAuthority|custom program error/);
+    await expectError("stranger sets platform", send([ix], stranger), /NotUpgradeAuthority|custom program error/, configPda(program.programId));
 
     await setPlatform(program, dev.publicKey, platform.publicKey);
     const cfg: any = await program.account.config.fetch(configPda(program.programId));
@@ -310,12 +326,12 @@ describe("security review regressions (localnet)", () => {
       program.methods.setupFeeSharing()
         .accountsPartial(setupFeeSharingAccounts(mint2, escrow2, program.programId, dev.publicKey, platform.publicKey))
         .rpc(provider.opts),
-      /NotApplicable/);
+      /NotApplicable/, escrow2);
     await expectError("collect_fees on a holder-rewards coin",
       program.methods.collectFees()
         .accountsPartial(collectFeesAccounts(mint2, escrow2, program.programId, dev.publicKey))
         .rpc(provider.opts),
-      /NotApplicable/);
+      /NotApplicable/, escrow2);
     // buyback: give the escrow something to spend so the guard is what refuses
     await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: escrow2, lamports: 0.05 * LAMPORTS_PER_SOL })]);
     const bbIx = await program.methods.buyback().accountsPartial({
@@ -339,7 +355,7 @@ describe("security review regressions (localnet)", () => {
     }).compileToV0Message([lutAcc]);
     const tx2 = new VersionedTransaction(msg2);
     await expectError("buyback on a holder-rewards coin",
-      provider.sendAndConfirm(tx2, [], { commitment: "confirmed", skipPreflight: false }), /NotApplicable|0x/);
+      provider.sendAndConfirm(tx2, [], { commitment: "confirmed", skipPreflight: false }), /NotApplicable|0x/, escrow2);
   });
 
   it("F6: a platform fee change needs a 7-day delay; applying early is refused", async () => {
@@ -350,13 +366,14 @@ describe("security review regressions (localnet)", () => {
     const target = initial === 500 ? 700 : 500;
     await expectError("dev proposes",
       program.methods.proposePlatformFee(500).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
-        .rpc(provider.opts), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/, configPda(program.programId));
     await expectError("over 100%",
       program.methods.proposePlatformFee(10001).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-        .signers([platform]).rpc(provider.opts), /BadFeeBps/);
+        .signers([platform]).rpc(provider.opts), /BadFeeBps/, configPda(program.programId));
+    // (a proposal may already be pending on a reused ledger; then it is just "too early")
     await expectError("apply with nothing pending",
       program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
-      /NoPendingFee/);
+      cfg0.feeEffectiveSlot.toNumber() > 0 ? /FeeChangeTooEarly/ : /NoPendingFee/, configPda(program.programId));
     const now = await conn.getSlot("confirmed");
     await program.methods.setFeeDelay(new BN(1_512_000)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
       .signers([platform]).rpc(provider.opts); // 7 days, in case an earlier run narrowed it
@@ -368,7 +385,7 @@ describe("security review regressions (localnet)", () => {
     assert.equal(cfg.platformFeeBps, initial, "rate unchanged until applied");
     await expectError("apply early",
       program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
-      /FeeChangeTooEarly/);
+      /FeeChangeTooEarly/, configPda(program.programId));
     const cfg2: any = await program.account.config.fetch(configPda(program.programId));
     assert.equal(cfg2.platformFeeBps, initial, "unchanged after the early attempt");
 
@@ -377,10 +394,10 @@ describe("security review regressions (localnet)", () => {
     // wait it out, apply, and see the new rate land on the next coin set up
     await expectError("dev sets fee delay",
       program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
-        .rpc(provider.opts), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/, configPda(program.programId));
     await expectError("delay under the floor",
       program.methods.setFeeDelay(new BN(1)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-        .signers([platform]).rpc(provider.opts), /BadFeeDelay/);
+        .signers([platform]).rpc(provider.opts), /BadFeeDelay/, configPda(program.programId));
     await program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
       .signers([platform]).rpc(provider.opts);
     await program.methods.proposePlatformFee(target).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
@@ -390,7 +407,7 @@ describe("security review regressions (localnet)", () => {
     if ((await conn.getSlot("confirmed")) < eff) {
       await expectError("apply early (short delay)",
         program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
-        /FeeChangeTooEarly/);
+        /FeeChangeTooEarly/, configPda(program.programId));
     }
     while ((await conn.getSlot("confirmed")) < eff) await sleep(300);
     // anyone may apply once the delay has passed
@@ -400,7 +417,7 @@ describe("security review regressions (localnet)", () => {
     assert.equal(cfg4.pendingFeeBps, 0); assert.equal(cfg4.feeEffectiveSlot.toNumber(), 0, "proposal cleared");
     await expectError("apply twice",
       program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
-      /NoPendingFee/);
+      /NoPendingFee/, configPda(program.programId));
 
     // the SEC coin was never set up: its split now uses the new 5%
     await program.methods.setupFeeSharing()

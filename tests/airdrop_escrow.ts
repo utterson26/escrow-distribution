@@ -12,8 +12,8 @@ import { assert } from "chai";
 import * as fs from "fs";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
-  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
-  TOKEN_2022, WSOL, TOKEN,
+  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, failureText,
+  TOKEN_2022, WSOL, TOKEN, patchProvider,
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 import { configPda, setPlatform } from "./config";
@@ -64,10 +64,9 @@ describe("airdrop_escrow (devnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
     commitment: "confirmed",
-    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
-    // node is "Blockhash not found" on the next, so simulate against finalized
-    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
+    preflightCommitment: "confirmed",
   });
+  patchProvider(provider);
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
   const conn = provider.connection;
@@ -120,7 +119,21 @@ describe("airdrop_escrow (devnet)", () => {
     });
   }
 
-  after(() => {
+  after(async () => {
+    // off localnet the throwaway holders give their SOL back (real SOL there)
+    if (!/127\.0\.0\.1|localhost/.test(conn.rpcEndpoint)) {
+      let swept = 0;
+      for (const h of holders) {
+        try {
+          const bal = await conn.getBalance(h.publicKey, "confirmed");
+          const keep = 900_000;
+          if (bal <= keep) continue;
+          await send([SystemProgram.transfer({ fromPubkey: h.publicKey, toPubkey: dev.publicKey, lamports: bal - keep })], [h]);
+          swept += bal - keep;
+        } catch { /* best effort */ }
+      }
+      console.log(`  swept ${swept / LAMPORTS_PER_SOL} SOL back from the holders`);
+    }
     console.log("\n=== devnet signatures ===");
     console.log(JSON.stringify({ mint: mint.toBase58(), escrow: escrow.toBase58(), ...sigs }, null, 2));
   });
@@ -447,7 +460,7 @@ describe("airdrop_escrow (devnet)", () => {
         await sendBuyback("buyback-forged", { bondingCurve: curve });
         assert.fail(`${label}: buyback should have been rejected`);
       } catch (e: any) {
-        detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+        detail = await failureText(conn, e, escrow);
       }
       // 2006 ConstraintSeeds / 3007 wrong owner / 3012 not initialized — whichever
       // applies, the point is the program refuses to quote from a non-canonical account.
@@ -498,7 +511,7 @@ describe("airdrop_escrow (devnet)", () => {
       await conn.confirmTransaction({ signature: sg, ...bh }, "confirmed");
       assert.fail("stacked buybacks should have been rejected");
     } catch (e: any) {
-      detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+      detail = await failureText(conn, e, escrow);
     }
     // 6002 = BuybackSameSlot
     assert.match(detail, /BuybackSameSlot|0x1772/,
@@ -626,7 +639,7 @@ describe("airdrop_escrow (devnet)", () => {
             .rpc(provider.opts);
           detail = "KABUL EDILDI"; break;
         } catch (e: any) {
-          const m = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+          const m = await failureText(conn, e, escrow);
           if (/Blockhash not found|429|Too Many Requests/i.test(m)) { await sleep(800); continue; }
           detail = m; break;
         }
@@ -787,7 +800,7 @@ describe("airdrop_escrow (devnet)", () => {
           proofFor(layers, victim.index).map((b) => [...b]))
         .accountsPartial(claimAccounts(outsider.publicKey, round)).signers([outsider]).rpc(provider.opts);
       detail = "KABUL";
-    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
+    } catch (e: any) { detail = await failureText(conn, e, round); }
     assert.match(detail, /BadProof/, `someone else's leaf must not pay out: ${detail.slice(0, 200)}`);
     console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi (BadProof)");
   });
@@ -925,7 +938,7 @@ describe("airdrop_escrow (devnet)", () => {
       await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount), proofFor(bad.layers, l0.index).map((b) => [...b]))
         .accountsPartial(claimAccounts(h0.publicKey, round1)).signers([h0]).rpc(provider.opts);
       detail = "KABUL";
-    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
+    } catch (e: any) { detail = await failureText(conn, e, round1); }
     assert.match(detail, /ShareOverCap/, `over-cap leaf must be refused with 11 holders: ${detail.slice(0, 200)}`);
     console.log("  11 holder: %50'lik leaf reddedildi (ShareOverCap)");
 

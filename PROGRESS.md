@@ -49,6 +49,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 | 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 27 | devnet: adım 26 deploy (slot 497817683); devnet testleri ana 17/20, security 5/6→6/6, manual 7/7 | ⚠️ bakiye 0,54 SOL |
 | 26 | min kilit %1 arz + kilitli pay = manual_bps + holder_bps (alımın yüzdesi) | ✅ 20/20, 6/6, 7/7, demo 2/2 |
 | 25 | devnet deploy (slot 497793986) + gerçek pump.fun ile devnet demo 14/14; devnet test koşusu yarım (SOL) | ⚠️ bakiye 0,50 SOL |
 | 24 | gorev.md: tavan artığı havuza, ≤10 holder tavansız, $20 eşik, pump ücret paylaşımı %90/%10 + 7 günlük oran değişimi, holder-rewards modu, terminoloji temizliği | ✅ 20/20, 6/6, 7/7, demo 3/3 |
@@ -1075,6 +1076,46 @@ tekrarı için tahmini ihtiyaç: security ~0,8, manual ~0,2, ana suite ~2,7 SOL
   da pay aldı. 2/2 temiz (83/115 sn).
 - Devnet'e **deploy edilmedi** (bakiye 0,50 SOL); program devnet'te bir sürüm
   geride (adım 25).
+
+## Adım 27 — devnet: adım 26 sürümü deploy edildi, test paketi devnet'te (13 Eylül)
+
+**Deploy:** bakiye 5,50 SOL. Yeni binary 727.960 bayt > 726.032; `solana program
+deploy` extend adımı "invalid program argument" verdi — **ExtendProgram en az
+10.240 bayt ister**. `solana program extend … 10240` (736.272 bayt) sonra
+`--use-rpc` deploy: slot 497817683, dump = yerel build. Maliyet ~0,06 SOL
+(buffer geri geldi). Bakiye 5,45 SOL.
+
+**Devnet test sonuçları (Helius RPC):**
+| Paket | Sonuç | Not |
+|---|---|---|
+| `airdrop_escrow` | **17/20** | 1., 1c, 2, 2b–2e, 3, 4, 4d, 4e, 5, 6, 8, 9 geçti (ücret paylaşımı, %90/%10, buyback, tetikleyici, pro-rata tur, claim, milestone). Düşen 3 test (4c TooEarly, 7 BadProof, 10 ShareOverCap) **retler zincirde oldu** ama o koşuda preflight kapalı olduğu için anchor hatayı "Unknown action 'undefined'" olarak verdi, kod adı okunamadı. |
+| `security` | **5/6 → 6/6 kodda** | F6 devnet Config'inde önceki yarım koşudan kalan bekleyen öneri yüzünden `NoPendingFee` yerine `FeeChangeTooEarly` gördü; test artık bekleyen öneri varsa onu bekliyor (localnet 6/6). |
+| `manual_airdrop` | **7/7** | |
+
+**Devnet'te kırılan ve düzeltilenler:**
+1. `preflightCommitment: finalized` yaklaşımı (adım 25) yanlıştı: yeni yaratılan
+   hesaplar ~13 sn finalize olana kadar simülasyonda görünmüyor → 1c
+   `AccountNotInitialized`. Geri alındı.
+2. Preflight'ı kapatmak da olmadı: başarısız işlemin log'u anchor'un
+   `SendTransactionError(message, logs)` çağrısında (web3.js 1.95 imzasıyla
+   uyumsuz) kayboluyor → "Unknown action 'undefined'". Geri alındı.
+3. **Kalıcı çözüm:** `patchProvider` (`tests/pump.ts`) — provider'ın
+   `sendAndConfirm`'ünü sarıp "Blockhash not found / 429 / invalid index"
+   durumunda yeniden deniyor (legacy tx her denemede taze blockhash alır);
+   preflight açık kalır, program hataları log'uyla gelir. Tüm test/demo/crank
+   provider'ları bunu kullanıyor. `failureText` yardımcısı hata metninde kod
+   yoksa hesabın son başarısız işleminin log'unu çekiyor.
+4. `security.ts` throwaway anahtarları küçüldü (0,05/0,2 SOL) ve koşu sonunda
+   dev'e süpürülüyor; ana testin holder'ları da süpürülüyor (0,24 SOL geri).
+5. Devnet Config yine test anahtarında kalmıştı → `set_platform(dev, dev)`.
+   Devnet'te 7 günlük bekleyen bir %5 önerisi duruyor (F6'nın ilk koşusundan);
+   süresi dolunca `apply_platform_fee` çağrılırsa oran %5 olur — istemiyorsan
+   `propose_platform_fee(1000)` ile üstüne yaz.
+
+**SOL:** 5,50 → **0,538 SOL**. Harcama: deploy 0,06; ana suite 2 koşu (ilki
+finalized-preflight yüzünden yarım) ~3,3; security 2 koşu ~1,1; manual 2 koşu
+~0,3. Ana suite'in 3 düzeltilmiş testi devnet'te **yeniden koşulmadı**
+(localnet'te 20/20). Devnet'te tam yeşil bir tur için ~3 SOL gerekir.
 
 ## Senden karar bekleyenler (yeni)
 
