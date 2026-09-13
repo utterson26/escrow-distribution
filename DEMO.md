@@ -9,23 +9,23 @@ Bu belge, 2026-09-13 tarihinde yerel test ağında (localnet, pump.fun programı
 | Kim | Cüzdan | Rol |
 |---|---|---|
 | Dev | `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` | coin'i basan; hazine sayılır, dağıtıma girmez |
-| Ayşe | `8XKRbd2GCtEJRT3iJKxqeNoPnNtXyyqqBe2whrMNNJf1` | büyük alır ve tutar (tavana takılır) |
-| Burak | `46zrd5GgKfNtAwPCkeQob2saFeiTsW5hChv3xuwdjYuR` | alır ve tutar |
-| Ceren | `wq4H9qEgtkFYnEB9LDCTr32s8ptyiLNZiPQR11imsxc` | alır ve tutar |
-| Deniz | `78uDiw3eQKSjvq6QKyYmyXHg1unbBUr64RR6vH6AA5up` | alır, sonra hepsini satar |
-| Küçük-1 | `A5pwpVA4r4aXn62zhYF3qdYCPS2qnFcn1PvQ9Gz9szRA` | alır ve tutar |
-| Küçük-2 | `BAEHAtYjyq84twE3EgFvTsKoLQh1aiFhx5SQ7RULvyCc` | alır ve tutar |
-| Küçük-3 | `Gij63qpCQpuch6XPeqfK2yooCTE94vvbGCHSc4oQfMji` | alır ve tutar |
-| Küçük-4 | `AzLLh65FwoMjHxeuRQj5PjHK97gyznLmsreKstYyicjJ` | alır ve tutar |
-| Küçük-5 | `EvquHbLezPsuqe7QQP5fANJnCaziVpnV6D2SVa5MEoc2` | alır ve tutar |
-| Küçük-6 | `B9pjnHimp3jzjEXKtp6V9AePJvaEuymHZdy8j3tw7NoN` | alır ve tutar |
-| Küçük-7 | `13anJZTNn6mMpqXMhSPnqUxQUXwqat2MWEE1huFvUUoC` | alır ve tutar |
-| Küçük-8 | `Edwb5cL5214NQw5CkRmVEuTsnN6nhQY9CAf4cBccL5kp` | alır ve tutar |
-| Ekip-1 | `7swH7LWw8PnQfdfQry4xDQGufVxWt8V5wHgX2A4fsr1E` | sabit listede %60 |
-| Ekip-2 | `LHwrVdsbHc2vSaiv4TBVipQmH45HDrNB6chr5GRg5V7` | sabit listede %40 |
-| Escrow | `GFRdVtSv9BCwFaBovUuLRJJ6KKqrYMF8SsuFFxxoFkak` | kilitli havuz (program hesabı, insan anahtarı yok) |
+| Ayşe | `hTQBTnzfoJrupmsxWV1BWZx3tCXqfYoqSwSsowdTaLb` | büyük alır ve tutar (tavana takılır) |
+| Burak | `AetK57FkbkoCCYiSLysqsyTC85BqhktxqFWKssmXSriU` | alır ve tutar |
+| Ceren | `CJu6XVYzWoRu75mst3YJwoL8ssXH5uDxvYoks28vKBjz` | alır ve tutar |
+| Deniz | `GGWXcdTjFwQ93gmYXG6jXJysgpYsrTbYfF9jTK2rVMnJ` | alır, sonra hepsini satar |
+| Küçük-1 | `27XusuHv6VEjLDg1W5QJPgKAbtQvpRm161N1a7Z9W1Dv` | alır ve tutar |
+| Küçük-2 | `7CiinZ6fN5o1NM1HuRb37Rt8h2Hz8xQfFTDSRmSdXQe5` | alır ve tutar |
+| Küçük-3 | `D9kXevozYXqkJH87JJx61a9zhpWjXsoEoq5y6sgdoMd2` | alır ve tutar |
+| Küçük-4 | `8ZERoaGg3XnnoJBwPgpVjUnvWWNnJ1zAaHkPBwsck54B` | alır ve tutar |
+| Küçük-5 | `6koBd8whQVHgSrp6NUZwAUtuHzBeZqM8HkeTD7ij1Q7C` | alır ve tutar |
+| Küçük-6 | `B8E3Zgvy1BLt1XCwa71PRdACUEY3BoRbtQbH6vCovCfd` | alır ve tutar |
+| Küçük-7 | `BPgBnfpRwTT88QvuDHoENJUT7zqKeT9SQHKVG8t3CBqq` | alır ve tutar |
+| Küçük-8 | `6GTyRtT8kUaCuhAF2LH56XZ29pZEmad8MCcPn4VRB7Jq` | alır ve tutar |
+| Ekip-1 | `BBh6PYcCb4Ei7Fvbmd9jDFazHh2N8VVcm67kRKEcRdfS` | sabit listede %60 |
+| Ekip-2 | `7LDEYv3ZiYFAhzjq6fLuNpUgFvqDybQN9C8YgqsPi8Je` | sabit listede %40 |
+| Escrow | `Awrbt2ioxFGq5LCi3BUmpmakTqswW2JkALNJwQfvmq5y` | kilitli havuz (program hesabı, insan anahtarı yok) |
 
-Coin: `Ge3eaVytDPvXYQQtq8Ljv7Kzq7SqRnUZ7MWtjfBjG3Az` (DEMO)
+Coin: `J5Js9ch4yaTvwNjsYcBrn2dmtj7cPm6KHoTibgZbqPpt` (DEMO)
 
 ## Adımlar
 
@@ -33,8 +33,8 @@ Coin: `Ge3eaVytDPvXYQQtq8Ljv7Kzq7SqRnUZ7MWtjfBjG3Az` (DEMO)
 
 Platform yetkilisi ve platform ücret cüzdanı belirlendi, adres tablosu kuruldu (büyük işlemler sığsın diye).
 
-- platform ücreti: creator ücretinin %7'u → ESR5…aQfe (kilitli havuzdan asla pay alınmaz)
-- tablo BSGg7joWQjJHhaLkreLicWgR24N5roVmwz12vBtpngNi (53 adres)
+- platform ücreti: creator ücretinin %7'u → 7FZ8…ZRmW (kilitli havuzdan asla pay alınmaz)
+- tablo 5erHtj4khbNhrB8VNWzUPwtqsbmGzgG5VofE2GRmg3Vc (53 adres)
 - 2 işlem: set_platform; lookup_table (imzalar: ek, adım 1)
 
 ### 2. Coin basıldı, %30'u kilitlendi: %25 holder havuzu + %5 sabit liste
@@ -47,16 +47,16 @@ Tek işlemde: pump.fun'da coin yaratıldı, dev 550M coin aldı; alımın %25'i 
 | sabit liste | 0 coin | 27.50M coin |
 | dev coin | 0 coin | 385.00M coin |
 
-- kilit 165.00M coin ≥ arzın %1'i (10.00M coin) ✓; liste kökü 256e2e61f52742c8… zincirde
-- coin: Ge3eaVytDPvXYQQtq8Ljv7Kzq7SqRnUZ7MWtjfBjG3Az
-- escrow: GFRdVtSv9BCwFaBovUuLRJJ6KKqrYMF8SsuFFxxoFkak
+- kilit 165.00M coin ≥ arzın %1'i (10.00M coin) ✓; liste kökü 051110080f927fd8… zincirde
+- coin: J5Js9ch4yaTvwNjsYcBrn2dmtj7cPm6KHoTibgZbqPpt
+- escrow: Awrbt2ioxFGq5LCi3BUmpmakTqswW2JkALNJwQfvmq5y
 - 1 işlem: launch (imzalar: ek, adım 2)
 
 ### 3. Ücret paylaşımı kuruldu: %90 havuz, %10 platform
 
 pump.fun'ın ücret paylaşım ayarı bu coin için açıldı: her alım-satımın creator ücreti otomatik olarak %90 escrow'a, %10 platform cüzdanına gider. Bu bölünme kilitli havuza dokunmaz; yalnızca ücret bölünür.
 
-- coin tipi: regular — platform payı %7, pump'taki paylaşım kaydı H7pU…sMkv
+- coin tipi: regular — platform payı %7, pump'taki paylaşım kaydı B12a…QD3F
 - 1 işlem: setup_fee_sharing (imzalar: ek, adım 3)
 
 ### 4. Sabit liste zincirde, Ekip-1 payını aldı
@@ -122,6 +122,7 @@ Escrow'a 0.2 SOL eklendi. Buyback bunu tek seferde değil, her çağrıda piyasa
 | havuz coin | 137.50M coin | 145.45M coin |
 
 - Demo'da 12 küçük alım yeterli ücret üretmediği için musluğu göstermek üzere escrow'a 0.2 SOL eklendi; üretimde tek kaynak creator ücretidir.
+- aynı anda (blok 36212) ikinci alım reddedildi (BuybackSameSlot) — bu bir kural: blok başına tek harcama; sonraki blok bekleniyor
 - aynı slotta ikinci alım reddedildi (BuybackSameSlot), sonraki slot bekleniyor — tek işleme iki alım sığdırılamaz (~0,4 sn'de bir), escrow SOL değişmedi (0.1133 SOL = 0.1133 SOL)
 - her parça ayrı blokta (~0,4 sn): %0,5 sınırı üst üste bindirilemez, musluk blok başına bir kez akar
 - 5 parça, toplam 0.0829 SOL harcandı, 7.95M coin alındı
@@ -132,7 +133,7 @@ Escrow'a 0.2 SOL eklendi. Buyback bunu tek seferde değil, her çağrıda piyasa
 Alım-satım hacmi eşiği geçti: program havuzun %1'ini dağıtmaya karar verdi ve rastgele bir gecikme belirledi (kimse dağıtım anını önceden bilemez).
 
 - tür: hacim, serbest bırakılacak: 1.45M coin (havuzun %1'i)
-- dağıtım ~53 sn sonra serbest kalacak (rastgele gecikme; üretimde 0–60 dk)
+- dağıtım ~37 sn sonra serbest kalacak (rastgele gecikme; üretimde 0–60 dk)
 - erken ateşleme denendi → reddedildi (TooEarly): süre dolmadan kimse dağıtamaz
 - 1 işlem: check_trigger (imzalar: ek, adım 10)
 
@@ -150,21 +151,21 @@ Gecikme geçince herkesin çağırabildiği fire_trigger havuzun %1'ini dağıt�
 
 Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Serbest bırakılan miktar ağırlık (bakiye × tutma süresi) oranında TÜM uygun holder'lara bölündü; tek cüzdan turun en fazla %10'unu alır, fazlası diğerlerine oransal dağıtıldı.
 
-- Ayşe (8XKR…NJf1): 35.22M coin, 73 sn tutuyor, ağırlık %17.6 → pay 145.4K coin (%10.0) ← tavan
-- Burak (46zr…jYuR): 24.94M coin, 72 sn tutuyor, ağırlık %12.2 → pay 145.4K coin (%10.0) ← tavan
-- Ceren (wq4H…msxc): 22.51M coin, 71 sn tutuyor, ağırlık %10.9 → pay 145.4K coin (%10.0) ← tavan
-- Ekip-1 (7swH…sr1E): 16.50M coin, 78 sn tutuyor, ağırlık %8.8 → pay 145.4K coin (%10.0) ← tavan
-- Küçük-1 (A5pw…szRA): 18.61M coin, 68 sn tutuyor, ağırlık %8.7 → pay 145.4K coin (%10.0) ← tavan
-- Küçük-2 (BAEH…vyCc): 17.03M coin, 67 sn tutuyor, ağırlık %7.8 → pay 135.8K coin (%9.3)
-- Küçük-3 (Gij6…fMji): 15.65M coin, 66 sn tutuyor, ağırlık %7.1 → pay 123.3K coin (%8.5)
-- Küçük-4 (AzLL…icjJ): 14.42M coin, 65 sn tutuyor, ağırlık %6.4 → pay 111.6K coin (%7.7)
-- Küçük-5 (Evqu…Eoc2): 13.34M coin, 64 sn tutuyor, ağırlık %5.8 → pay 101.9K coin (%7.0)
-- Küçük-6 (B9pj…7NoN): 12.37M coin, 63 sn tutuyor, ağırlık %5.3 → pay 92.7K coin (%6.4)
-- Küçük-7 (13an…UUoC): 11.50M coin, 62 sn tutuyor, ağırlık %4.9 → pay 84.6K coin (%5.8)
-- Küçük-8 (Edwb…L5kp): 10.72M coin, 61 sn tutuyor, ağırlık %4.4 → pay 77.4K coin (%5.3)
-- Deniz (78uD…A5up) listede YOK — hepsini sattığı için
+- Ayşe (hTQB…TaLb): 35.22M coin, 57 sn tutuyor, ağırlık %17.9 → pay 145.4K coin (%10.0) ← tavan
+- Burak (AetK…SriU): 24.94M coin, 56 sn tutuyor, ağırlık %12.4 → pay 145.4K coin (%10.0) ← tavan
+- Ceren (CJu6…KBjz): 22.51M coin, 54 sn tutuyor, ağırlık %10.9 → pay 145.4K coin (%10.0) ← tavan
+- Ekip-1 (BBh6…RdfS): 16.50M coin, 62 sn tutuyor, ağırlık %9.1 → pay 145.4K coin (%10.0) ← tavan
+- Küçük-1 (27Xu…W1Dv): 18.61M coin, 52 sn tutuyor, ağırlık %8.7 → pay 145.4K coin (%10.0) ← tavan
+- Küçük-2 (7Cii…XQe5): 17.03M coin, 51 sn tutuyor, ağırlık %7.8 → pay 138.6K coin (%9.5)
+- Küçük-3 (D9kX…oMd2): 15.65M coin, 50 sn tutuyor, ağırlık %7.0 → pay 124.3K coin (%8.5)
+- Küçük-4 (8ZER…k54B): 14.42M coin, 49 sn tutuyor, ağırlık %6.3 → pay 111.8K coin (%7.7)
+- Küçük-5 (6koB…1Q7C): 13.34M coin, 48 sn tutuyor, ağırlık %5.7 → pay 100.9K coin (%6.9)
+- Küçük-6 (B8E3…vCfd): 12.37M coin, 47 sn tutuyor, ağırlık %5.2 → pay 92.0K coin (%6.3)
+- Küçük-7 (BPgB…CBqq): 11.50M coin, 46 sn tutuyor, ağırlık %4.7 → pay 83.3K coin (%5.7)
+- Küçük-8 (6GTy…B7Jq): 10.72M coin, 45 sn tutuyor, ağırlık %4.3 → pay 76.3K coin (%5.2)
+- Deniz (GGWX…VMnJ) listede YOK — hepsini sattığı için
 - serbest 1.45M coin, dağıtılan 1.45M coin; tavanın tuttuğu 0 coin havuzda kalıyor (sızmaz, sonraki tetikleyiciyle yeniden değerlendirilir)
-- dev cüzdanı hazine sayılır, listede yok. kök: e307b3e0a2c22d55… slot 10873
+- dev cüzdanı hazine sayılır, listede yok. kök: 2b7784ed58317e8c… slot 36309
 
 ### 13. Paylaşım zincire mühürlendi
 
@@ -186,15 +187,15 @@ Listedeki her holder kendi cüzdanıyla claim etti, payı havuzdan cüzdanına g
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| Ayşe (8XKR…NJf1) coin | 35.22M coin | 35.37M coin |
-| Burak (46zr…jYuR) coin | 24.94M coin | 25.08M coin |
-| Ceren (wq4H…msxc) coin | 22.51M coin | 22.66M coin |
+| Ayşe (hTQB…TaLb) coin | 35.22M coin | 35.37M coin |
+| Burak (AetK…SriU) coin | 24.94M coin | 25.08M coin |
+| Ceren (CJu6…KBjz) coin | 22.51M coin | 22.66M coin |
 | havuz coin | 143.99M coin | 143.99M coin |
 
-- Küçük-8 (Edwb…L5kp) payı 77.4K coin, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)
-- Ceren (wq4H…msxc) ikinci kez denedi → reddedildi (makbuz zaten var)
+- Küçük-8 (6GTy…B7Jq) payı 76.3K coin, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)
+- Ayşe (hTQB…TaLb) ikinci kez denedi → reddedildi (makbuz zaten var)
 - 11/12 holder aldı, 1.38M coin / 1.45M coin
-- 11 işlem: Ceren (wq4H…msxc) +145.4K coin; Küçük-1 (A5pw…szRA) +145.4K coin; Ayşe (8XKR…NJf1) +145.4K coin; Ekip-1 (7swH…sr1E) +145.4K coin; Burak (46zr…jYuR) +145.4K coin; Küçük-2 (BAEH…vyCc) +135.8K coin; Küçük-3 (Gij6…fMji) +123.3K coin; Küçük-4 (AzLL…icjJ) +111.6K coin; Küçük-5 (Evqu…Eoc2) +101.9K coin; Küçük-6 (B9pj…7NoN) +92.7K coin; Küçük-7 (13an…UUoC) +84.6K coin (imzalar: ek, adım 15)
+- 11 işlem: Ayşe (hTQB…TaLb) +145.4K coin; Ceren (CJu6…KBjz) +145.4K coin; Ekip-1 (BBh6…RdfS) +145.4K coin; Burak (AetK…SriU) +145.4K coin; Küçük-1 (27Xu…W1Dv) +145.4K coin; Küçük-2 (7Cii…XQe5) +138.6K coin; Küçük-3 (D9kX…oMd2) +124.3K coin; Küçük-4 (8ZER…k54B) +111.8K coin; Küçük-5 (6koB…1Q7C) +100.9K coin; Küçük-6 (B8E3…vCfd) +92.0K coin; Küçük-7 (BPgB…CBqq) +83.3K coin (imzalar: ek, adım 15)
 
 ## Sonuç
 
@@ -205,13 +206,13 @@ Listedeki her holder kendi cüzdanıyla claim etti, payı havuzdan cüzdanına g
 | Geri alıma harcanan | 0.0829 SOL → 7.95M coin havuza eklendi |
 | Bu turda dağıtılan | 1.45M coin |
 | Havuzda kalan | 143.99M coin |
-| Süre | 115 sn |
+| Süre | 116 sn |
 
 Kurallar özet: dağıtım anı rastgele gecikmeli (üretimde 0–60 dk); pay = bakiye × tutma süresi oranı, tek cüzdan turun en fazla %10'u, fazlası diğerlerine; liste ve miktar zincire yazılır, herkes aynı sonucu yeniden üretebilir; pay yalnızca listedeki cüzdana ve hâlâ tutuyorsa ödenir; geri alım tek seferde piyasanın %0,5'inden fazlasını harcamaz ve aynı blokta iki kez çalışmaz.
 
 ## Web'de görmek
 
-`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/Ge3eaVytDPvXYQQtq8Ljv7Kzq7SqRnUZ7MWtjfBjG3Az (bu coin: holder payı, tavan, havuz, turlar, "Your share" paneli).
+`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/J5Js9ch4yaTvwNjsYcBrn2dmtj7cPm6KHoTibgZbqPpt (bu coin: holder payı, tavan, havuz, turlar, "Your share" paneli).
 Bir holder'ın payı bilerek claim edilmedi: cüzdanın anahtarı `demo-wallets.json` içinde; Phantom'a aktarıp (ağ: localhost:8899) coin sayfasında cüzdanı bağlayınca panel payı bulur, "claim" butonu zincire gönderir.
 
 ## Ek: işlem imzaları
@@ -220,81 +221,81 @@ Doğrulamak için: `solana confirm -v <imza> --url http://127.0.0.1:8899` (local
 
 **Adım 1 — Hazırlık**
 
-- set_platform: `TBkvaJzF9Lf45LkrjEry2hCf733FREYxkkYafaXfaP4YqmEYR9qXSQjvM1t5pYgVRoaYAZrw61M1ix37Jaaib9R`
-- lookup_table: `4PawVME4GdKUdQPEWwNkJPVTLMaJnzTc9or4qoHkTcvYnRwvyUPEUeKNbgR23uqUhUtyCxDnjKc5NCTkhzqe4ekN`
+- set_platform: `5cPkdbuyNwCRqX8mfDWNQPnDqixn3VdCznCat3UFnLFV38o4zB7BwR9zjVZs7dHsDhLMmW5BpdP5CUoPgwMJt41R`
+- lookup_table: `2dyqEX7tcttiaj8xzxRYmQPGA27y9pEpUGYzbHQiQd1x8yqJPJ2XV4itVeTN2RKuj9jLVUCyHe5NbkpEwenTrWBA`
 
 **Adım 2 — Coin basıldı, %30'u kilitlendi: %25 holder havuzu + %5 sabit liste**
 
-- launch: `3sVVAQ6XxSjgaXaCCEoZ31fhr1L2ZQ1sx9yaW1QfmmiM5xvtREyzthBB3SWgcAB5e6VhqbcHvm6bDH2fzN5LwdTs`
+- launch: `PpfCN3a8LQRvcbATs7cakbZXWnZcezK23ohhBW3BMZKP6YGR3nbaQyPRYLvF2T2cDmpm3QoNinNKMxPeypdTEcR`
 
 **Adım 3 — Ücret paylaşımı kuruldu: %90 havuz, %10 platform**
 
-- setup_fee_sharing: `4XRiSDZYJ39ZueBgmrdD7tRUWMydZaPS2Vtf6qudp8puH3jSP48TgtdoMNy7WVvyPyiCYiq5MkwTWVuzRr5wAMxu`
+- setup_fee_sharing: `51QCFzNLUZBkmyu2LkFNbMXzvLMWs94noiT8381CAjmHVxDfToev5JYVT7S7cqM9Z8tnsWrNsh6UPuRg3tgrJEZW`
 
 **Adım 4 — Sabit liste zincirde, Ekip-1 payını aldı**
 
-- publish_manual_list: `M9tkUgQtCTjrWtVZbMDwfZZ31zx2WJUH82YyJhbickmBRpf2xWipv9RbDuTh2q9udbyUHi3g7b8Ezr4JC92AokS`
-- claim_manual (Ekip-1): `ruiZqchKydhSgKsdvzXr2KDLWh7hcZ3toVDD13avLPuLWyHdxf4arcCPbVQBcyEX3QAPhatwoCtNKkLyQS2P2v7`
+- publish_manual_list: `2GuRhRRmVJ12BocyMEiiE1uNjXePBaoJfYQPp8yAsUv4raidhWR8iMnCFmjrhY9qNLu7CzsxqyghYAxCh1SSBvNL`
+- claim_manual (Ekip-1): `2nKzuYJ6Y5pdUWMeu289FLjZakCEN3pePnjqDnxySosj3SYk4BE8JLerxW6te1ww3bvKCZccWLkMhTGXsayzRtKu`
 
 **Adım 5 — On iki cüzdan piyasadan aldı**
 
-- Ayşe 0.15 SOL ile aldı → 35.22M coin: `4VXtDccDqoXmSn9wTCxDSS8ikmDMsFofgDw4629AbHFbHSqLZ2vqfatqP9rLDfNvwazn7L9fnzJ8TfugsUmUxkoD`
-- Burak 0.12 SOL ile aldı → 24.94M coin: `66qLgCWzhqWs7A9CtNRDbiVosYgHcj2Ht3tDuVrDc3S4UsUJPMgJxeqJgUAkNvT5NaGeASPmA9RxJphnDZSNpiqS`
-- Ceren 0.12 SOL ile aldı → 22.51M coin: `2vCeTeswDhynxa5PRYRwh6wA88eS8VUBo7dpfk2hTWtawFcL3fP2aVVJB3yajh9tzd2hUn33Q7yq8ezuoBdczZBq`
-- Deniz 0.12 SOL ile aldı → 20.42M coin: `4S4iuPrwfyG2kgdFbiBpnQmZpFp6JDFK6CkgSL8ejTSbicnLyCvZiSScDWGLEMuDs7Ed1eSVLVQLbBf68M2C1BbQ`
-- Küçük-1 0.12 SOL ile aldı → 18.61M coin: `4Q72geQ1mXUcyyT6y23F7SuazmdULY2axfhgekGxr6J1HbcEi1iqz7SGcC88aQ53YqGPD7zTcE4KeJR1SPPaNGk`
-- Küçük-2 0.12 SOL ile aldı → 17.03M coin: `5sezdXnmsehdYHgKXFeyypwAJRouU4VnYjWemsRXpWjT31K9ZzuaGxQs6CmfcfRYk1ospyUFMrdw5PT3jmco8B8y`
-- Küçük-3 0.12 SOL ile aldı → 15.65M coin: `21vbDZKxFmCwBufDy1jydN1V9LNXtipM2hREnP5DJS74RSEpL5fMZpkQ69FYTAqpx4ghAHPfvXcbVQj62dQyK7gh`
-- Küçük-4 0.12 SOL ile aldı → 14.42M coin: `NvAypQrYV8FsZtAk5LPcx7efHYML4PQGsuWZXnvFjvz8KP92tc3L3VLuaFSk9M7HMqby6VUN2houGGMevrj6fkq`
-- Küçük-5 0.12 SOL ile aldı → 13.34M coin: `3uVZE7BKC9PhztAs9YXapH7wZrhq4opb4aAzZ4QcvYfAUUYJd6j2nErFGo3a37HWXAMbU8W4Cja64cT56XKb6gZV`
-- Küçük-6 0.12 SOL ile aldı → 12.37M coin: `2s592kXsWa3NnmuD5Ab81vFRBy5FpS4d6eQwY1fQFhFwwFHV7q1JYjNDsYQnBKxGossuPeLfbfx1EjvnMUWnoMFn`
-- Küçük-7 0.12 SOL ile aldı → 11.50M coin: `53Fdn3c9mSNpMu2qjJiaJ1za9uibaYt2ozaJYuZdyvy2wuj5GxArBKb42Asyn4DTcn6DyADcsQ96hAjemQS8RifN`
-- Küçük-8 0.12 SOL ile aldı → 10.72M coin: `3KcSauEJ32jvKtV6h2ur6Y1qsoGjzA1KMYrtthsV2wf9yHhp9rVr3g99nSooq418ETUCkoXwMxcWX3PWJuJ52bfP`
+- Ayşe 0.15 SOL ile aldı → 35.22M coin: `3jyjQQkiuSBomBTVydxBGWi7XsoLt1SyopkWxXRisM1AJettqdU8fTed2sF5jGfMUtd87fHi615ky5N8iwnSmrRV`
+- Burak 0.12 SOL ile aldı → 24.94M coin: `4DuQpk58EgSgnsBAMwKgQwstWvFkgepRvdMiRrmYnfFZ98yuqu22qgBZmRQUZP6DKb6Yvf23HmGyxbLayQU87LwT`
+- Ceren 0.12 SOL ile aldı → 22.51M coin: `2HtwGnJVKPRTXAdnsH9LgPtWzh3mL37fdqyXQku7rdJSsgeVky5P1ZLzBCFTgUvTZ5V6FhLgDUTrupvvmTa2jFnZ`
+- Deniz 0.12 SOL ile aldı → 20.42M coin: `5xV4QarkYGYjBwXudzzT7FyYj92kz39qskP2a5dcdUjarLxpT6aAs9FVSLgHUTWadN1noPEBH8cH89yEzo9PPvfd`
+- Küçük-1 0.12 SOL ile aldı → 18.61M coin: `3sE8iq225CikK2ev5DYmkRjZfsWsSDgVuR5C5gYj1cHzupLYFmQGjnVdAHV3W6T1cocbuAmyyTYV5tzvFieiP2Vk`
+- Küçük-2 0.12 SOL ile aldı → 17.03M coin: `2UhFzdQ1rU6udZdndfx3FKovjbejfeXgvCbq6TZ8eZSNLvpTeGtWKJF2xy38oxuE4P53HKxZBQpkNJRwKhy1emgs`
+- Küçük-3 0.12 SOL ile aldı → 15.65M coin: `4jwMUtdKLi9b7sfRGQfJ8cMgX3WuVKwwV1FBawsAchjXBns1S3KZihAyqzSQrfYdttxJ4ZyyKQuJJ7gTZYHpV75q`
+- Küçük-4 0.12 SOL ile aldı → 14.42M coin: `tFZdKSnzaqUsjN6SeiUzEfN9X4vgDNm26f9LF64GnXqZXmEUhQ26s9WQqVkaR7db7WpnGk1gSCk4QETDEggW4Xz`
+- Küçük-5 0.12 SOL ile aldı → 13.34M coin: `4LaRzesYdLhtfnDt36xN5e3vmXHfEG9BPhi4wGZ7mhKzFf6BDTBUCpn5tMpJawvzxy7zeSivpFbk7DJwrGtW9hUX`
+- Küçük-6 0.12 SOL ile aldı → 12.37M coin: `D3LUTo3GL9PYoMHFobJPUwPxjSHsUJJgbwuiGmAHLNcvQRze9EfMQ8Y9msz5j4Bq3mXUAxjF8couzWd3myKZCBV`
+- Küçük-7 0.12 SOL ile aldı → 11.50M coin: `8JPFJDLb1y4QsXieURmWZyBsrpPPXMN6RKyiTPZWwbHtUmj9AWWSWRngY7jyfupfTJddmijRzW13nBofFDtNFjS`
+- Küçük-8 0.12 SOL ile aldı → 10.72M coin: `5fqG8JkRXFTz7KKg3sYJkpY7TZ9USwHbuCfmKfHfr8XVfydXQXyLy4toC2nAABZbQbxajhfgcQhFs2P8Zz7bnW8y`
 
 **Adım 6 — Tetikleyici başlangıç noktası**
 
-- set_delay_window: `665TxAw1sy6xg3Dd5naKoRsvjp4Rh9zgnkhwbM5kXSYPfUKsPuEydkPTDEcqZupePLe7ngE8gWcGwWyWXgh464bx`
-- check_trigger: `2nK6NqEeWnEN15kqJaX9qsVBXcnQ1o5megcBCtUF1rvJhA4QQ5WyumW5FntHM5GfiPn9g8sSiM2xHqr91C17uoUm`
+- set_delay_window: `3CzQCnh4vtHFNuZiMhQRXYEWj3ppWVRjMx7fGzBt3a6e9pvNN6vb49XYceGGFCkv9vmaSvrQ5GMyHWiw5SiJpneJ`
+- check_trigger: `Ayq5xWYzLRPV88soXHevWrBf3MV44pEaRZCgZg1VoB5KjWzaeSj6mqMQEzW49xbHut4vaQ1cDhiP4BBou2DwAc8`
 
 **Adım 7 — Deniz hepsini sattı**
 
-- sell: `2hPoiZc5Mupi2FD8qu6gKMMZQACcZ27iGcvJKnwfhHCrRk5L9AxSSeupuByXzNdYkqr3EHYGkoNZ3rDLXx7svKt6`
+- sell: `2BY2J4CLdxaV4ZEXw3JRvoVAzG5r2mfpDzpzBEZd9s3ump83gddju4tdCHjL38jmU2NSsTbL1g9e3TewVBUwN5wn`
 
 **Adım 8 — Biriken ücret dağıtıldı: %90 havuza, %10 platforma**
 
-- collect_fees: `NDGByh5128HFxubvrp4aCi885ALqeDX37hUH95boksFrXhsTKvKn6VFxJS8F6xgii4BXRXjPsd34WTJPAYvbwhU`
+- collect_fees: `2YpPC7xfkpJ9TepBozFCmATbrQZWUaNkEsJBnxLteJhWcSkSE7i1wji9tt1KFusMtTDJfiHavsNF3AFkukN2QocL`
 
 **Adım 9 — Topluluk bağışı ve parça parça geri alım**
 
-- 0.2 SOL eklendi: `2z1doEtNEDqQyojhdVukF8r6B5YPuXBuH2hStZe3ovfYYXCoYpiKANqkHDY2DuU1G7X3Bem6pe1MZhQMXPWXYGxY`
-- parça 1: 0.0164 SOL harcandı → +1.61M coin, sonraya 0.1782 SOL: `3XoL1KtEPcSupTZgJ3RYXnRsde2QpKEKs8PsKBfcpKJnF7qefS1UrCRQfP7UN54f5svH8yzeBD7q9yeyiwFjcaoS`
-- parça 2: 0.0165 SOL harcandı → +1.60M coin, sonraya 0.1599 SOL: `2qycBw18zf2J9DMUCLDXP1ByDdDpZe1NABDxfU5oNFNRAws8ir69Ancqdsx9DAD28n4BkoAQk92wnYDQz1PUJQM`
-- parça 3: 0.0166 SOL harcandı → +1.59M coin, sonraya 0.1433 SOL: `2c2APTKSUg4KuA7PL6ynu89HHM4TWvU4V9jjMcXuo5Y5Zjucj7WjwR3y1CnX31d6BcEg61FqVsrhYH837bCrAr6c`
-- parça 4: 0.0167 SOL harcandı → +1.58M coin, sonraya 0.1266 SOL: `32eNBQDuJjQMJJyBQ8YR1xXwKi5WhyCx2ufZgRS7W7AdYHfZfaSWL6YLMc8Ag4URfrhbzVktt8HW9RTag9hZpo8X`
-- parça 5: 0.0167 SOL harcandı → +1.57M coin, sonraya 0.1099 SOL: `4CCnXExfDB1PDX9yCUg6AnaDgi9Tn2P4ebCukWtfym2h3aT5PcSH6fYmYcUck2GXVurTzp62X5Zp9BRoS41gYmwG`
+- 0.2 SOL eklendi: `2vr6hTibiJiFoZwanJK4yRn1FcDJPAGHP3fWLs7Hgd5apc1gcRv8B8mKxiemfWTjLBFrkqb2Xp1cLEsBPw1xCePr`
+- parça 1: 0.0164 SOL harcandı → +1.61M coin, sonraya 0.1782 SOL: `4c19EwwFcBFbrMVa4jGHgFEsdsdngjnb21vGWuQnFnCqDASaoJRW4qJDftqV4EfmtVFLkRHqGaJYuyaqxET1gXfY`
+- parça 2: 0.0165 SOL harcandı → +1.60M coin, sonraya 0.1599 SOL: `5hFC4LqnwYcnzL4ATyDN2QM1N8JjVXhsoBFXk4kLrmFj2nxnpr3LfnxSNff4W6HqF1Doxe3WEwfUd1pgCF6Vk418`
+- parça 3: 0.0166 SOL harcandı → +1.59M coin, sonraya 0.1433 SOL: `4Go7VTcuNwKtF9pGyeXJQPEDTuM7B4Mqg1JZwNYkhB6NJ7akKmEwkjMNZAHDtnA3yE1Q1ggVjt2UetESCKXF8QYF`
+- parça 4: 0.0167 SOL harcandı → +1.58M coin, sonraya 0.1266 SOL: `y64aeSH6bY8GQHeKMhctsrNUY9ecPDSQt4jFy8j4R8MgxLE5LsKyX9HkYRrpdQx3E4UCWcgh5uqKvb3GEPVihSG`
+- parça 5: 0.0167 SOL harcandı → +1.57M coin, sonraya 0.1099 SOL: `7NwWqVChKtZCP7MBDf8zzUvbjfZWtgoms6zV5SH5M6CtuZwbauMKs9Urcce6Th8Ez9JqGK55EkqpQeDEzhstkAU`
 
 **Adım 10 — Hacim tetikleyiciyi kurdu**
 
-- check_trigger: `5ZTdoiLXoQpRi2abdsip8d6vd1LA62iY2c8YNXcdDi8kVskFe74XdsdiFkgWzTfvurTcbBAQEovhxm8FGK3T4T17`
+- check_trigger: `5itkQzccRRkxPkF7TmoyJSjP73XP3Lbv41CekfGehEtgSRbfjxB1dN4y2oq5LNCZwnv4v9rcRw4e8huCN5qe5FtM`
 
 **Adım 11 — Süre doldu, dağıtım serbest bırakıldı**
 
-- fire_trigger: `4NmBC9qKqPXwFAg1zsWQuJNa5JqgbA28rmQFVHpfpF2LZ6EagWVx3EFTLpk57uTVkX2wCroEvncMzdT9rUP96d8a`
+- fire_trigger: `2ekozQDLbtXb5uhZoHXG2nyqYLvrbHov7QT9gfiiWv6FEfwDwZaYqfyuUtkfj4cXh5yKP6jhtPcEgy2v8YaSZcHB`
 
 **Adım 13 — Paylaşım zincire mühürlendi**
 
-- open_round: `5qJWZrje94zzUwSbAyUwdaDoG46AFrdvNUt5A7SPmHhUPXHQv9JrWyVbJk19mN4P5iRpP1oBYkEgbbyt2sGcZZE9`
+- open_round: `gZpxmbUHtkE4ybfbeB9kbctrsK6ovZwh6Z8LScuPMZqg3cG4bYeeQWLii5An245jfUqeo2Fm3tysarMiRifxefY`
 
 **Adım 15 — Herkes kendi payını aldı**
 
-- Ceren (wq4H…msxc) +145.4K coin: `2ivDbaCyx58zJykgDTBHsth4kbf6AogaTUoqSoGXW9kqMN8kCAu7DaerNjP8m59yUeQFFCYB7YQ5onopgTGgSc7D`
-- Küçük-1 (A5pw…szRA) +145.4K coin: `22QbpxMgBFKtK4BaxUYvwzWruGX19ESbt1m5925UR29RVqryvL4yGcQWMFf5xHZxxC5yGAaDnryDB3aBfj4Wq5yK`
-- Ayşe (8XKR…NJf1) +145.4K coin: `2MAuWB14ZU2rzcN27wY6jCBYzokBQn9TN1YjHxUMx6CycnxFt3Hg8SzSXktRBPWfzSxRFN3Vp5LmBwNSi4fw7TcU`
-- Ekip-1 (7swH…sr1E) +145.4K coin: `6bvNcTZTGsDDMKRmurGAb4kkDqER6fxBi8FRhjrhnyXN3yFr7ZWZx2qhJ9DRsPthDEiQNvuVtn1RRTqfFi9pXHv`
-- Burak (46zr…jYuR) +145.4K coin: `5gtNvRfsYkANoA5wSkEgv484dm2R6X1drhfLAaNbYdQi1GGg3QWVc22qzTJCPCcDc5AABg2vEP8osqcXkDRcL9rg`
-- Küçük-2 (BAEH…vyCc) +135.8K coin: `2X4CM6JNWRoxRspKWXPbZcQfsHqojn8DA8RkDj7fWf4Z5eyjfBt6qotPcFhFPziwVDnJqqqBbSrtJZgCjP7EBUov`
-- Küçük-3 (Gij6…fMji) +123.3K coin: `4GT3SczJTTSAecXWt9LzVLG5kKNMfXkxrkVMLPXNaeV9euQFmMTafzagYZsKnBN3AvUUWMHWWCHFj191dxZAMQFj`
-- Küçük-4 (AzLL…icjJ) +111.6K coin: `5PLbkADoVbSqXBDgPH5BdWF4455rmL8YFZBPEiSzmFU8BRbYGyPsuFeHBB9jEW3poiCc1DL3F4dyddhrQez1LBUm`
-- Küçük-5 (Evqu…Eoc2) +101.9K coin: `5qxcF2xb8CUNgBVJKaxhWJqmT6ZYNmCtmU48RkA5VuDqLarVWfxhgLt7U6Pbi9a9HdjdTVrYqmZvr2nM88529U6B`
-- Küçük-6 (B9pj…7NoN) +92.7K coin: `38HktFTUnzkJS2WH5rBR93ZVDowqJhST28krVCycVRubk6b4q6cAEqjiP5TthqFa7H5ENBxCEffoXwuZn1HUj86h`
-- Küçük-7 (13an…UUoC) +84.6K coin: `Bv22CkfWZRLQAPRdSaexiNekndWSkN91UfGFm1GBQcLLDLMzgT1fVcdXqHEu9xVCTNMDBxBu4GJDrECHVd2aPdM`
+- Ayşe (hTQB…TaLb) +145.4K coin: `5SnX1kHGWXWZhwzLj9DQMhZtLdtUVoBc9V2vX11QkTKtWR943FL1h1ffqqKmLY2TZN1fgh5VRGdWQTuKiBxgTMi9`
+- Ceren (CJu6…KBjz) +145.4K coin: `2Yj2yBfmitzo7VoNZNxg8P87XsfD5NYhgqH7eUJ2P8JneYJM2bV5onDi7FHN1SmkTdmBk1dGfHLsdM6Db3BLt8zx`
+- Ekip-1 (BBh6…RdfS) +145.4K coin: `5qnX7WoqkigZmXMZoqPG28QJmMRn33siQMpzMPoFgfoBuC3b3s5iHKwursvF3MukSbCBBFtMggcTLrhqrH8zyspi`
+- Burak (AetK…SriU) +145.4K coin: `2PFzMRaar25rRzuUYDQcKC1syajfnnZ2z5CDB3zR5NraAmjfFT3fqiyP42zvWKkjpG5GVuzQaJKXtVoPf3aKbFLk`
+- Küçük-1 (27Xu…W1Dv) +145.4K coin: `6bpajTodrAinTwuTCvMWbmQ6dx7acoCAmegg1QgyRMpYFcBhkQJRh4xxcrfQrM2z1T5zpQtq2j6jQ46jH75CZ4Y`
+- Küçük-2 (7Cii…XQe5) +138.6K coin: `3JrJkY3RBrjSvpJpsRoLEYNZkcw4uzaPsoqSW8Eio7H3z95VCCqaRkbFHuUic9DV7CHbhZg4sXkfMDtH6CTVQfXA`
+- Küçük-3 (D9kX…oMd2) +124.3K coin: `uDxGVYwSyw5F1FP2zjnauTsTgoHGd3Ak8ehYRCSZ9JnAcxSAbEaA8izjWjAFd3cM1g6v47T8FLAZhXJQT4c6Es2`
+- Küçük-4 (8ZER…k54B) +111.8K coin: `4d4oAnSSYsKxbR5gW2VUjw9o9u1VLVtyNV3JUHZLu5hjqfX6Ynhcu3rj58tTg8JwhDGy2bmcUNtmtwstnnEXfM7g`
+- Küçük-5 (6koB…1Q7C) +100.9K coin: `2t4J6pEMT7YjhidnHgTXzQ1u4Cf9wbsspChdWaeZk5sF5sk6QcTXofJBBzQ4jr1HLDYAbp9NAMEuechouYp3uSPh`
+- Küçük-6 (B8E3…vCfd) +92.0K coin: `b2Yx94AAjJTm9LmRTNpKGsopQ5sx7kAvUgdABaivjwTJn5h46Mqo5VbYDRnmVmnBooC9mjQkghNLjJZucrsNcnV`
+- Küçük-7 (BPgB…CBqq) +83.3K coin: `4nhF5ATd6e9HgGDffJLwZMctTFGikUH37B9mhdyuxAL39RAdJZYe3JhNPViN3U7xyqtrS9mkoLznE6M1QfrD9WQe`

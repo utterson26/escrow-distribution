@@ -1246,6 +1246,9 @@ işine ertelendi (README, SECURITY_REVIEW §5.11).
   ikinci publisher ekler, taban 0,1 SOL'e geri. Localnet: ana 20/20, security
   6/6, manual 7/7, allocate 6/6, demo temiz.
 - Devnet programı hâlâ adım 26 sürümü (SOL yok).
+- 14 Eylül: temiz ledger'da yeniden koşuldu — ana 20/20, security 6/6 (F3
+  publisher/taban yolu dahil), manual 7/7, allocate 6/6. `DEMO.md` yeni
+  adreslerle yeniden üretildi.
 
 ## Senden karar bekleyenler (yeni)
 
