@@ -63,7 +63,10 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, tries = 5): Pro
 describe("airdrop_escrow (devnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
-    commitment: "confirmed", preflightCommitment: "confirmed",
+    commitment: "confirmed",
+    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
+    // node is "Blockhash not found" on the next, so simulate against finalized
+    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
   });
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
@@ -213,7 +216,7 @@ describe("airdrop_escrow (devnet)", () => {
     const sig = await withRetry("setup_fee_sharing", () => program.methods.setupFeeSharing()
       .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, feeWallet.publicKey))
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     sigs.setupFeeSharing = sig;
     const st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.feeSharingSet);
@@ -228,7 +231,7 @@ describe("airdrop_escrow (devnet)", () => {
       await program.methods.setupFeeSharing()
         .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, feeWallet.publicKey))
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-        .rpc({ commitment: "confirmed" });
+        .rpc(provider.opts);
     } catch { again = true; }
     assert.isTrue(again, "fee sharing is one-shot");
     console.log(`  sharing config ${sharingConfig.toBase58()} sig=${sig}`);
@@ -238,10 +241,10 @@ describe("airdrop_escrow (devnet)", () => {
     await withRetry("set_delay_window", () => program.methods
       .setDelayWindow(new BN(DELAY_WINDOW))
       .accountsPartial({ platform: dev.publicKey, escrow })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
 
     const sig = await withRetry("check_trigger", () => program.methods
-      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     sigs.checkBaseline = sig;
     const st: any = await program.account.escrow.fetch(escrow);
     assert.isFalse(st.armed, "first sight only records the baseline");
@@ -272,7 +275,7 @@ describe("airdrop_escrow (devnet)", () => {
       .collectFees()
       .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, dev.publicKey))
       .remainingAccounts(shareholderMetas(feeAuthority, feeWallet.publicKey, 1000))
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     sigs.collectFees = sig;
 
     const escGain = (await conn.getBalance(escrow, "confirmed")) - escBefore;
@@ -588,7 +591,7 @@ describe("airdrop_escrow (devnet)", () => {
       await sendBuyback("volume");
     }
     const sig = await withRetry("check_arm", () => program.methods
-      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     sigs.checkArm = sig;
 
     st = await program.account.escrow.fetch(escrow);
@@ -615,7 +618,7 @@ describe("airdrop_escrow (devnet)", () => {
         try {
           await program.methods.fireTrigger()
             .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
-            .rpc({ commitment: "confirmed" });
+            .rpc(provider.opts);
           detail = "KABUL EDILDI"; break;
         } catch (e: any) {
           const m = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
@@ -641,7 +644,7 @@ describe("airdrop_escrow (devnet)", () => {
   it("4d. checking again while armed changes nothing", async () => {
     const before: any = await program.account.escrow.fetch(escrow);
     const sig = await withRetry("check_noop", () => program.methods
-      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     sigs.checkNoop = sig;
     const after: any = await program.account.escrow.fetch(escrow);
     assert.equal(after.fireSlot.toString(), before.fireSlot.toString(), "fire slot untouched");
@@ -658,7 +661,7 @@ describe("airdrop_escrow (devnet)", () => {
 
     const sig = await withRetry("fire", () => program.methods.fireTrigger()
       .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     sigs.fireVolume = sig;
 
     const after: any = await program.account.escrow.fetch(escrow);
@@ -711,7 +714,7 @@ describe("airdrop_escrow (devnet)", () => {
         .openRound(roundIndex, [...Buffer.from(snap.root, "hex")], new BN(released.toString()),
                    new BN((released + 1n).toString()), snap.leaves.length, new BN(snap.snapshotSlot))
         .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
-        .rpc({ commitment: "confirmed" });
+        .rpc(provider.opts);
     } catch { refused = true; }
     assert.isTrue(refused, "cannot distribute more than the trigger authorised");
 
@@ -719,7 +722,7 @@ describe("airdrop_escrow (devnet)", () => {
       .openRound(roundIndex, [...Buffer.from(snap.root, "hex")], new BN(released.toString()),
                  new BN(total.toString()), snap.leaves.length, new BN(snap.snapshotSlot))
       .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     sigs.openRound = sig;
 
     const r: any = await program.account.round.fetch(round);
@@ -744,7 +747,7 @@ describe("airdrop_escrow (devnet)", () => {
         .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount),
                     proofFor(layers, leaf.index).map((b) => [...b]))
         .accountsPartial(claimAccounts(h.publicKey, round))
-        .signers([h]).rpc({ commitment: "confirmed" }));
+        .signers([h]).rpc(provider.opts));
       if (paid === 0n) sigs.claimShare = sig;
       const after = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
       assert.equal((after.amount - before.amount).toString(), leaf.amount, `leaf ${leaf.index} paid its amount`);
@@ -762,7 +765,7 @@ describe("airdrop_escrow (devnet)", () => {
     try {
       await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount),
           proofFor(layers, l0.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(h0.publicKey, round)).signers([h0]).rpc({ commitment: "confirmed" });
+        .accountsPartial(claimAccounts(h0.publicKey, round)).signers([h0]).rpc(provider.opts);
     } catch { again = true; }
     assert.isTrue(again, "double claim rejected");
     console.log("  ikinci claim reddedildi");
@@ -777,7 +780,7 @@ describe("airdrop_escrow (devnet)", () => {
     try {
       await program.methods.claimShare(victim.index, new BN(victim.balance), new BN(victim.amount),
           proofFor(layers, victim.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(outsider.publicKey, round)).signers([outsider]).rpc({ commitment: "confirmed" });
+        .accountsPartial(claimAccounts(outsider.publicKey, round)).signers([outsider]).rpc(provider.opts);
       detail = "KABUL";
     } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
     assert.match(detail, /BadProof/, `someone else's leaf must not pay out: ${detail.slice(0, 200)}`);
@@ -840,7 +843,7 @@ describe("airdrop_escrow (devnet)", () => {
     });
 
     const sig = await withRetry("check_milestone", () => program.methods
-      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     sigs.checkMilestone = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
@@ -855,7 +858,7 @@ describe("airdrop_escrow (devnet)", () => {
     while ((await conn.getSlot("confirmed")) < fireSlot) await sleep(400);
     const fsig = await withRetry("fire_milestone", () => program.methods.fireTrigger()
       .accountsPartial({ escrow, bondingCurve: pa.bondingCurve })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     sigs.fireMilestone = fsig;
 
     const after: any = await program.account.escrow.fetch(escrow);
@@ -865,7 +868,7 @@ describe("airdrop_escrow (devnet)", () => {
 
     // and it never steps back down: a check right after must not re-arm
     const again = await withRetry("check_after_milestone", () => program.methods
-      .checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+      .checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     const st2: any = await program.account.escrow.fetch(escrow);
     assert.equal(st2.lastMilestoneMcap.toString(), after.lastMilestoneMcap.toString(),
       "milestone does not go backwards");
@@ -909,13 +912,13 @@ describe("airdrop_escrow (devnet)", () => {
     await withRetry("open_round_doctored", () => program.methods
       .openRound(1, [...bad.root], new BN(released.toString()), new BN(half.toString()), 11, new BN(doctored.snapshotSlot))
       .accountsPartial({ publisher: dev.publicKey, escrow, round: round1, systemProgram: SystemProgram.programId })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     const l0 = doctored.leaves[0];
     const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
     let detail = "";
     try {
       await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount), proofFor(bad.layers, l0.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(h0.publicKey, round1)).signers([h0]).rpc({ commitment: "confirmed" });
+        .accountsPartial(claimAccounts(h0.publicKey, round1)).signers([h0]).rpc(provider.opts);
       detail = "KABUL";
     } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
     assert.match(detail, /ShareOverCap/, `over-cap leaf must be refused with 11 holders: ${detail.slice(0, 200)}`);
@@ -926,11 +929,11 @@ describe("airdrop_escrow (devnet)", () => {
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
       directBuyIx(mint, dev.publicKey, sharingConfig, BigInt(0.15 * LAMPORTS_PER_SOL), 1n),
     ]);
-    await withRetry("check_trigger", () => program.methods.checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    await withRetry("check_trigger", () => program.methods.checkTrigger().accountsPartial(triggerAccounts()).rpc(provider.opts));
     let st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.armed, "volume armed again");
     while ((await conn.getSlot("confirmed")) < st.fireSlot.toNumber()) await sleep(400);
-    await withRetry("fire", () => program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }).rpc({ commitment: "confirmed" }));
+    await withRetry("fire", () => program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }).rpc(provider.opts));
     st = await program.account.escrow.fetch(escrow);
     released = BigInt(st.pending.toString());
     assert.isTrue(released > 0n);
@@ -952,7 +955,7 @@ describe("airdrop_escrow (devnet)", () => {
     await withRetry("open_round_11", () => program.methods
       .openRound(2, [...Buffer.from(snap11.root, "hex")], new BN(released.toString()), new BN(total.toString()), 11, new BN(snap11.snapshotSlot))
       .accountsPartial({ publisher: dev.publicKey, escrow, round: round2, systemProgram: SystemProgram.programId })
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     const st2: any = await program.account.escrow.fetch(escrow);
     assert.equal(st2.pending.toString(), "0", "nothing carried over");
     assert.equal((BigInt(st2.allocated.toString()) - allocatedBefore).toString(), total.toString(),
@@ -964,7 +967,7 @@ describe("airdrop_escrow (devnet)", () => {
       const before = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
       await withRetry(`claim11 ${leaf.index}`, () => program.methods
         .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(h.publicKey, round2)).signers([h]).rpc({ commitment: "confirmed" }));
+        .accountsPartial(claimAccounts(h.publicKey, round2)).signers([h]).rpc(provider.opts));
       const after = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
       assert.equal((after.amount - before.amount).toString(), leaf.amount);
     }

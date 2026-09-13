@@ -95,7 +95,10 @@ async function main() {
   const conn = new Connection(RPC_URL, "confirmed");
   const wallet = new anchor.Wallet(keypair);
   const provider = new anchor.AnchorProvider(conn, wallet, {
-    commitment: "confirmed", preflightCommitment: "confirmed",
+    commitment: "confirmed",
+    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
+    // node is "Blockhash not found" on the next, so simulate against finalized
+    preflightCommitment: /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint) ? "confirmed" : "finalized",
   });
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8"));
   const program = new Program(idl, provider) as any;

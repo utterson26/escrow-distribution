@@ -106,7 +106,7 @@ async function main() {
   await program.methods.setPlatform(crankKp.publicKey, crankKp.publicKey).accountsPartial({
     authority: dev.publicKey, config: configPda, program: program.programId, programData,
     systemProgram: SystemProgram.programId,
-  }).rpc({ commitment: "confirmed" });
+  }).rpc(provider.opts);
   note("-", "platform set", `config.platform = crank ${crankKp.publicKey.toBase58()}`);
 
   /** create_v2 + buy_v2 through our program, the way tests do it (needs a LUT). */
@@ -172,14 +172,14 @@ async function main() {
       }
     }
     await program.methods.setDelayWindow(new BN(DELAY_WINDOW))
-      .accountsPartial({ platform: crankKp.publicKey, escrow }).signers([crankKp]).rpc({ commitment: "confirmed" });
+      .accountsPartial({ platform: crankKp.publicKey, escrow }).signers([crankKp]).rpc(provider.opts);
     note(symbol, "launch", `mint=${mint.toBase58()} escrow=${escrow.toBase58()} sig=${sig}`);
     // fee sharing (escrow / platform split) — the crank would do this on its
     // first tick too; doing it here keeps the market buys on one creator vault
     const fsig = await program.methods.setupFeeSharing()
       .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, crankKp.publicKey))
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-      .rpc({ commitment: "confirmed" });
+      .rpc(provider.opts);
     note(symbol, "fee sharing set", `90% escrow / 10% platform sig=${fsig}`);
     return { symbol, mint, escrow, pa: paS };
   }
@@ -346,7 +346,7 @@ async function main() {
               holder: who.publicKey, escrow: c.escrow, round: roundAddr, receipt, mint: c.mint,
               escrowTokenAccount: escrowAta(c.escrow, c.mint), holderTokenAccount: ata,
               bondingCurve: c.pa.bondingCurve, baseTokenProgram: TOKEN_2022, systemProgram: SystemProgram.programId,
-            }).signers([who]).rpc({ commitment: "confirmed" });
+            }).signers([who]).rpc(provider.opts);
           const after = (await conn.getTokenAccountBalance(ata, "confirmed")).value.amount;
           const got = BigInt(after) - BigInt(before);
           if (got !== BigInt(leaf.amount)) claimStats.errors.push(`round ${r.index}: paid ${got}, owed ${leaf.amount}`);

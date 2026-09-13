@@ -40,7 +40,10 @@ const errOf = (e: any) => String(e?.error?.errorCode?.code ?? e?.message ?? e);
 describe("security review regressions (localnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
-    commitment: "confirmed", preflightCommitment: "confirmed",
+    commitment: "confirmed",
+    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
+    // node is "Blockhash not found" on the next, so simulate against finalized
+    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
   });
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
@@ -72,9 +75,16 @@ describe("security review regressions (localnet)", () => {
   let snap: Snapshot;
 
   async function send(ixs: anchor.web3.TransactionInstruction[], payer: Keypair = dev, extra: Keypair[] = []) {
-    const bh = await conn.getLatestBlockhash("confirmed");
-    const tx = new Transaction({ ...bh, feePayer: payer.publicKey }).add(...ixs);
-    return sendAndConfirmTransaction(conn, tx, [payer, ...extra], { commitment: "confirmed" });
+    for (let i = 0; ; i++) {
+      try {
+        const bh = await conn.getLatestBlockhash("finalized");
+        const tx = new Transaction({ ...bh, feePayer: payer.publicKey }).add(...ixs);
+        return await sendAndConfirmTransaction(conn, tx, [payer, ...extra], { commitment: "confirmed" });
+      } catch (e: any) {
+        if (i >= 4 || !/Blockhash not found|429|Too Many Requests|timed out/i.test(String(e?.message ?? e))) throw e;
+        await sleep(1500 * (i + 1));
+      }
+    }
   }
   async function expectError(label: string, p: Promise<unknown>, re: RegExp) {
     try { await p; } catch (e: any) {
@@ -85,9 +95,16 @@ describe("security review regressions (localnet)", () => {
   }
 
   before(async () => {
+    // localnet has a faucet; on devnet the faucet is rate-limited, so the dev
+    // wallet funds the throwaway keys (they need ~0.3 SOL each here)
+    const local = /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint);
     for (const k of [platform, stranger, ...holders]) {
-      const sig = await conn.requestAirdrop(k.publicKey, 3 * LAMPORTS_PER_SOL);
-      await conn.confirmTransaction(sig, "confirmed");
+      if (local) {
+        const sig = await conn.requestAirdrop(k.publicKey, 3 * LAMPORTS_PER_SOL);
+        await conn.confirmTransaction(sig, "confirmed");
+      } else {
+        await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: k.publicKey, lamports: 0.3 * LAMPORTS_PER_SOL })]);
+      }
     }
   });
 
@@ -148,12 +165,12 @@ describe("security review regressions (localnet)", () => {
   it("F2: the dev cannot turn the test knobs; the platform can", async () => {
     await expectError("dev sets day window",
       program.methods.setDayWindow(new BN(2)).accountsPartial({ platform: dev.publicKey, escrow })
-        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/);
     await expectError("dev sets delay window",
       program.methods.setDelayWindow(new BN(5)).accountsPartial({ platform: dev.publicKey, escrow })
-        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/);
     await program.methods.setDelayWindow(new BN(5))
-      .accountsPartial({ platform: platform.publicKey, escrow }).signers([platform]).rpc({ commitment: "confirmed" });
+      .accountsPartial({ platform: platform.publicKey, escrow }).signers([platform]).rpc(provider.opts);
     const st: any = await program.account.escrow.fetch(escrow);
     assert.equal(st.maxDelaySlots.toNumber(), 5);
   });
@@ -167,16 +184,16 @@ describe("security review regressions (localnet)", () => {
           getAssociatedTokenAddressSync(WSOL, h.publicKey, true, TOKEN), h.publicKey, WSOL, TOKEN),
       ], h);
     }
-    await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc({ commitment: "confirmed" }); // baseline
+    await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc(provider.opts); // baseline
     for (const h of holders) {
       await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
                   directBuyIx(mint, h.publicKey, feeAuthority, BigInt(0.15 * LAMPORTS_PER_SOL), 1n)], h);
     }
-    await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc({ commitment: "confirmed" });
+    await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc(provider.opts);
     let st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.armed, "volume armed the trigger");
     while ((await conn.getSlot("confirmed")) < st.fireSlot.toNumber()) await sleep(400);
-    await program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }).rpc({ commitment: "confirmed" });
+    await program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }).rpc(provider.opts);
     st = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.pending.gtn(0));
     const released = BigInt(st.pending.toString());
@@ -195,7 +212,7 @@ describe("security review regressions (localnet)", () => {
       .openRound(0, [...Buffer.from(snap.root, "hex")], new BN(released.toString()), new BN(snap.total),
                  snap.leaves.length, new BN(snapSlot))
       .accountsPartial({ publisher: platform.publicKey, escrow, round, systemProgram: SystemProgram.programId })
-      .signers([platform]).rpc({ commitment: "confirmed" });
+      .signers([platform]).rpc(provider.opts);
     const r: any = await program.account.round.fetch(round);
     assert.equal(r.released.toString(), released.toString(), "release recorded for reproducers");
     assert.equal(r.snapshotSlot.toNumber(), snapSlot, "slot recorded for reproducers");
@@ -208,7 +225,7 @@ describe("security review regressions (localnet)", () => {
     await expectError("inflated release",
       program.methods.openRound(1, [...badRoot], new BN((released + 1n).toString()), new BN(snap.total), 2, new BN(snapSlot))
         .accountsPartial({ publisher: platform.publicKey, escrow, round: roundPda(1), systemProgram: SystemProgram.programId })
-        .signers([platform]).rpc({ commitment: "confirmed" }),
+        .signers([platform]).rpc(provider.opts),
       /AmountNotAuthorized/);
   });
 
@@ -225,7 +242,7 @@ describe("security review regressions (localnet)", () => {
       holderA.publicKey, half, 6, [], TOKEN_2022)], holderA);
     const claim = () => program.methods
       .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((b) => [...b]))
-      .accountsPartial(claimAccounts(holderA.publicKey, round)).signers([holderA]).rpc({ commitment: "confirmed" });
+      .accountsPartial(claimAccounts(holderA.publicKey, round)).signers([holderA]).rpc(provider.opts);
     await expectError("claim after dumping", claim(), /HoldingBelowSnapshot/);
 
     // get it back, claim goes through and pays exactly the allocated amount
@@ -292,12 +309,12 @@ describe("security review regressions (localnet)", () => {
     await expectError("setup_fee_sharing on a holder-rewards coin",
       program.methods.setupFeeSharing()
         .accountsPartial(setupFeeSharingAccounts(mint2, escrow2, program.programId, dev.publicKey, platform.publicKey))
-        .rpc({ commitment: "confirmed" }),
+        .rpc(provider.opts),
       /NotApplicable/);
     await expectError("collect_fees on a holder-rewards coin",
       program.methods.collectFees()
         .accountsPartial(collectFeesAccounts(mint2, escrow2, program.programId, dev.publicKey))
-        .rpc({ commitment: "confirmed" }),
+        .rpc(provider.opts),
       /NotApplicable/);
     // buyback: give the escrow something to spend so the guard is what refuses
     await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: escrow2, lamports: 0.05 * LAMPORTS_PER_SOL })]);
@@ -326,67 +343,75 @@ describe("security review regressions (localnet)", () => {
   });
 
   it("F6: a platform fee change needs a 7-day delay; applying early is refused", async () => {
+    // the config outlives test runs on a reused ledger, so work relative to
+    // whatever the rate is now
     const cfg0: any = await program.account.config.fetch(configPda(program.programId));
-    assert.equal(cfg0.platformFeeBps, 1000, "initial 10%");
+    const initial: number = cfg0.platformFeeBps;
+    const target = initial === 500 ? 700 : 500;
     await expectError("dev proposes",
       program.methods.proposePlatformFee(500).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
-        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/);
     await expectError("over 100%",
       program.methods.proposePlatformFee(10001).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-        .signers([platform]).rpc({ commitment: "confirmed" }), /BadFeeBps/);
+        .signers([platform]).rpc(provider.opts), /BadFeeBps/);
     await expectError("apply with nothing pending",
-      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
       /NoPendingFee/);
     const now = await conn.getSlot("confirmed");
-    await program.methods.proposePlatformFee(500).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-      .signers([platform]).rpc({ commitment: "confirmed" });
+    await program.methods.setFeeDelay(new BN(1_512_000)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc(provider.opts); // 7 days, in case an earlier run narrowed it
+    await program.methods.proposePlatformFee(target).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc(provider.opts);
     const cfg: any = await program.account.config.fetch(configPda(program.programId));
-    assert.equal(cfg.pendingFeeBps, 500);
+    assert.equal(cfg.pendingFeeBps, target);
     assert.isAtLeast(cfg.feeEffectiveSlot.toNumber(), now + 1_512_000 - 5, "effective ~7 days (1.512M slots) out");
-    assert.equal(cfg.platformFeeBps, 1000, "rate unchanged until applied");
+    assert.equal(cfg.platformFeeBps, initial, "rate unchanged until applied");
     await expectError("apply early",
-      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
       /FeeChangeTooEarly/);
     const cfg2: any = await program.account.config.fetch(configPda(program.programId));
-    assert.equal(cfg2.platformFeeBps, 1000, "still 10% after the early attempt");
+    assert.equal(cfg2.platformFeeBps, initial, "unchanged after the early attempt");
 
     // the delay is a test knob (platform only, floored at 5 slots) so the
     // successful path can be exercised here: re-propose with a 5-slot delay,
     // wait it out, apply, and see the new rate land on the next coin set up
     await expectError("dev sets fee delay",
       program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
-        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+        .rpc(provider.opts), /NotPlatform/);
     await expectError("delay under the floor",
       program.methods.setFeeDelay(new BN(1)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-        .signers([platform]).rpc({ commitment: "confirmed" }), /BadFeeDelay/);
+        .signers([platform]).rpc(provider.opts), /BadFeeDelay/);
     await program.methods.setFeeDelay(new BN(5)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-      .signers([platform]).rpc({ commitment: "confirmed" });
-    await program.methods.proposePlatformFee(500).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
-      .signers([platform]).rpc({ commitment: "confirmed" });
+      .signers([platform]).rpc(provider.opts);
+    await program.methods.proposePlatformFee(target).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc(provider.opts);
     const cfg3: any = await program.account.config.fetch(configPda(program.programId));
     const eff = cfg3.feeEffectiveSlot.toNumber();
     if ((await conn.getSlot("confirmed")) < eff) {
       await expectError("apply early (short delay)",
-        program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+        program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
         /FeeChangeTooEarly/);
     }
     while ((await conn.getSlot("confirmed")) < eff) await sleep(300);
     // anyone may apply once the delay has passed
-    await program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" });
+    await program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts);
     const cfg4: any = await program.account.config.fetch(configPda(program.programId));
-    assert.equal(cfg4.platformFeeBps, 500, "rate applied after the delay");
+    assert.equal(cfg4.platformFeeBps, target, "rate applied after the delay");
     assert.equal(cfg4.pendingFeeBps, 0); assert.equal(cfg4.feeEffectiveSlot.toNumber(), 0, "proposal cleared");
     await expectError("apply twice",
-      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc(provider.opts),
       /NoPendingFee/);
 
     // the SEC coin was never set up: its split now uses the new 5%
     await program.methods.setupFeeSharing()
       .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, platform.publicKey))
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-      .rpc({ commitment: "confirmed" });
+      .rpc(provider.opts);
     const st: any = await program.account.escrow.fetch(escrow);
     assert.isTrue(st.feeSharingSet);
-    assert.equal(st.platformFeeBps, 500, "a coin set up after the change carries the new rate");
+    assert.equal(st.platformFeeBps, target, "a coin set up after the change carries the new rate");
+    // leave the delay at its production value
+    await program.methods.setFeeDelay(new BN(1_512_000)).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc(provider.opts);
   });
 });

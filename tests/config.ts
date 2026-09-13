@@ -11,5 +11,5 @@ export async function setPlatform(program: any, authority: PublicKey, platform: 
   return program.methods.setPlatform(platform, feeWallet).accountsPartial({
     authority, config: configPda(program.programId), program: program.programId,
     programData: programDataPda(program.programId), systemProgram: SystemProgram.programId,
-  }).rpc({ commitment: "confirmed" });
+  }).rpc(program.provider.opts);
 }

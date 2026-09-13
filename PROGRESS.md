@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 24 adım — 10'u devnet'te, 11–24 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
+## Sonuç: 25 adım — program güncel sürümüyle devnet'te, demo devnet'te 14/14; devnet güncellemesi fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -49,6 +49,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 | 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 25 | devnet deploy (slot 497793986) + gerçek pump.fun ile devnet demo 14/14; devnet test koşusu yarım (SOL) | ⚠️ bakiye 0,50 SOL |
 | 24 | gorev.md: tavan artığı havuza, ≤10 holder tavansız, $20 eşik, pump ücret paylaşımı %90/%10 + 7 günlük oran değişimi, holder-rewards modu, terminoloji temizliği | ✅ 20/20, 6/6, 7/7, demo 3/3 |
 
 ## Devnet'te doğrulanabilir imzalar
@@ -993,6 +994,56 @@ coin'leri (SEC vb.) de crank'e giriyor; onların da buyback/collect'i çalışt�
 **Web (holder-rewards):** coin sayfasında "ödüller pump.fun tarafından
 dağıtılır" kutusu ve coin'in pump.fun sayfasına link
 (`https://pump.fun/coin/<mint>`); ücret süpürme/buyback yok notu.
+
+## Adım 25 — devnet deploy + gerçek pump.fun ile uçtan uca demo (13 Eylül) ✅ / ⚠️ SOL
+
+**Deploy:** başlangıç bakiyesi 6,31 SOL. Yeni v0 binary 726.032 bayt: buffer
+rent 3,689 SOL (geri gelir) + programdata genişletme 382.512 → 726.032 bayt
+**1,745 SOL kalıcı**; tepe ihtiyaç ~5,45 SOL, bakiye yetti. İlk deneme (TPU
+ile, Helius RPC) "191 write transactions failed" ile yarım kaldı: program
+**genişletildi ama yükseltilmedi** (eski bytecode + sıfırlar), 3,69 SOL
+buffer'da kaldı. Buffer `solana program close` ile kapatılıp para geri
+alındı, `--use-rpc --max-sign-attempts 50` ile ikinci deneme başarılı; dump
+yerel binary ile **bayt bayt aynı**. Slot 497793986. Bakiye 4,55 SOL.
+
+**Devnet demo (`npm run demo -- --devnet`, `DEMO-devnet.md`):** 14/14 adım,
+159 sn, gerçek pump.fun devnet programı — coin
+`3vxr89kx461cpf3jWY2CUCgkRYwkrybm7oHT7bW5Phfw`. Ücret paylaşımı
+(create_fee_sharing_config + update_fee_shares_v2) devnet'te çalıştı, collect
+%90/%10 böldü (escrow +0,0046, platform +0,0005), 5 parça buyback + aynı-slot
+reddi, hacim tetikleyici + TooEarly, 11 holder pro-rata (7'si tavanda),
+BadProof, 11/11 claim. Devnet modu: Helius RPC (indexer gPA için şart),
+launch 300M coin (0,39 SOL), cüzdan başına 0,2 SOL, sonunda cüzdanlardan
+1,15 SOL geri süpürüldü, imzalar explorer linkli. Demo maliyeti ~1,9 SOL.
+
+**Devnet'te kırılanlar ve düzeltmeler:**
+1. **Faucet:** `tests/security.ts` throwaway anahtarları `requestAirdrop` ile
+   fonluyordu → devnet faucet 403 (günde 1 SOL). Artık localnet dışında dev
+   cüzdanı 0,3 SOL/anahtar gönderiyor.
+2. **"Blockhash not found" (Helius yük dengeli):** "confirmed" blockhash bir
+   düğümde var, simülasyon yapan öbüründe yok. Provider'lar localnet dışında
+   `preflightCommitment: finalized`; ama testlerdeki `.rpc({commitment})`
+   provider ayarını eziyordu → tüm `.rpc(...)` çağrıları `provider.opts`
+   kullanıyor (63 yer). Demo/`send` yardımcılarında 429/blockhash/`invalid
+   index` retry'ları.
+3. **LUT:** launch v0 işlemi extend'den hemen sonra "invalid index" verebiliyor
+   → retry (demo, sim). Devnet'te LUT bekleme yoklaması yeterli oldu.
+4. **pump sürüm farkı: yok.** Devnet pump = yerel klon (aynı gün klonlandı);
+   fee-sharing ve distribute aynı çalıştı. `is_holder_reward` devnet'te de
+   henüz yok (kuyruk argümanı yok sayılıyor; bayrak bizim tarafta).
+5. **F6 testi** ledger'da kalan Config'e bağlıydı (`initial 10%` varsayımı);
+   artık mevcut orana göre çalışıyor ve gecikmeyi 7 güne geri koyuyor.
+
+**⚠️ SOL:** devnet'te test koşarken bütçeyi aştım. `security.ts` 5 anahtara
+0,3 SOL (1,5 SOL) + 2 launch gönderdi, koşu blockhash hatalarıyla yarım
+kaldı ve anahtarlar bellekte olduğu için **~1,5 SOL geri alınamadı**;
+`manual_airdrop` ~0,15 SOL. Bakiye **0,504 SOL** — 1 SOL sınırının altında.
+Bu benim hatam: test maliyetini tahmin edip sormalıydım. Devnet Config
+`set_platform(dev, dev)` ile geri alındı (test anahtarına kalmıştı).
+Devnet'te test paketi **yeşil değil** (security 1/6, manual 5/7, ana suite
+koşulmadı); düzeltmeler localnet'te doğrulandı (6/6, 7/7, demo temiz). Devnet
+tekrarı için tahmini ihtiyaç: security ~0,8, manual ~0,2, ana suite ~2,7 SOL
+→ **~4 SOL** üstüne 1 SOL marj.
 
 ## Senden karar bekleyenler (yeni)
 

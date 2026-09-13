@@ -50,7 +50,10 @@ function proofFor(layers: Buffer[][], index: number) {
 describe("manual airdrop (localnet)", () => {
   const base = anchor.AnchorProvider.env();
   const provider = new anchor.AnchorProvider(base.connection, base.wallet, {
-    commitment: "confirmed", preflightCommitment: "confirmed",
+    commitment: "confirmed",
+    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
+    // node is "Blockhash not found" on the next, so simulate against finalized
+    preflightCommitment: /127\.0\.0\.1|localhost/.test(base.connection.rpcEndpoint) ? "confirmed" : "finalized",
   });
   anchor.setProvider(provider);
   const program = anchor.workspace.airdropEscrow as any;
@@ -196,7 +199,7 @@ describe("manual airdrop (localnet)", () => {
           wallet: w.publicKey, escrow, manualAuthority: manualPda, mint,
           manualTokenAccount: manualAta, walletTokenAccount: baseAta(w.publicKey),
           baseTokenProgram: TOKEN_2022,
-        }).signers([w]).rpc({ commitment: "confirmed" });
+        }).signers([w]).rpc(provider.opts);
       if (i === 0) sigs.firstClaim = sig;
 
       const bal = await getAccount(conn, baseAta(w.publicKey), "confirmed", TOKEN_2022);
@@ -218,7 +221,7 @@ describe("manual airdrop (localnet)", () => {
           wallet: list[0].publicKey, escrow, manualAuthority: manualPda, mint,
           manualTokenAccount: manualAta, walletTokenAccount: baseAta(list[0].publicKey),
           baseTokenProgram: TOKEN_2022,
-        }).signers([list[0]]).rpc({ commitment: "confirmed" });
+        }).signers([list[0]]).rpc(provider.opts);
     } catch { rejected = true; }
     assert.isTrue(rejected, "double claim must be rejected");
     console.log("  ikinci claim reddedildi");
@@ -242,7 +245,7 @@ describe("manual airdrop (localnet)", () => {
           wallet: outsider.publicKey, escrow, manualAuthority: manualPda, mint,
           manualTokenAccount: manualAta, walletTokenAccount: baseAta(outsider.publicKey),
           baseTokenProgram: TOKEN_2022,
-        }).signers([outsider]).rpc({ commitment: "confirmed" });
+        }).signers([outsider]).rpc(provider.opts);
     } catch { rejected = true; }
     assert.isTrue(rejected, "outsider must not claim someone else's leaf");
 
@@ -254,7 +257,7 @@ describe("manual airdrop (localnet)", () => {
           wallet: list[5].publicKey, escrow, manualAuthority: manualPda, mint,
           manualTokenAccount: manualAta, walletTokenAccount: baseAta(list[5].publicKey),
           baseTokenProgram: TOKEN_2022,
-        }).signers([list[5]]).rpc({ commitment: "confirmed" });
+        }).signers([list[5]]).rpc(provider.opts);
     } catch { inflated = true; }
     assert.isTrue(inflated, "a changed percentage must break the proof");
     console.log("  listede olmayan ve yuzdesini buyuten denemeler reddedildi");
@@ -264,7 +267,7 @@ describe("manual airdrop (localnet)", () => {
     const sig = await program.methods
       .publishManualList(entries)
       .accountsPartial({ dev: dev.publicKey, escrow })
-      .rpc({ commitment: "confirmed" });
+      .rpc(provider.opts);
     sigs.publishList = sig;
 
     const st: any = await program.account.escrow.fetch(escrow);
@@ -309,7 +312,7 @@ describe("manual airdrop (localnet)", () => {
     try {
       await program.methods.intervene(0, 0)
         .accountsPartial({ platform: platform.publicKey, ...common })
-        .signers([platform]).rpc({ commitment: "confirmed" });
+        .signers([platform]).rpc(provider.opts);
     } catch (e: any) { locked = true; detail = String(e?.message ?? e); }
     assert.isTrue(locked, "manual funds are locked for 30 days");
     assert.match(detail, /StillLocked|0x[0-9a-f]+/i);
@@ -319,7 +322,7 @@ describe("manual airdrop (localnet)", () => {
     try {
       await program.methods.intervene(0, 0)
         .accountsPartial({ platform: dev.publicKey, ...common })
-        .rpc({ commitment: "confirmed" });
+        .rpc(provider.opts);
     } catch { notPlatform = true; }
     assert.isTrue(notPlatform, "dev is not the platform authority");
     console.log("  kilit icindeyken ve platform disindan mudahale reddedildi");
@@ -329,7 +332,7 @@ describe("manual airdrop (localnet)", () => {
     // shrink the day so seven of them fit in the test
     await program.methods.setDayWindow(new BN(2))
       .accountsPartial({ platform: platform.publicKey, escrow })
-      .signers([platform]).rpc({ commitment: "confirmed" });
+      .signers([platform]).rpc(provider.opts);
 
     const triggerAccounts = {
       escrow, bondingCurve: pa.bondingCurve,
@@ -339,7 +342,7 @@ describe("manual airdrop (localnet)", () => {
     let st: any;
     for (let i = 0; i < 10; i++) {
       await program.methods.checkTrigger().accountsPartial(triggerAccounts)
-        .rpc({ commitment: "confirmed" });
+        .rpc(provider.opts);
       st = await program.account.escrow.fetch(escrow);
       if (st.dead) break;
       await sleep(2200);
@@ -361,7 +364,7 @@ describe("manual airdrop (localnet)", () => {
           manualTokenAccount: manualAta, escrowTokenAccount: escrowTa,
           devTokenAccount: baseAta(dev.publicKey), dev: dev.publicKey,
           baseTokenProgram: TOKEN_2022,
-        }).signers([platform]).rpc({ commitment: "confirmed" });
+        }).signers([platform]).rpc(provider.opts);
     } catch { badTarget = true; }
     assert.isTrue(badTarget, "pool -> pool must be refused");
 
@@ -371,7 +374,7 @@ describe("manual airdrop (localnet)", () => {
         manualTokenAccount: manualAta, escrowTokenAccount: escrowTa,
         devTokenAccount: baseAta(dev.publicKey), dev: dev.publicKey,
         baseTokenProgram: TOKEN_2022,
-      }).signers([platform]).rpc({ commitment: "confirmed" });
+      }).signers([platform]).rpc(provider.opts);
     sigs.intervene = sig;
 
     const devAfter = await getAccount(conn, baseAta(dev.publicKey), "confirmed", TOKEN_2022);

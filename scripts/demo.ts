@@ -33,7 +33,17 @@ import {
 } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 
-const RPC_URL = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
+// `npm run demo -- --devnet`: the real pump.fun on devnet through HELIUS_RPC_URL
+// (the public RPC has no Token-2022 gPA for the indexer and rate-limits hard)
+const DEVNET = process.argv.includes("--devnet");
+const RPC_URL = DEVNET
+  ? (process.env.HELIUS_RPC_URL ?? (() => { throw new Error("--devnet needs HELIUS_RPC_URL"); })())
+  : (process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899");
+const NET = DEVNET ? "devnet" : "localnet";
+const OUT_MD = DEVNET ? "DEMO-devnet.md" : "DEMO.md";
+/** SOL each throwaway wallet is funded with; on devnet the leftover is swept back at the end */
+const FUND_SOL = DEVNET ? 0.2 : 0.6;
+const explorer = (sig: string) => DEVNET ? `https://explorer.solana.com/tx/${sig}?cluster=devnet` : sig;
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
 const DELAY_WINDOW = 150;        // ~1 dk: demo bekleyebilsin, ama gecikme görünsün
 const DEC = 1_000_000n;          // coin 6 ondalık
@@ -69,7 +79,10 @@ async function main() {
   const devPath = process.env.ANCHOR_WALLET ?? path.join(os.homedir(), ".config/solana/id.json");
   const dev = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(devPath, "utf8"))));
   const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(dev), {
-    commitment: "confirmed", preflightCommitment: "confirmed",
+    commitment: "confirmed",
+    // off localnet the RPC is load-balanced: a "confirmed" blockhash from one
+    // node is "Blockhash not found" on the next, so simulate against finalized
+    preflightCommitment: /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint) ? "confirmed" : "finalized",
   });
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8"));
   const program = new Program(idl, provider) as any;
@@ -130,27 +143,34 @@ async function main() {
         return await sendAndConfirmTransaction(conn, tx, [payer, ...extra],
           { commitment: "confirmed", skipPreflight: false, maxRetries: 5 });
       } catch (e: any) {
-        if (i >= 4 || !/Blockhash not found|timed out/i.test(String(e?.message ?? e))) throw e;
-        await sleep(1000);
+        if (i >= 6 || !/Blockhash not found|timed out|429|Too Many Requests|block height exceeded/i.test(String(e?.message ?? e))) throw e;
+        await sleep(1500 * (i + 1));
       }
     }
   }
   /** v0 tx (lookup table ile) */
   let lut: PublicKey;
   async function sendV0(ixs: TransactionInstruction[], signers: Keypair[] = []) {
-    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
-    const bh = await conn.getLatestBlockhash("confirmed");
-    const msg = new TransactionMessage({
-      payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
-      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ...ixs],
-    }).compileToV0Message([lutAcc]);
-    const tx = new VersionedTransaction(msg);
-    return provider.sendAndConfirm(tx, signers, { commitment: "confirmed", skipPreflight: false, maxRetries: 10 });
+    for (let i = 0; ; i++) {
+      try {
+        const lutAcc = (await conn.getAddressLookupTable(lut, { commitment: "confirmed" })).value!;
+        const bh = await conn.getLatestBlockhash("confirmed");
+        const msg = new TransactionMessage({
+          payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+          instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ...ixs],
+        }).compileToV0Message([lutAcc]);
+        const tx = new VersionedTransaction(msg);
+        return await provider.sendAndConfirm(tx, signers, { commitment: "confirmed", skipPreflight: false, maxRetries: 10 });
+      } catch (e: any) {
+        if (i >= 5 || !/Blockhash not found|timed out|429|Too Many Requests|invalid index|block height exceeded/i.test(String(e?.message ?? e))) throw e;
+        await sleep(1500 * (i + 1));
+      }
+    }
   }
-  const rpc = (m: any) => m.rpc({ commitment: "confirmed" }) as Promise<string>;
+  const rpc = (m: any) => m.rpc(provider.opts) as Promise<string>;
   const errText = (e: any) => String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
 
-  console.log(`demo: ${t0.toISOString()} rpc=${RPC_URL} dev=${dev.publicKey.toBase58()}`);
+  console.log(`demo (${NET}): ${t0.toISOString()} rpc=${RPC_URL.replace(/api-key=.*/, "api-key=…")} dev=${dev.publicKey.toBase58()}`);
   const devSolStart = await conn.getBalance(dev.publicKey, "confirmed");
 
   // ---- 0. hazırlık: platform yetkilisi + lookup table ----
@@ -191,11 +211,12 @@ async function main() {
     note(`tablo ${lut.toBase58()} (${uniq.length} adres)`);
   }
 
+  // localnet 550M: 12 alım (~1,5 SOL) curve'ü tamamlamasın (gerçek rezerv 243M kalır, alımlar ~218M alır);
+  // devnet 300M: gerçek SOL harcanıyor, launch alımı 0,39 SOL'e iner (baseline alımlardan sonra alındığı için yeterli)
+  const AMOUNT = (DEVNET ? 300_000_000n : 550_000_000n) * DEC;
   // ---- 1. launch ----
   step("Coin basıldı ve %30'u kilitlendi",
-    "Tek işlemde: pump.fun'da coin yaratıldı, dev 550M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti");
-  // 550M: 12 alım (~1,5 SOL) curve'ü tamamlamasın (gerçek rezerv 243M kalır, alımlar ~218M alır)
-  const AMOUNT = 550_000_000n * DEC;
+    `Tek işlemde: pump.fun'da coin yaratıldı, dev ${Number(AMOUNT / DEC) / 1e6}M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti`);
   {
     const ix = await program.methods
       .launch("Demo Coin", "DEMO", "https://example.com/demo.json", 3000,
@@ -220,7 +241,7 @@ async function main() {
     sig("setup_fee_sharing", await program.methods.setupFeeSharing()
       .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, platformWallet.publicKey))
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     const st = await escrowState();
     note(`coin tipi: ${st.isHolderReward ? "holder-rewards" : "regular"} — platform payı %${st.platformFeeBps / 100}, pump'taki paylaşım kaydı ${short(sharingConfig)}`);
   }
@@ -233,7 +254,7 @@ async function main() {
   {
     for (const w of wallets) {
       await send([
-        SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: w.publicKey, lamports: 0.6 * LAMPORTS_PER_SOL }),
+        SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: w.publicKey, lamports: FUND_SOL * LAMPORTS_PER_SOL }),
         createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, coinAta(w.publicKey), w.publicKey, mint, TOKEN_2022),
         createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, wsolAta(w.publicKey), w.publicKey, WSOL, TOKEN),
       ]);
@@ -291,7 +312,7 @@ async function main() {
     sig("collect_fees", await program.methods.collectFees()
       .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, dev.publicKey))
       .remainingAccounts(shareholderMetas(feeAuthority, platformWallet.publicKey, 1000))
-      .rpc({ commitment: "confirmed" }));
+      .rpc(provider.opts));
     const e1 = await conn.getBalance(escrow, "confirmed"), p1 = await conn.getBalance(platformWallet.publicKey, "confirmed");
     after({ "creator ücreti kasası": sol(await conn.getBalance(vault, "confirmed")), "escrow SOL": sol(e1), "platform cüzdanı": sol(p1) });
     const st = await escrowState();
@@ -524,6 +545,21 @@ async function main() {
       Object.fromEntries(wallets.map((w, i) => [NAMES[i], { pubkey: w.publicKey.toBase58(), secretKey: [...w.secretKey] }])), null, 2));
   }
 
+  // ---- devnet: throwaway wallets give their leftover SOL back (real SOL) ----
+  if (DEVNET) {
+    let swept = 0;
+    for (const w of wallets) {
+      const bal = await conn.getBalance(w.publicKey, "confirmed");
+      const keep = 5_000 + 890_880; // fee + rent floor so the wallet (and its ATAs' owner) stays valid
+      if (bal <= keep) continue;
+      try {
+        await send([SystemProgram.transfer({ fromPubkey: w.publicKey, toPubkey: dev.publicKey, lamports: bal - keep })], w);
+        swept += bal - keep;
+      } catch (e: any) { console.log(`    sweep ${short(w.publicKey)} atlandı: ${String(e?.message ?? e).slice(0, 60)}`); }
+    }
+    console.log(`\n  devnet: ${sol(swept)} demo cüzdanlarından geri alındı`);
+  }
+
   // ---- özet ----
   const st = await escrowState();
   const devSolEnd = await conn.getBalance(dev.publicKey, "confirmed");
@@ -541,14 +577,16 @@ async function main() {
   // ---- DEMO.md ----
   const md: string[] = [];
   md.push(`# Demo — uçtan uca bir dağıtım`, "",
-    `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde yerel test ağında (localnet, pump.fun programı devnet'ten kopyalanmış) tek koşuda üretildi: \`npm run demo\`. Her adımın zincir üstü işlem imzası en alttaki ekte; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`, "",
+    (DEVNET
+      ? `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde **Solana devnet'te, gerçek pump.fun devnet programıyla** tek koşuda üretildi: \`npm run demo -- --devnet\`. Her adımın işlem imzası en alttaki ekte, explorer linkleriyle; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`
+      : `Bu belge, ${t0.toISOString().slice(0, 10)} tarihinde yerel test ağında (localnet, pump.fun programı devnet'ten kopyalanmış) tek koşuda üretildi: \`npm run demo\`. Her adımın zincir üstü işlem imzası en alttaki ekte; aynı komut her koşuda yeni bir coin ile aynı akışı yeniden üretir.`), "",
     `**Fikir tek cümlede:** coin basılırken bir kısmı kilitli havuza gider; alım-satım ücretleri o havuzu coin'le büyütür; piyasa hareket ettikçe havuzdan bir dilim, coin'i tutan herkese bakiye × tutma süresi oranında bölünür — tek cüzdan bir turun en fazla %10'unu alır. Havuza kimse dokunamaz, dağıtım anı önceden bilinemez, herkes payını kendi cüzdanıyla alır.`, "",
     `## Aktörler`, "",
     `| Kim | Cüzdan | Rol |`, `|---|---|---|`,
     `| Dev | \`${dev.publicKey.toBase58()}\` | coin'i basan; hazine sayılır, dağıtıma girmez |`,
     ...wallets.map((w, i) => `| ${NAMES[i]} | \`${w.publicKey.toBase58()}\` | ${i === SELLER ? "alır, sonra hepsini satar" : i === 0 ? "büyük alır ve tutar (tavana takılır)" : "alır ve tutar"} |`),
     `| Escrow | \`${escrow.toBase58()}\` | kilitli havuz (program hesabı, insan anahtarı yok) |`, "",
-    `Coin: \`${mint.toBase58()}\` (DEMO)`, "",
+    `Coin: \`${mint.toBase58()}\` (DEMO)` + (DEVNET ? ` — [explorer](https://explorer.solana.com/address/${mint.toBase58()}?cluster=devnet) · [pump.fun](https://pump.fun/coin/${mint.toBase58()})` : ""), "",
     `## Adımlar`, "");
   for (const s of steps) {
     md.push(`### ${s.n}. ${s.title}`, "", s.what + ".", "");
@@ -578,16 +616,16 @@ async function main() {
       ? `Bir holder'ın payı bilerek claim edilmedi: cüzdanın anahtarı \`demo-wallets.json\` içinde; Phantom'a aktarıp (ağ: localhost:8899) coin sayfasında cüzdanı bağlayınca panel payı bulur, "claim" butonu zincire gönderir.`
       : `Bir payı web'den claim etmek için demoyu \`DEMO_LEAVE_LAST=1 npm run demo\` ile koş; cüzdanın anahtarı \`demo-wallets.json\` içine yazılır, Phantom'a aktarıp butona basarsın.`), "",
     `## Ek: işlem imzaları`, "",
-    `Doğrulamak için: \`solana confirm -v <imza> --url http://127.0.0.1:8899\` (localnet açıkken).`, "");
+    DEVNET ? `Doğrulamak için: \`solana confirm -v <imza> --url devnet\` ya da explorer linkleri.` : `Doğrulamak için: \`solana confirm -v <imza> --url http://127.0.0.1:8899\` (localnet açıkken).`, "");
   for (const s of steps) {
     if (!s.sigs.length) continue;
     md.push(`**Adım ${s.n} — ${s.title}**`, "");
-    for (const x of s.sigs) md.push(`- ${x.label}: \`${x.sig}\``);
+    for (const x of s.sigs) md.push(DEVNET ? `- ${x.label}: [\`${x.sig.slice(0, 20)}…\`](${explorer(x.sig)})` : `- ${x.label}: \`${x.sig}\``);
     md.push("");
   }
-  fs.writeFileSync(path.join(__dirname, "../DEMO.md"), md.join("\n"));
-  fs.writeFileSync(path.join(__dirname, "../demo-summary.json"), JSON.stringify({ ...summary, steps }, null, 2));
-  console.log("\nDEMO.md yazıldı");
+  fs.writeFileSync(path.join(__dirname, "../" + OUT_MD), md.join("\n"));
+  fs.writeFileSync(path.join(__dirname, "../demo-summary.json"), JSON.stringify({ net: NET, ...summary, steps }, null, 2));
+  console.log(`\n${OUT_MD} yazıldı`);
 }
 
 main().catch((e) => { console.error("demo hata:", e?.message ?? e, e?.logs ?? ""); process.exit(1); });
