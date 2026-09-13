@@ -40,16 +40,18 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 git clone … && cd airdrop-launchpad
 npm install && (cd web && npm install)
 
-# 1. local validator with the pump world (leave it running; ~1 min to clone).
-#    Resets the ledger; `RESET=0 ./scripts/localnet.sh` restarts on the old one.
-./scripts/localnet.sh &
-
-# 2. build for the v0 loader — `anchor build` produces SBPFv3, which neither
-#    localnet nor devnet accept — then deploy and write the IDL
+# 1. build for the v0 loader — `anchor build` produces SBPFv3, which neither
+#    localnet nor devnet accept — and write the IDL
 (cd programs/airdrop_escrow && cargo-build-sbf --arch v0)
-solana program deploy target/deploy/airdrop_escrow.so \
-  --program-id target/deploy/airdrop_escrow-keypair.json --url http://127.0.0.1:8899
 anchor idl build -o target/idl/airdrop_escrow.json -t target/types/airdrop_escrow.ts
+
+# 2. local validator with the pump world (leave it running; ~1 min to clone).
+#    Loads the .so from step 1 at genesis under the program id, with your wallet
+#    as upgrade authority. Resets the ledger; `RESET=0 ./scripts/localnet.sh`
+#    restarts on the old one. To push a rebuild without restarting:
+#    solana program deploy target/deploy/airdrop_escrow.so \
+#      --program-id 5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe --url http://127.0.0.1:8899
+./scripts/localnet.sh &
 
 # 3. the whole loop, unattended: two coins, a market, the crank, then the
 #    holders rebuild the snapshots and claim. ~7 minutes, report in crank/sim-report.md
@@ -79,7 +81,7 @@ Testnet Mode → Localnet; extension only) — details in
 export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=~/.config/solana/id.json
 npx ts-mocha -p ./tsconfig.json -t 600000 tests/security.ts        # findings F1–F4
 npx ts-mocha -p ./tsconfig.json -t 600000 tests/manual_airdrop.ts  # manual list, intervention, dead coin
-npx ts-mocha -p ./tsconfig.json -t 600000 tests/airdrop_escrow.ts  # full flow; needs HELIUS_RPC_URL for the indexer
+npx ts-mocha -p ./tsconfig.json -t 600000 tests/airdrop_escrow.ts  # full flow; the indexer uses HELIUS_RPC_URL if set (point it at localnet here), else the provider
 ```
 
 Every run mints a new coin; on localnet that is free.
@@ -104,7 +106,8 @@ Every run mints a new coin; on localnet that is free.
   at least 0.05 SOL worth. One prize per draw.
 - **Fees → buyback.** The escrow is the pump creator; `collect_fees` sweeps the
   vault, `buyback` converts at most 0.5% of the curve's reserves per call into
-  the coin and adds it to the pool.
+  the coin and adds it to the pool — and spends at most once per slot, so the
+  cap cannot be defeated by stacking calls into one transaction.
 
 What is trusted, what is not, and what was found in review:
 [SECURITY_REVIEW.md](SECURITY_REVIEW.md).

@@ -258,12 +258,20 @@ describe("airdrop_escrow (devnet)", () => {
     systemProgram: SystemProgram.programId,
   });
 
+  /** one spend per slot: wait until the chain has moved past the last buyback's slot */
+  async function waitPastBuybackSlot() {
+    const st: any = await program.account.escrow.fetch(escrow);
+    const last = Number(st.lastBuybackSlot);
+    while ((await conn.getSlot("processed")) <= last) await sleep(200);
+  }
+
   async function sendBuyback(
     label: string, overrides: Record<string, PublicKey> = {},
   ): Promise<string> {
     const ix = await program.methods.buyback()
       .accountsPartial({ ...buybackAccounts(), ...overrides }).instruction();
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
+    await waitPastBuybackSlot();
     return withRetry(label, async () => {
       const bh = await conn.getLatestBlockhash("finalized");
       const msg = new TransactionMessage({
@@ -399,6 +407,57 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  control buy ok, +${escAfter.amount - escBefore.amount} sig=${sig}`);
   });
 
+  it("2e. one buyback per slot: a second call in the same slot is rejected", async () => {
+    // The per-call cap is only a cap if the calls cannot be stacked. Two buyback
+    // instructions in one transaction land in the same slot; the first spends,
+    // the second must be refused so the transaction as a whole fails.
+    await send([SystemProgram.transfer({
+      fromPubkey: dev.publicKey, toPubkey: escrow, lamports: 0.05 * LAMPORTS_PER_SOL,
+    })]);
+    const solBefore = await conn.getBalance(escrow, "confirmed");
+    const escBefore = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+
+    const ix = await program.methods.buyback().accountsPartial(buybackAccounts()).instruction();
+    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
+    await waitPastBuybackSlot(); // so the FIRST instruction is allowed and only the second trips
+    const bh = await conn.getLatestBlockhash("finalized");
+    const msg = new TransactionMessage({
+      payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix, ix],
+    }).compileToV0Message([lutAcc]);
+    const tx = new VersionedTransaction(msg);
+    tx.sign([dev]);
+
+    let detail = "";
+    try {
+      const sg = await conn.sendTransaction(tx, { skipPreflight: false, maxRetries: 5 });
+      await conn.confirmTransaction({ signature: sg, ...bh }, "confirmed");
+      assert.fail("stacked buybacks should have been rejected");
+    } catch (e: any) {
+      detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
+    }
+    // 6002 = BuybackSameSlot
+    assert.match(detail, /BuybackSameSlot|0x1772/,
+      `expected BuybackSameSlot, got ${detail.slice(0, 300)}`);
+    // The whole transaction was dropped: the first instruction's spend rolled back.
+    assert.equal(await conn.getBalance(escrow, "confirmed"), solBefore, "escrow SOL untouched");
+    const escMid = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    assert.equal(escMid.amount.toString(), escBefore.amount.toString(), "no tokens moved");
+    console.log("  ayni slotta ikinci buyback reddedildi (BuybackSameSlot)");
+
+    // Control: a lone call in a later slot spends, and records its slot.
+    const sig = await sendBuyback("buyback-next-slot");
+    sigs.buybackNextSlot = sig;
+    const txSlot = (await conn.getTransaction(sig, {
+      commitment: "confirmed", maxSupportedTransactionVersion: 0,
+    }))!.slot;
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st.lastBuybackSlot.toString(), String(txSlot), "last_buyback_slot = tx slot");
+    const escAfter = await getAccount(conn, escrowTa, "confirmed", TOKEN_2022);
+    assert.isAbove(Number(escAfter.amount - escBefore.amount), 0, "next-slot call bought");
+    console.log(`  sonraki slotta alim ok, last_buyback_slot=${st.lastBuybackSlot} sig=${sig}`);
+  });
+
   it("3. holders are funded on chain", async () => {
     for (let i = 0; i < holders.length; i++) {
       const ata = baseAta(holders[i].publicKey);
@@ -428,7 +487,8 @@ describe("airdrop_escrow (devnet)", () => {
   it("4. indexer builds a deterministic snapshot", async () => {
     const slot = await conn.getSlot("confirmed");
     // the dev wallet is the treasury here, not an airdrop participant
-    snap = await snapshot(process.env.HELIUS_RPC_URL!, mint.toBase58(), slot,
+    // Helius on devnet (public RPC has no Token-2022 gPA); the provider itself on localnet
+    snap = await snapshot(process.env.HELIUS_RPC_URL ?? conn.rpcEndpoint, mint.toBase58(), slot,
                           program.programId, [dev.publicKey.toBase58()]);
     assert.equal(snap.leaves.length, 5, "exactly the 5 qualifying holders");
 

@@ -214,12 +214,14 @@ async function main() {
     }
 
     // 2. buyback: only when the escrow's spendable SOL clears the on-chain
-    //    threshold, so we never pay to hear "BuybackSkipped".
+    //    threshold, so we never pay to hear "BuybackSkipped" — and only once the
+    //    chain has moved past the last buyback's slot (one spend per slot).
     const escrowLamports = BigInt(await conn.getBalance(escrow, "confirmed"));
     const buyerLamports = BigInt(await conn.getBalance(buyer, "confirmed"));
     const fromEscrow = escrowLamports > escrowRent ? escrowLamports - escrowRent : 0n;
     const spendable = fromEscrow + buyerLamports - BUYBACK_RESERVE_LAMPORTS;
-    if (spendable >= MIN_BUYBACK_LAMPORTS && !curveComplete) {
+    const slotOpen = (await conn.getSlot("processed")) > Number(esc.state.lastBuybackSlot);
+    if (spendable >= MIN_BUYBACK_LAMPORTS && !curveComplete && slotOpen) {
       try {
         const ix = await program.methods.buyback().accountsPartial({
           payer: keypair.publicKey, escrow, buyer, mint,

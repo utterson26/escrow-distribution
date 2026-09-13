@@ -180,6 +180,7 @@ pub mod airdrop_escrow {
         escrow.low_volume_days = 0;
         escrow.dead = false;
         escrow.day_seconds = DEFAULT_DAY_SECONDS;
+        escrow.last_buyback_slot = 0;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -941,7 +942,13 @@ pub mod airdrop_escrow {
         }
 
         // ...and the cap is about how much of it a single call may spend. What is
-        // left over stays put and is picked up by the next call.
+        // left over stays put and is picked up by the next call — the *next slot's*
+        // call: stacking buybacks in one transaction would defeat the cap.
+        let slot = Clock::get()?.slot;
+        require!(
+            slot > ctx.accounts.escrow.last_buyback_slot,
+            EscrowError::BuybackSameSlot
+        );
         let cap = (ctx.accounts.bonding_curve.virtual_quote_reserves as u128)
             .checked_mul(BUYBACK_MAX_RESERVE_BPS as u128)
             .ok_or(EscrowError::Overflow)?
@@ -1115,6 +1122,7 @@ pub mod airdrop_escrow {
         **ctx.accounts.payer.try_borrow_mut_lamports()? += needed;
 
         let escrow = &mut ctx.accounts.escrow;
+        escrow.last_buyback_slot = slot;
         escrow.buyback_spent = escrow
             .buyback_spent
             .checked_add(quote_in)

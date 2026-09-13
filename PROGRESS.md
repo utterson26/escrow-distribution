@@ -35,7 +35,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 7 | buyback tabanı zincir üstü hesaplanır (%2 slippage) + sandviç testi | ✅ |
 | 8 | holder listesi doğrulaması — (c) hibrit, deterministik indexer | ✅ |
 | 9 | tetikleyiciler (hacim + kilometre taşı, rastgele gecikme) | ✅ |
-| 10 | buyback parçalama (çağrı başına %0,5) | ✅ |
+| 10 | buyback parçalama (çağrı başına %0,5) + **slot başına tek harcama** | ✅ 18/18 localnet |
 | 11 | manuel airdrop modu | 🟡 kod tamam, devnet'e çıkamadı |
 | 12 | Switchboard rastgelelik | 🟡 uyumlu, entegre edilmedi |
 | 13 | localnet (pump klonlu test ağı) | ✅ |
@@ -314,6 +314,24 @@ uygulansaydı alım hiç olmazdı.)
 
 Devnet kanıtı: **7.971.768 lamport harcandı, 43.811.293 sonraki çağrıya
 bırakıldı**; ikinci çağrı +3.290.872.817.749 token aldı.
+
+### Slot başına tek harcama (13 Eylül) ✅
+
+%0,5 sınırı **çağrı başına** olduğu için tek başına bir sınır değildi: bir
+işleme 10 buyback instruction'ı koyan, aynı blokta %5 harcatabilirdi —
+parçalamanın amacı olan "küçük alım, sandviçe değmez" boşa giderdi.
+Şimdi `Escrow.last_buyback_slot` var; `buyback` harcama yaptığında slotu yazar
+ve **aynı slotta ikinci çağrı `BuybackSameSlot` (6002) ile reddedilir**.
+Eşik altı no-op çağrılar slotu yazmaz (harcama yok). Sabit %2 slippage
+(`BUYBACK_SLIPPAGE_BPS`) ve %0,5 (`BUYBACK_MAX_RESERVE_BPS`) değişmedi.
+
+Kanıt (`tests/airdrop_escrow.ts` 2e, localnet): iki buyback instruction'lı tek
+işlem `BuybackSameSlot` ile düştü, ilk instruction'ın harcaması da geri sarıldı
+(escrow SOL ve token bakiyesi değişmedi); bir sonraki slottaki tek çağrı aldı
+ve `last_buyback_slot` işlemin slotuna eşit çıktı. Testlerin `sendBuyback`
+yardımcısı ve crank artık göndermeden önce slotun ilerlemesini bekliyor
+(localnet'te iki çağrı aynı slota düşebiliyor; devnet'te 2 sn'de bir slot
+olduğu için pratikte hiç görülmez, ama keeper'ın da bilmesi gerekir).
 
 **Yan etki — bilmen gereken:** buyback artık piyasayı tek başına oynatamıyor.
 Kilometre taşı testi eskiden fiyatı bizim buyback'imizle itiyordu; %0,5 sınırıyla
@@ -634,12 +652,24 @@ Web'i localnet'e bağlamak: `cd web && npm run dev:local` → http://localhost:3
 Config/set_platform, draw_slot, leaf'te balance) henüz devnet'te yok;
 `cargo-build-sbf --arch v0` + deploy + `anchor idl build` + `set_platform` şart.
 Kurulum sıfırdan: `README.md`.
-Geliştirme localnet'te: `./scripts/localnet.sh` (arka planda bırak; ledger
-50M shred ile sınırlı, `RESET=0` mevcut ledger'ı korur) →
-`cd programs/airdrop_escrow && cargo-build-sbf --arch v0` →
-`solana program deploy … --url http://127.0.0.1:8899` →
-`ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npx ts-mocha …`.
+Geliştirme localnet'te: önce `cd programs/airdrop_escrow && cargo-build-sbf --arch v0`
+(ve IDL için `anchor build`), sonra `./scripts/localnet.sh` (arka planda bırak;
+ledger 50M shred ile sınırlı, `RESET=0` mevcut ledger'ı korur) →
+`HELIUS_RPC_URL=http://127.0.0.1:8899 ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npx ts-mocha …`
+(`HELIUS_RPC_URL` kabukta devnet'e ayarlıysa indexer testi "bonding curve not
+found" der — yerel RPC'ye çevir). Validator çalışırken yeniden deploy:
+`solana program deploy target/deploy/airdrop_escrow.so --program-id 5iJy… --url http://127.0.0.1:8899`.
 Devnet yalnızca son doğrulama için; oraya çıkarken **v0 derlemesi şart**.
+
+**Program keypair'i yok (13 Eylül).** `target/deploy/airdrop_escrow-keypair.json`
+disk dolması temizliğinde gitmiş; şimdiki dosya `anchor build`'in ürettiği
+alakasız bir anahtar (`6aVJ…`). Devnet için sorun değil — program orada zaten
+var, yükseltme yetkisi cüzdan (`4Ryc…`). Localnet'te taze ledger program
+hesabını sıfırdan yaratamayacağı için `localnet.sh` programı **genesis'e adresle
+yüklüyor** (`--upgradeable-program 5iJy… target/deploy/airdrop_escrow.so
+~/.config/solana/id.json`); yani validator'ı başlatmadan önce `.so` derlenmiş
+olmalı. Devnet'ten klonlamayı denedim, olmadı: CLI'nin extend-program adımı
+eski ELF'i yeniden doğrularken `invalid file header` veriyor.
 
 ## Bilinçli olarak yapılmayanlar
 - **VRF yok** — istendiği gibi sha256 jitter placeholder. Jitter `slot` içerdiği için

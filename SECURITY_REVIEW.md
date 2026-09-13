@@ -117,6 +117,10 @@ been a panic (whole tx fails, no state harm). Guarded with `EmptyCurve`.
 - **Buyback reimbursement.** `needed` is computed on chain and refunded
   exactly; the caller cannot profit, only pay fees. The reserve kept on the
   buyer PDA is bounded by a constant.
+- **Buyback cap is per slot, not just per call.** `last_buyback_slot` is
+  written on every spend and a second spend in the same slot is refused
+  (`BuybackSameSlot`), so the 0.5%-of-reserves cap cannot be multiplied by
+  packing several `buyback` instructions into one transaction or block.
 
 ## Known limitations (not fixed here)
 

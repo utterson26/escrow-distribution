@@ -6,6 +6,8 @@ pub enum EscrowError {
     InvalidBps,
     #[msg("buy amount must be greater than zero")]
     ZeroAmount,
+    #[msg("buyback already spent in this slot; try again next slot")]
+    BuybackSameSlot,
     #[msg("winner count must be between 1 and MAX_WINNERS")]
     BadWinnerCount,
     #[msg("merkle root must not be empty")]

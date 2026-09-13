@@ -91,6 +91,10 @@ pub struct Escrow {
     pub dead: bool,
     /// Length of a volume day in seconds; a test knob, see PROGRESS.md.
     pub day_seconds: i64,
+    /// Slot of the last buyback that spent anything. One spend per slot: the
+    /// 0.5%-of-reserves cap is per call, so without this a single transaction
+    /// could stack calls and drain the escrow into one block.
+    pub last_buyback_slot: u64,
     pub bump: u8,
 }
 

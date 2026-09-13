@@ -20,8 +20,9 @@ fi
 if [ ! -f "$HERE/target/deploy/airdrop_escrow.so" ]; then
   (cd "$HERE/programs/airdrop_escrow" && cargo-build-sbf --arch v0)
 fi
+# by pubkey: the program keypair is gone, the wallet is the upgrade authority
 solana program deploy "$HERE/target/deploy/airdrop_escrow.so" \
-  --program-id "$HERE/target/deploy/airdrop_escrow-keypair.json" \
+  --program-id 5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe \
   --url "$RPC" --commitment confirmed
 
 cd "$HERE"

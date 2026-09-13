@@ -39,6 +39,20 @@ args=(--ledger "$LEDGER" --url "$SRC" --quiet --limit-ledger-size 50000000)
 for p in "${PROGRAMS[@]}"; do args+=(--clone-upgradeable-program "$p"); done
 for a in "${ACCOUNTS[@]}"; do args+=(--clone "$a"); done
 
+# Our own program goes in at genesis by address. The program keypair was lost
+# with target/ in the disk-full cleanup, so a fresh ledger cannot deploy it from
+# scratch; loading it here needs only the pubkey, and the wallet becomes the
+# upgrade authority so `solana program deploy --program-id <PUBKEY>` upgrades it
+# afterwards. (Cloning it from devnet does not work: the CLI's extend-program
+# step re-verifies the old ELF and fails with "invalid file header".)
+OUR_PROGRAM=5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe
+OUR_SO="$HERE/target/deploy/airdrop_escrow.so"
+if [ -f "$OUR_SO" ]; then
+  args+=(--upgradeable-program "$OUR_PROGRAM" "$OUR_SO" "${ANCHOR_WALLET:-$HOME/.config/solana/id.json}")
+else
+  echo "warning: $OUR_SO yok, program genesis'e konmadi (cargo-build-sbf --arch v0)" >&2
+fi
+
 echo "ledger : $LEDGER"
 echo "cloning from devnet: ${#PROGRAMS[@]} programs, ${#ACCOUNTS[@]} accounts"
 exec solana-test-validator "${args[@]}"
