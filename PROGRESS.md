@@ -807,7 +807,7 @@ Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tablo
 - `DEMO_LEAVE_LAST=1`: son çekiliş claim edilmez, cüzdan anahtarları
   `demo-wallets.json`'a (gitignore) yazılır → Phantom'a aktarıp web'den
   claim butonunu denemek için. Son koşu böyle bırakıldı: coin
-  `Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U` (DEMO.md'deki), son çekilişin sahibi
+  `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO.md'deki), son çekilişin sahibi
   `demo-wallets.json`'da, 446K coin claim bekliyor.
 - **Buyback parçaları arası slot beklemesi (düzeltme):** ilk sürümde 2. parça
   ara sıra `BuybackSameSlot` yiyordu — `escrow.lastBuybackSlot` "confirmed"
@@ -819,6 +819,13 @@ Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tablo
   slotta ikinci alım reddedildi" satırı. Crank'te aynı hata artık `error`
   değil `same_slot` sonucu (sonraki tick alır). 3 ardışık koşu temiz
   (42/69/63 sn), her parça ayrı slotta (N, N+2, N+4 …).
+- **Indexer RPC'si (düzeltme):** kullanıcı kabuğunda `~/.airdrop-launchpad.env`
+  `HELIUS_RPC_URL`'i devnet'e ayarlıyor; demo adım 10'da indexer o URL'yi alıp
+  "bonding curve not found" diyordu. Artık demo indexer'ı **her zaman kendi
+  RPC'siyle** (`ANCHOR_PROVIDER_URL`, varsayılan localnet) çağırıyor,
+  `HELIUS_RPC_URL` yok sayılıyor; testte de provider localhost ise Helius
+  kullanılmıyor. Env dosyası devnet'e ayarlıyken 2 koşu temiz (89/95 sn).
+  Coin: `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO.md'deki).
 - **Web kontrolü (localnet):** `/api/escrows` demo coin'leri listeliyor,
   `/`, `/coin/<mint>`, `/feed` 200; `/api/claim/<mint>?wallet=…` snapshot'ı
   slot'tan yeniden üretip kazanan çekilişi buluyor (0,4 sn). Claim butonunun

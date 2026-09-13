@@ -82,7 +82,8 @@ four buyers, one sells out, fee sweep, chunked buyback, volume trigger, random
 delay, snapshot, commit-then-draw, claims, a forged claim refused — printing a
 signature per step and writing it up in [DEMO.md](DEMO.md). `DEMO_LEAVE_LAST=1`
 leaves the last prize unclaimed and drops the wallets in `demo-wallets.json`
-so you can claim it from the web page with Phantom.
+so you can claim it from the web page with Phantom. The demo's indexer always
+reads the chain the demo runs on; a `HELIUS_RPC_URL` in your shell is ignored.
 
 ## Tests
 

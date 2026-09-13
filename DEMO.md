@@ -9,13 +9,13 @@ Bu belge, 2026-09-13 tarihinde yerel test ağında (localnet, pump.fun programı
 | Kim | Cüzdan | Rol |
 |---|---|---|
 | Dev | `4RycArC9Gap3BjagoS4AW6boiPYdN8RvBKHpfCqrUhrZ` | coin'i basan; hazine sayılır, çekilişe girmez |
-| Ayşe | `3XSpwU6CrtgQtz6xjDLZMfdzcKi3ZMhg9LezwvZUz4h1` | alır ve tutar |
-| Burak | `9YK47MnuruaAU2YHxDP9Euc3knx7PAfxATphwEQ6j9ka` | alır ve tutar |
-| Ceren | `GT51o8xu4PnV77qggwxXaGtuBfAo8E4kiFsRBMs3ewb8` | alır ve tutar |
-| Deniz | `5Nw5EMTFSeWc5QMPbqqVbhVyH73PPnqKHhtgqXuPH2uW` | alır, sonra hepsini satar |
-| Escrow | `B1fHcDWhwZP2z3ynWaRfJWndN1WryTNQzoBS2sr3Y6jP` | kilitli havuz (program hesabı, insan anahtarı yok) |
+| Ayşe | `EKdedT62LHVbPVLeNw4Kor6w7jdZYHusLCJd9tMnZBgR` | alır ve tutar |
+| Burak | `3tTUX8GPuE8NRAky6XSVgTh9yivcV7uFr9wpkLsCGwxU` | alır ve tutar |
+| Ceren | `EQetoWSzHGviKdDVUPRsMg2umZs6dfi9Rv5UEwJKNm8U` | alır ve tutar |
+| Deniz | `9qKKQtWWDFtmeUEZjBVP49QUcABagEXmyMLtfnVfjn6n` | alır, sonra hepsini satar |
+| Escrow | `2TVX61QVjBYf6mtTfaMwqETW4TS5sBsQLvFEkFcRDaeE` | kilitli havuz (program hesabı, insan anahtarı yok) |
 
-Coin: `Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U` (DEMO)
+Coin: `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO)
 
 ## Adımlar
 
@@ -23,12 +23,12 @@ Coin: `Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U` (DEMO)
 
 Platform yetkilisi belirlendi, adres tablosu kuruldu (büyük işlemler sığsın diye).
 
-- tablo 5TSrRNd69hQwDv4jKEJ9whB3mR4Z1eSJNZBUBpG5wN6z (44 adres)
+- tablo AxMyPTFjpf7UsrTkcHihvgenNwetPq8PqR5nbC6YcHeN (44 adres)
 
 İmzalar:
 
-- set_platform: `5fkHbbNF6uUvv5xu3K2LMGcKwq2u1XJ7zdR2eKeQjxFRB4UJbchY1cN9qGKh28ypD2F6AAity25rp8yfbeHB1BfY`
-- lookup_table: `249CUZUBMvS7NvVUfFF2vMKf9xgnbFXh6yCAo9Ge9iFvhpKM4C4qbMkJPCcr2vyfmHER1LxB8DBGoFfsXjpVEhyD`
+- set_platform: `59aAwFteJkjXg6EgXoNyoN1kPpV9zANw6nN1dEVgCi7duWN8FRNyWVohrGPDkvHuhP5wqZHBwPwEu7iWdwxN2d88`
+- lookup_table: `2e6eSc1LoxnradR6jEdV8H5fUsQ73d4mNXe6sJ8JBRrwQcdeBZCNYGkPRGhFH14MjWEr49qfFUkVRvJVWmjScq39`
 
 ### 2. Coin basıldı ve %30'u kilitlendi
 
@@ -39,12 +39,12 @@ Tek işlemde: pump.fun'da coin yaratıldı, dev 400M coin aldı, bunun %30'u esc
 | escrow coin | 0 coin | 120.00M coin |
 | dev coin | 0 coin | 280.00M coin |
 
-- coin: Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U
-- escrow: B1fHcDWhwZP2z3ynWaRfJWndN1WryTNQzoBS2sr3Y6jP
+- coin: C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42
+- escrow: 2TVX61QVjBYf6mtTfaMwqETW4TS5sBsQLvFEkFcRDaeE
 
 İmzalar:
 
-- launch: `4a21JtCyR6oagvtreaEEQJnkRayZoL1jEpUYYjsfF5iMftZ56VBM3Sz7NQEX4tLWFAbhmP52SjcEMhBDFKkDJgSK`
+- launch: `VLZL2nwu5RuatAxJ2chBGoktvScpr5squvFPNZqjtXniJRSV3K4qX3W6WbNn4e6ZJSjjHEJeAwVmjqpyjdyamhV`
 
 ### 3. Tetikleyici başlangıç noktası
 
@@ -54,8 +54,8 @@ Program piyasa değerini ilk kez kaydetti; bundan sonraki hacim ve fiyat hareket
 
 İmzalar:
 
-- set_delay_window: `3dAkpxwUprEsrNaCW7FufdajZn4ZXqvnbmFvC6FUk6MQmgecxYQ4YpQcbLbcpNDcBrnebYa3ihgQqxKfZVawRm1Q`
-- check_trigger: `4Udf12QAyDrpB5ndnr5EU4UsQFmMzaoMVkUuNUFata9CBVAxgBBvcKyFRNdvyeBW7Dx7tTh4yieroPtREjYAkZpy`
+- set_delay_window: `2hBsevf1J7t6seAe2SamR7dsKVNeBFHWZ88LVkAskxtFjBVZS2tEyb6UvMh5Xy51QpaeamHU6GfNBLDBwsKdaRoL`
+- check_trigger: `4PCRk9bXac6NXu5NG3dvKfx2xi79WiZdh5BX24BtoJAVkMb8dbrvw3xHaA1H1atxmvTwe64wsrjFd7ehhM2CePuE`
 
 ### 4. Dört cüzdan piyasadan aldı
 
@@ -67,10 +67,10 @@ Ayşe, Burak, Ceren ve Deniz doğrudan pump.fun'dan coin aldı; her alımın kü
 
 İmzalar:
 
-- Ayşe 0.12 SOL ile aldı → 46.57M coin: `5hc7H2cuTQ67EjsNugX66fX3kAF7Ny4VqNS2XjAVGEDh6mL8sYwsdHs7MYNtP95U8bLDo424TijkmfhYGSavWChp`
-- Burak 0.1 SOL ile aldı → 34.15M coin: `3d62kTU9L4CpHf7dN4XGwtPK3ZG1E98cBwYa3k7QNdnhZvM5iE7VD7mwQs1yG3BPNuWB1eFvBysK68KHskxvaDtx`
-- Ceren 0.08 SOL ile aldı → 24.75M coin: `cPzMveLHviVncWesW92dh6TYyQkGtvD5aka5KvWpeKrpjHuS1YgQmdamXCnBUAax9iGWWR1wMWZocF8CeNvVtL2`
-- Deniz 0.06 SOL ile aldı → 17.25M coin: `VNnZfFC9TgKN49ZEJM9D6DXftbAHtjErV3Nuzj9NQ67sP7PhZQP8Wz2STSoZQvTnKhSrR2adDwJs7GEKPgWtGhq`
+- Ayşe 0.12 SOL ile aldı → 46.57M coin: `pmKZ2StyoiLwzHyvofvwTck2LhgQkuc7bSfZtLpKjAbUJpXpaPUrJHGpBAgp64Gq7UZjFLcMtRPv66dbrEZpvXK`
+- Burak 0.1 SOL ile aldı → 34.15M coin: `36TrP7bcLQKRBsDSY4hSBaVawpeVPvFAhoNzhead1ANLQACPeWGxe4aUpS3vQGrcGtJPRU7kjNoUs8S3v5DJ8Pk3`
+- Ceren 0.08 SOL ile aldı → 24.75M coin: `5h4sxE7u1AJeAgchpDkiC3b2L8CisrWP3u2T1P7JJhnrnsVSGG1zbox7dgQ2LUY2EM4anbHe3WUN2jjCoAu9zbzm`
+- Deniz 0.06 SOL ile aldı → 17.25M coin: `5bULNbBSRaWTrCeHd9AncEzxzPWSVqZwwaVzX64jJi9hmZRucYoTuyZ7qQj1HEMAkZ67yTEmd9KoHwyjEGQACgp`
 
 ### 5. Deniz hepsini sattı
 
@@ -83,7 +83,7 @@ Deniz elindeki coin'in tamamını pump.fun'a geri sattı; elinde coin kalmadı, 
 
 İmzalar:
 
-- sell: `3z7fYeJuAQcJHhbP8QNQi6g19MkXWqjfkdY2pFmcv9PLkeK96nBsdxGEq3iJQ6c3sJ4PCzgpwQvj6v5jpMenuzZv`
+- sell: `4VB5aUWqmqfzs5WpUAHakrE2HwAg6sD1YVyiqb4oNNdwgPuMjr33iQn4br62CZVoMtd9v4iXwPQYkFybYVbAFLuM`
 
 ### 6. Biriken ücret havuza süpürüldü
 
@@ -98,7 +98,7 @@ Alım-satımlardan biriken creator ücreti pump.fun kasasından escrow'a çekild
 
 İmzalar:
 
-- collect_fees: `4axM3Y9Bmbr1J6Ca5MrgFbcdkr8aYokPi1PH4TNEE3Z9VinNii8px5v7RpHsBBJmXvAz2J3q2TM3RvhPSt7V4PyA`
+- collect_fees: `4MVzHKp38Kfi3yMAX6rxccJMKsHC5MoCnRSNeZ73ab4h1e8ZpNuJTgAn2X8gUJ4zxHT1PBFcybNdzcdZHE9AwYZe`
 
 ### 7. Topluluk bağışı ve parça parça geri alım
 
@@ -115,24 +115,24 @@ Escrow'a 0.2 SOL bağış geldi. Buyback bunu tek seferde değil, her çağrıda
 
 İmzalar:
 
-- bağış 0.2 SOL: `3n27YYd2HxQrwJoLfyc63UDh9GJvXnhQdAcKtqy8eFEgNPEMAKtMz96dnQgWEHmAEKiYvjg1JZ6i5jbTgQDTUqpB`
-- parça 1 (slot 14810): 0.0095 SOL harcandı → +2.79M coin, sonraya 0.1836 SOL: `3JC8DLG7PuXuSXnzVJu7zBk1uPJrSiHpeEA5qzW8X5o8psSijgFwYanZkNLJRmBzqz1AMwZqLgJ1BqHcL65UMup1`
-- parça 2 (slot 14812): 0.0095 SOL harcandı → +2.78M coin, sonraya 0.1722 SOL: `5zv2ReHacLh7Hjrchv2q7HhtnV5Ppch7WxY6vKsLDaHXTDXpzerVaQPfCLuPwBzsCkRnyCS8vRoatAMDLoo1WsSN`
-- parça 3 (slot 14814): 0.0095 SOL harcandı → +2.76M coin, sonraya 0.1627 SOL: `5EXdyk45mkAhP1d5UztHPz7DQwqPfZChtVDMrf39SKpW63TC5ZCsZDLf3d4cHbyfFUk3HrRjbByyppYGm2JnKfrU`
-- parça 4 (slot 14816): 0.0096 SOL harcandı → +2.75M coin, sonraya 0.1531 SOL: `3QLXVjJ7KGczna1JgmrkVFw2B7CZRhfiV1JLwqNxQJ9rSgGEgMbiiugQx9ETzo4rEz27pHc9it5ZdB3CoEFyJrqR`
-- parça 5 (slot 14818): 0.0096 SOL harcandı → +2.73M coin, sonraya 0.1434 SOL: `PoFQUJQtogAxjhpK5T8XMrueeBqx7jwoksumehPCRCxorPF6Fe9hX7PpR3pJsvHHv6em58xEcfSF9fCiVFBVRo1`
+- bağış 0.2 SOL: `hVSTBeQYDPZJUJsDE9DQkc1bijuGQqmtTEr1oTEcybxbhoJAMHsB4cnBd8Lk4gg5o5Qv79WWqZj2nTmNXNQorBS`
+- parça 1 (slot 16558): 0.0095 SOL harcandı → +2.79M coin, sonraya 0.1836 SOL: `26X8G9SK9oixG2kCmZS6zLzW31ge2Br2xKnwZ4pyo9g9VFMMsBFdGUkEdLqXCyMRdXx39t6uSUNdpPPXF4UvC1sA`
+- parça 2 (slot 16560): 0.0095 SOL harcandı → +2.78M coin, sonraya 0.1722 SOL: `3h7toxakpqzPzQZP4j1gnz7b86GWgokY4NHfU8Qbmt57B7tXY75rPZkkjdbvnjStvfYDEp6ShrZrs6NGuFLA4JrZ`
+- parça 3 (slot 16562): 0.0095 SOL harcandı → +2.76M coin, sonraya 0.1627 SOL: `2Sczn8ctsRKksYiieJUH9sXZW2ctMEHVEw6gxmyrSf5J7Dy7Z5DGioCBT2HrDQC6dFzFKeJLY3Zui2hPhhrwLkPC`
+- parça 4 (slot 16564): 0.0096 SOL harcandı → +2.75M coin, sonraya 0.1531 SOL: `4Zqq4fc81oweqy6Nyx9tTTXVPq1rPWReV3Fzms3LJD8wBW4zRts5K1qGwSSphouwd41xnJ7npnmCjaBNKkG4Y94P`
+- parça 5 (slot 16566): 0.0096 SOL harcandı → +2.73M coin, sonraya 0.1434 SOL: `2pjbF9SjMf3aj7AEp2xXcvp7b4KqhmnPffFY3SFhjbdcjiQ3eYDuH7LzuZGMwzNZdmBdxV54Zv6hk9kdzUsYxeu8`
 
 ### 8. Hacim tetikleyiciyi kurdu
 
 Alım-satım hacmi eşiği geçti: program havuzun %1'ini dağıtmaya karar verdi ve rastgele bir gecikme belirledi (kimse dağıtım anını önceden bilemez).
 
 - tür: hacim, serbest bırakılacak: 1.34M coin (havuzun %1'i)
-- ateşleme slotu 14878, şu an 14820 → ~23 sn sonra
+- ateşleme slotu 16700, şu an 16568 → ~53 sn sonra
 - erken ateşleme denendi → reddedildi (TooEarly): süre dolmadan kimse dağıtamaz
 
 İmzalar:
 
-- check_trigger: `3y3ZE6M5dehp9esxowR3DzMVNcWEhbUewtk1pvCXasK3kb29yT525DBQEu7dfYrjBfEymetSLVR7wNJZKNt2V2i4`
+- check_trigger: `5GQXoKdxeqxqXLBx8RSf9748Si9SNJMCSasUW4eNFCvcBFLNy6YZKsP5hPKyobSKpsdTp29VFX4svcSxNcvsi2Nv`
 
 ### 9. Süre doldu, dağıtım serbest bırakıldı
 
@@ -144,35 +144,35 @@ Gecikme geçince herkesin çağırabildiği fire_trigger havuzun %1'ini dağıt�
 
 İmzalar:
 
-- fire_trigger: `2pyPHqfTaR7RwgjbD3LdfV3X4bBdHQSrfv4Vf3GDipxQYTda77XcEpQc9BGPdwa7fEyoGgu1d89ftG5LqL86VoHW`
+- fire_trigger: `2C9aGpEEgrpHKupqSQbbwdHwTA3gNexPzb7d9ovVBhPxtRpCTYMizQpec3U1bCeRZxhCEUS9F4Jmg4d8uRH3Nu6o`
 
 ### 10. Holder listesi çıkarıldı
 
 Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Ağırlık = bakiye × tutma süresi.
 
-- Ayşe (3XSp…z4h1): 46.57M coin, 88 slottur tutuyor → şans %45.8
-- Burak (9YK4…j9ka): 34.15M coin, 84 slottur tutuyor → şans %32.1
-- Ceren (GT51…ewb8): 24.75M coin, 80 slottur tutuyor → şans %22.1
-- Deniz (5Nw5…H2uW) listede YOK — hepsini sattığı için
-- dev cüzdanı hazine sayılır, listede yok. kök: bd3497b6e7d11f23… slot 14879
+- Burak (3tTU…GwxU): 34.15M coin, 159 slottur tutuyor → şans %32.2
+- Ayşe (EKde…ZBgR): 46.57M coin, 163 slottur tutuyor → şans %45.0
+- Ceren (EQet…Nm8U): 24.75M coin, 155 slottur tutuyor → şans %22.8
+- Deniz (9qKK…jn6n) listede YOK — hepsini sattığı için
+- dev cüzdanı hazine sayılır, listede yok. kök: 4795adf5dbbf02c2… slot 16701
 
 ### 11. Kök zincire yazıldı, sonra çekiliş
 
 Liste önce zincire mühürlendi (kök), rastgelelik ancak ondan sonra üretildi: 3 kazanan, eşit ödül. Sıra önemli — önce liste, sonra zar.
 
-- ödül: 3 × 446.0K coin; zar slotu 14882 (kök yazıldıktan 2 slot sonra)
-- rastgele tohum: 74fa18baf13c49b8…
+- ödül: 3 × 446.0K coin; zar slotu 16704 (kök yazıldıktan 2 slot sonra)
+- rastgele tohum: 8d6032a2be847fc4…
 
 İmzalar:
 
-- open_round: `V3NZWrf9xpoAAtpfs2iUswBFCWUmkxVo5xedxNsxScKvmsmcG8dsXAkkGcvDRi3Wu4cr87mtpJvJocz7gwTkPAL`
-- draw: `3H1KArpTMqVHTkoUHVuVcUGkmTn4jUL5geHnjK2Pj1NfmXmsF7K6ZVFi3sSVR8kuYXQJm3NvRT7MFdvtCZwr7w1n`
+- open_round: `5CUnc6rJoGa8w5euscJ2WH1ehkZguJrTNNnc8YuKtrPH4sh1E4TNKRQacVaS4LPHPZiSV4MaaRR8D5VoCnz7kytZ`
+- draw: `64bzcD1fh75dqXEV2yZnASoRf8JZiSry2qY58ZF7bctdhRwa84cfq9F25PxdmFyg71VE765yXKYC5if8oDynBc4H`
 
 ### 12. Satan cüzdan ödül alamadı
 
 Kazananlar almadan önce Deniz, 1. çekilişi kazanan satırı kendi cüzdanıyla kullanıp ödül almayı denedi; program ispatı imzalayan cüzdana göre kontrol ettiği için reddetti.
 
-- 1. çekilişi Ayşe (3XSp…z4h1) kazandı; Deniz o satırla deniyor
+- 1. çekilişi Ayşe (EKde…ZBgR) kazandı; Deniz o satırla deniyor
 - reddedildi (BadProof): Deniz listede yok, başkasının satırı kendi cüzdanıyla işe yaramadı
 
 ### 13. Kazananlar ödülünü aldı
@@ -181,18 +181,18 @@ Her çekiliş ağırlığa göre bir holder'a düştü; kazananlar kendi cüzdan
 
 | | Öncesi | Sonrası |
 |---|---|---|
-| Ayşe (3XSp…z4h1) coin | 46.57M coin | 47.01M coin |
-| Burak (9YK4…j9ka) coin | 34.15M coin | 34.15M coin |
-| Ceren (GT51…ewb8) coin | 24.75M coin | 25.20M coin |
+| Ayşe (EKde…ZBgR) coin | 46.57M coin | 47.46M coin |
+| Burak (3tTU…GwxU) coin | 34.15M coin | 34.15M coin |
+| Ceren (EQet…Nm8U) coin | 24.75M coin | 24.75M coin |
 | havuz coin | 132.47M coin | 132.47M coin |
 
-- çekiliş 3 → Burak (9YK4…j9ka) kazandı, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)
+- çekiliş 3 → Ceren (EQet…Nm8U) kazandı, claim edilmedi: web'de "claim" butonuyla alınacak (cüzdan demo-wallets.json'da)
 - 2/3 ödül ödendi
 
 İmzalar:
 
-- çekiliş 1 → Ayşe (3XSp…z4h1) +446.0K coin: `38Jnjpc7aPEjstdstLNP5i5WShfr51T3hE2uDgQEh2KCEuhgeSPNt4ZrC8KCTBU9btJGD5tcKejAaR8oh5EhzdsR`
-- çekiliş 2 → Ceren (GT51…ewb8) +446.0K coin: `4Btr8VkAMKPwFohkCuQQUgmwsyErBwVmhWeEXUmtpaspPc3wkxMLKBq65KDnrbYZYP8HyLoFLooG3fhGpesEh2pj`
+- çekiliş 1 → Ayşe (EKde…ZBgR) +446.0K coin: `oZpRuuuCzURMvrhREAtu7uH6amGEaJhMCeN3ptQEXprGJaw67wtMZvDCMv3wmPa5PQ2CTUPk14QFsDiHEfsgEqb`
+- çekiliş 2 → Ayşe (EKde…ZBgR) +446.0K coin: `4bEydJj4P8Ld6v9JgEcE8kMfS5fugMeKqjoEFzm142heEBqQgPQaMjfBQDhdWQRHJXnyTTmvXCH24hxwNrrtgKuA`
 
 ## Sonuç
 
@@ -203,7 +203,7 @@ Her çekiliş ağırlığa göre bir holder'a düştü; kazananlar kendi cüzdan
 | Geri alıma harcanan | 0.0477 SOL → 13.81M coin havuza eklendi |
 | Dağıtılan | 1.34M coin |
 | Havuzda kalan | 132.47M coin |
-| Süre | 63 sn |
+| Süre | 95 sn |
 
 Kurallar özet: dağıtım anı rastgele gecikmeli (üretimde 0–60 dk), holder listesi zincire yazıldıktan sonra zar atılır, ödül yalnızca listedeki cüzdana ve hâlâ tutuyorsa ödenir, geri alım tek seferde piyasanın %0,5'inden fazlasını harcamaz ve aynı slotta iki kez çalışmaz.
 
@@ -211,5 +211,5 @@ Doğrulamak için: `solana confirm -v <imza> --url http://127.0.0.1:8899` (local
 
 ## Web'de görmek
 
-`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/Edkz8KdhbGSu62q1vmbGuSVAQPVGBj139oCgGBGha11U (bu coin: havuz, son dağıtım, sıradaki tetikleyici, "Your share" paneli).
+`cd web && npm run dev:local` → http://localhost:3000 (coin listesi), http://localhost:3000/coin/C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42 (bu coin: havuz, son dağıtım, sıradaki tetikleyici, "Your share" paneli).
 Son çekiliş bilerek claim edilmedi: kazanan cüzdanın anahtarı `demo-wallets.json` içinde; Phantom'a aktarıp (ağ: localhost:8899) coin sayfasında cüzdanı bağlayınca panel ödülü bulur, "claim" butonu zincire gönderir.

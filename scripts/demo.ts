@@ -9,8 +9,8 @@
  *
  * Her adımda tx imzası ve tek satır Türkçe açıklama basar, sonunda DEMO.md yazar.
  *
- *   HELIUS_RPC_URL=http://127.0.0.1:8899 ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 \
- *     npm run demo
+ *   ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 npm run demo   (varsayılan zaten localnet;
+ *   HELIUS_RPC_URL yok sayılır — indexer da aynı RPC'yi kullanır)
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Program } from "@coral-xyz/anchor";
@@ -386,7 +386,10 @@ async function main() {
   step("Holder listesi çıkarıldı",
     "Herkesin yeniden üretebileceği deterministik snapshot: kimin ne kadar coin'i var, ne zamandır tutuyor. Ağırlık = bakiye × tutma süresi");
   const snapSlot = await conn.getSlot("confirmed");
-  const snap = await snapshot(process.env.HELIUS_RPC_URL ?? RPC_URL, mint.toBase58(), snapSlot, program.programId);
+  // Indexer hangi zincirde koşuyorsak onu okur. ~/.airdrop-launchpad.env'deki
+  // HELIUS_RPC_URL devnet'e bakar; localnet demosunda onu kullanmak "bonding
+  // curve not found" demek. Bu yüzden HELIUS_RPC_URL burada bilerek yok sayılır.
+  const snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId);
   {
     for (const l of snap.leaves) {
       const pct = (Number(BigInt(l.weight) * 10000n / BigInt(snap.totalWeight)) / 100).toFixed(1);

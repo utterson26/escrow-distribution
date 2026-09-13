@@ -487,8 +487,11 @@ describe("airdrop_escrow (devnet)", () => {
   it("4. indexer builds a deterministic snapshot", async () => {
     const slot = await conn.getSlot("confirmed");
     // the dev wallet is the treasury here, not an airdrop participant
-    // Helius on devnet (public RPC has no Token-2022 gPA); the provider itself on localnet
-    snap = await snapshot(process.env.HELIUS_RPC_URL ?? conn.rpcEndpoint, mint.toBase58(), slot,
+    // Helius on devnet (public RPC has no Token-2022 gPA); on localnet the provider
+    // itself — a HELIUS_RPC_URL pointing at devnet in the shell must not win here
+    const indexerRpc = /127\.0\.0\.1|localhost/.test(conn.rpcEndpoint)
+      ? conn.rpcEndpoint : (process.env.HELIUS_RPC_URL ?? conn.rpcEndpoint);
+    snap = await snapshot(indexerRpc, mint.toBase58(), slot,
                           program.programId, [dev.publicKey.toBase58()]);
     assert.equal(snap.leaves.length, 5, "exactly the 5 qualifying holders");
 
