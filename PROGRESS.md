@@ -1158,6 +1158,26 @@ devnet'te **yok**: deploy sonrası `migrate_config` şart (launch, Config'i
   koşulları, auditor'a 10 soru.
 - Web `decodeConfig` yeni alanları okuyor (bölüm 4'te gösterilecek).
 
+## gorev-3saat.md — bölüm 3: mainnet deploy hazırlığı (deploy yok) ✅
+
+- `scripts/deploy-mainnet.sh`: `.env.mainnet` okur; adımlar onaylı: verifiable
+  build (`solana-verify`), bakiye/rent, `deploy --use-rpc`, dump+cmp ve
+  authority kontrolü, `set_platform`/`migrate_config` (`scripts/config-admin.ts`),
+  isteğe bağlı multisig'e devir. `--dry-run` denendi, çalışıyor. **Mainnet'te
+  devnet id'si kullanılamaz** (keypair kayıp): `MAINNET_PROGRAM_ID` + yeni
+  keypair + `declare_id!` şart, script bunu zorluyor.
+- `scripts/config-admin.ts`: show / set-platform / migrate / propose-fee /
+  apply-fee / propose-cap / apply-cap / pause / unpause.
+- `.env.mainnet.example`: Helius mainnet, upgrade authority, platform
+  yetkilisi, fee cüzdanı, crank anahtarı ayrı; `.env.mainnet` gitignore.
+- `docs/MAINNET_CHECKLIST.md`: ön koşullar (audit, anahtarlar, pump mainnet
+  id'leri, RPC), SOL tablosu (~10–12 SOL, 3,7'si geri gelir), deploy günü
+  sırası, deploy sonrası, geri alma planı (pause, crank'i durdur, önceki
+  commit'e upgrade, anahtar değişimi; escrow'dan çıkış yolu yok — tasarım).
+- `docs/SHOWCASE.md`: %30 kilit (%25 havuz + %5 liste), creator-fee modu,
+  iki tetikleyici, launch alımı tablosu (öneri 100M token ≈ 3,1 SOL, kilit
+  ~0,9 SOL).
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**
