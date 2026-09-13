@@ -18,6 +18,7 @@ PROGRAMS=(
   6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P   # pump
   pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ   # pump fees
   MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e   # mayhem
+  pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA   # pump AMM (fee sharing's update_fee_shares_v2 wants it present)
 )
 ACCOUNTS=(
   4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf  # pump global

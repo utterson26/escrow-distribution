@@ -2,8 +2,15 @@ import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   conn, PROGRAM_ID, anchorDisc, decodeEscrow, decodeRound, decodeCurve,
-  bondingCurve, ata, marketCap, short, Escrow, Round, Curve, MAX_SHARE_BPS,
+  bondingCurve, ata, marketCap, short, Escrow, Round, Curve, Config, decodeConfig, MAX_SHARE_BPS, CAP_MIN_HOLDERS,
 } from "./chain";
+
+/** The program config (platform authority, platform fee); null before `set_platform`. */
+export async function fetchConfig(): Promise<Config | null> {
+  const addr = PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_ID)[0];
+  const info = await conn().getAccountInfo(addr);
+  return info ? decodeConfig(info.data as Buffer) : null;
+}
 
 /** Name and symbol from the mint's Token-2022 metadata extension (pump writes it at create). */
 export interface CoinMeta { name: string; symbol: string }
@@ -36,12 +43,13 @@ export interface CoinRow {
   escrowPct: number;          // locked airdrop share of the launch buy
   devPct: number;             // what stayed with the dev
   lastDistribution: { index: number; total: string; holders: number; claimed: number; claimedAmount: string } | null;
-  /** per-wallet cap on one round, percent */
+  /** per-wallet cap on one round, percent; applies from `capMinHolders` eligible holders on */
   capPct: number;
-  /** "regular" — creator fee goes to the escrow; pump's holder-rewards coins are not launched here */
-  coinType: "regular";
-  /** the escrow keeps 100% of the creator fee: there is no platform fee on this program */
-  platformFeePct: number;
+  capMinHolders: number;
+  /** from the escrow account: a pump holder-rewards coin keeps its creator fee on pump */
+  coinType: "regular" | "holder-rewards";
+  /** this coin's platform cut of the creator fee, as written into its pump sharing config (null: not set up yet) */
+  platformFeePct: number | null;
   nextTrigger: NextTrigger | null;
 }
 
@@ -140,8 +148,9 @@ export async function buildRows(): Promise<CoinRow[]> {
             claimed: last.claimedCount, claimedAmount: last.claimedAmount.toString() }
         : null,
       capPct: MAX_SHARE_BPS / 100,
-      coinType: "regular",
-      platformFeePct: 0,
+      capMinHolders: CAP_MIN_HOLDERS,
+      coinType: e.isHolderReward ? "holder-rewards" : "regular",
+      platformFeePct: e.isHolderReward ? 0 : e.feeSharingSet ? (e.platformFeeBps ?? 0) / 100 : null,
       nextTrigger: nextTrigger(e, curve, slot),
     });
   }

@@ -8,6 +8,14 @@ pub struct Config {
     /// The key that may open rounds, intervene, and turn the test knobs.
     pub platform: Pubkey,
     pub bump: u8,
+    /// Platform's share of the creator fee, in bps, written into pump's
+    /// fee-sharing config when a coin is set up. Never touches the locked pool.
+    pub platform_fee_bps: u16,
+    /// Where that share is paid.
+    pub platform_fee_wallet: Pubkey,
+    /// A proposed new rate, live from `fee_effective_slot` on (0 = none).
+    pub pending_fee_bps: u16,
+    pub fee_effective_slot: u64,
 }
 
 #[account]
@@ -96,6 +104,15 @@ pub struct Escrow {
     /// could stack calls and drain the escrow into one block.
     pub last_buyback_slot: u64,
     pub bump: u8,
+    /// pump holder-rewards coin: the creator fee goes to pump's holder pool,
+    /// so `collect_fees` and `buyback` do not apply; only the locked supply
+    /// and the triggered distributions do.
+    pub is_holder_reward: bool,
+    /// `setup_fee_sharing` ran: the creator vault is split escrow / platform.
+    pub fee_sharing_set: bool,
+    /// The platform bps written into this coin's sharing config (fixed there;
+    /// a later rate change only reaches new launches).
+    pub platform_fee_bps: u16,
 }
 
 /// One row of the manual airdrop list, published on chain so anyone can

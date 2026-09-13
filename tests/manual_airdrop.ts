@@ -60,7 +60,8 @@ describe("manual airdrop (localnet)", () => {
   const mintKp = Keypair.generate();
   const mint = mintKp.publicKey;
   const escrow = escrowPda(mint, program.programId);
-  const pa = pumpAccounts(mint, dev.publicKey, escrow);
+  const feeAuthority = PublicKey.findProgramAddressSync([Buffer.from("fee"), mint.toBuffer()], program.programId)[0];
+  const pa = pumpAccounts(mint, dev.publicKey, feeAuthority);
   const escrowTa = escrowAta(escrow, mint);
   const manualPda = PublicKey.findProgramAddressSync(
     [Buffer.from("manual"), mint.toBuffer()], program.programId)[0];
@@ -108,7 +109,7 @@ describe("manual airdrop (localnet)", () => {
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     lut = addr;
-    const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint,
+    const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint, feeAuthority,
                   dev.publicKey, manualPda, manualAta, configPda(program.programId),
                   SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
@@ -132,10 +133,10 @@ describe("manual airdrop (localnet)", () => {
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
               ESCROW_BPS, AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
-              [...root], MANUAL_BPS)
+              [...root], MANUAL_BPS, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
-        manualAuthority: manualPda, manualTokenAccount: manualAta,
+        manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
 

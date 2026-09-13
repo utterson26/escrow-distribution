@@ -11,7 +11,8 @@ import {
 import { assert } from "chai";
 import * as fs from "fs";
 import {
-  pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx,
+  pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
+  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
   TOKEN_2022, WSOL, TOKEN,
 } from "./pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
@@ -72,22 +73,30 @@ describe("airdrop_escrow (devnet)", () => {
   const mintKp = Keypair.generate();
   const mint = mintKp.publicKey;
   const escrow = escrowPda(mint, program.programId);
-  const pa = pumpAccounts(mint, dev.publicKey, escrow);
+  // the coin's creator on pump: our dataless fee PDA at launch, the pump fee
+  // sharing config once `setup_fee_sharing` has run (1c)
+  const feeAuthority = feeAuthorityPda(mint, program.programId);
+  const sharingConfig = sharingConfigPda(mint);
+  const pa = pumpAccounts(mint, dev.publicKey, feeAuthority);   // launch-time accounts
+  const paS = pumpAccounts(mint, dev.publicKey, sharingConfig); // after fee sharing
   const escrowTa = escrowAta(escrow, mint);
   // the dataless PDA that signs the pump buy on the escrow's behalf
   const buyer = buyerPda(mint, program.programId);
   const buyerTa = baseAtaOf(buyer, mint);
-  const pb = pumpAccounts(mint, buyer, escrow); // pump accounts keyed on the buyer
+  const pb = pumpAccounts(mint, buyer, sharingConfig); // pump accounts keyed on the buyer
+  // where the platform's 10% of the creator fee goes
+  const feeWallet = Keypair.generate();
   const baseAta = (owner: PublicKey) =>
     getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022);
   const quoteAta = (owner: PublicKey) =>
     getAssociatedTokenAddressSync(WSOL, owner, true, TOKEN);
 
   // 7 wallets: 5 that should qualify, 1 that sells out, 1 below the minimum
+  // (0.1 SOL ≈ $20 at the curve price: 35M tokens clears it, 5M does not)
   const holders = Array.from({ length: 7 }, () => Keypair.generate());
-  const GRANT = [25, 30, 35, 40, 45, 30, 5].map((m) => new BN(m).mul(new BN(1_000_000)).mul(new BN(10 ** 6)));
+  const GRANT = [35, 36, 37, 38, 40, 30, 5].map((m) => new BN(m).mul(new BN(1_000_000)).mul(new BN(10 ** 6)));
   const SELLS_OUT = 5;   // receives, then sends everything back
-  const TOO_SMALL = 6;   // 5M tokens, under 0.05 SOL
+  const TOO_SMALL = 6;   // 5M tokens, under the 0.1 SOL (~$20) floor
   let snap: any;
   let earlyRejectProven = false;
   let lut: PublicKey;
@@ -114,16 +123,21 @@ describe("airdrop_escrow (devnet)", () => {
 
   it("sets up an address lookup table", async () => {
     // the dev doubles as platform in this run; only the upgrade authority may say so
-    await withRetry("set_platform", () => setPlatform(program, dev.publicKey, dev.publicKey));
+    await withRetry("set_platform", () => setPlatform(program, dev.publicKey, dev.publicKey, feeWallet.publicKey));
+    // a fresh wallet must be rent-exempt to receive its fee share
+    await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: feeWallet.publicKey, lamports: 0.01 * LAMPORTS_PER_SOL })]);
     const slot = await conn.getSlot("finalized");
     const [createIx, addr] = AddressLookupTableProgram.createLookupTable({
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     lut = addr;
+    const sfs = setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, feeWallet.publicKey);
     const keys = [
       ...Object.values(pa) as PublicKey[],
+      ...Object.values(paS) as PublicKey[],
       ...Object.values(pb) as PublicKey[],
-      escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa,
+      ...Object.values(sfs) as PublicKey[],
+      escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa, feeAuthority, sharingConfig,
       manualPda(mint, program.programId), manualAta(mint, program.programId),
       configPda(program.programId), SystemProgram.programId, program.programId,
     ];
@@ -143,19 +157,19 @@ describe("airdrop_escrow (devnet)", () => {
   });
 
   it("1. launch: create_v2 + buy_v2 in one atomic tx", async () => {
-    // large enough that a real position clears the 0.05 SOL minimum
-    const amount = new BN(400_000_000).mul(new BN(10 ** 6));
+    // large enough that a 35M-token position clears the 0.1 SOL minimum
+    const amount = new BN(500_000_000).mul(new BN(10 ** 6));
     const maxSolCost = new BN(1.5 * LAMPORTS_PER_SOL);
     const escrowBps = 3000; // 30% to escrow
 
     const ix = await program.methods
       .launch("Airdrop Test", "ADT", "https://example.com/adt.json", escrowBps, amount, maxSolCost,
-              [...Buffer.alloc(32)], 0)  // manuel airdrop kapali
+              [...Buffer.alloc(32)], 0, false)  // manuel liste kapali, holder-rewards kapali
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda(mint, program.programId),
         manualTokenAccount: manualAta(mint, program.programId),
-        ...pa, systemProgram: SystemProgram.programId,
+        feeAuthority, ...pa, systemProgram: SystemProgram.programId,
       })
       .instruction();
 
@@ -191,6 +205,35 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  escrow=${esc.amount} dev=${devTa.amount} sig=${sig}`);
   });
 
+  it("1c. fee sharing: the creator fee is split 90% escrow / 10% platform on pump", async () => {
+    const raw0 = (await conn.getAccountInfo(pa.bondingCurve, "confirmed"))!.data;
+    assert.equal(new PublicKey(raw0.subarray(49, 81)).toBase58(), feeAuthority.toBase58(),
+      "at launch pump's creator is our fee PDA");
+    const feeBefore = await conn.getBalance(feeAuthority, "confirmed");
+    const sig = await withRetry("setup_fee_sharing", () => program.methods.setupFeeSharing()
+      .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, feeWallet.publicKey))
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .rpc({ commitment: "confirmed" }));
+    sigs.setupFeeSharing = sig;
+    const st: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(st.feeSharingSet);
+    assert.equal(st.platformFeeBps, 1000, "10% recorded on the escrow");
+    const raw = (await conn.getAccountInfo(pa.bondingCurve, "confirmed"))!.data;
+    assert.equal(new PublicKey(raw.subarray(49, 81)).toBase58(), sharingConfig.toBase58(),
+      "pump now routes the creator fee through the sharing config");
+    assert.equal(await conn.getBalance(feeAuthority, "confirmed"), feeBefore, "fee PDA keeps none of the fronted rent");
+    // a second setup is refused
+    let again = false;
+    try {
+      await program.methods.setupFeeSharing()
+        .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, feeWallet.publicKey))
+        .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+        .rpc({ commitment: "confirmed" });
+    } catch { again = true; }
+    assert.isTrue(again, "fee sharing is one-shot");
+    console.log(`  sharing config ${sharingConfig.toBase58()} sig=${sig}`);
+  });
+
   it("1b. delay window narrowed, first check only sets the baseline", async () => {
     await withRetry("set_delay_window", () => program.methods
       .setDelayWindow(new BN(DELAY_WINDOW))
@@ -206,26 +249,44 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  baseline mcap=${st.lastMilestoneMcap.toNumber() / 1e9} SOL`);
   });
 
-  it("2. collect_fees: escrow PDA sweeps the pump creator vault via CPI", async () => {
-    const before = await conn.getBalance(escrow, "confirmed");
+  it("2. collect_fees: pump pays 90% to the escrow and 10% to the platform wallet", async () => {
+    // some trading first, so the creator vault holds enough to split: pump
+    // only distributes above ~0.0019 SOL in the vault (rent floor + a
+    // per-shareholder minimum), and the creator fee is a few bps of volume
+    await send([createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, quoteAta(dev.publicKey), dev.publicKey, WSOL, TOKEN)]);
+    for (let i = 0; i < 2; i++) {
+      const b0 = (await getAccount(conn, pa.associatedBaseUser, "confirmed", TOKEN_2022)).amount;
+      await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+                  directBuyIx(mint, dev.publicKey, sharingConfig, BigInt(0.25 * LAMPORTS_PER_SOL), 1n)]);
+      const b1 = (await getAccount(conn, pa.associatedBaseUser, "confirmed", TOKEN_2022)).amount;
+      await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+                  directSellIx(mint, dev.publicKey, sharingConfig, b1 - b0, 0n)]);
+    }
+    const vault = paS.creatorVault;
+    const vaultBefore = await conn.getBalance(vault, "confirmed");
+    assert.isAbove(vaultBefore, 1_900_000, "creator vault accrued enough fees to distribute");
+    const escBefore = await conn.getBalance(escrow, "confirmed");
+    const platBefore = await conn.getBalance(feeWallet.publicKey, "confirmed");
+
     const sig = await withRetry("collect_fees", () => program.methods
       .collectFees()
-      .accountsPartial({
-        payer: dev.publicKey, escrow,
-        creatorTokenAccount: quoteAta(escrow),
-        creatorVault: pa.creatorVault,
-        creatorVaultTokenAccount: quoteAta(pa.creatorVault),
-        quoteMint: WSOL, quoteTokenProgram: TOKEN,
-        associatedTokenProgram: pa.associatedTokenProgram,
-        eventAuthority: pa.eventAuthority, pumpProgram: pa.pumpProgram,
-        systemProgram: SystemProgram.programId,
-      })
+      .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, dev.publicKey))
+      .remainingAccounts(shareholderMetas(feeAuthority, feeWallet.publicKey, 1000))
       .rpc({ commitment: "confirmed" }));
     sigs.collectFees = sig;
-    const after = await conn.getBalance(escrow, "confirmed");
+
+    const escGain = (await conn.getBalance(escrow, "confirmed")) - escBefore;
+    const platGain = (await conn.getBalance(feeWallet.publicKey, "confirmed")) - platBefore;
     const st: any = await program.account.escrow.fetch(escrow);
-    console.log(`  escrow lamports ${before} -> ${after}, recorded=${st.feesCollected} sig=${sig}`);
-    assert.isAtLeast(after, before, "escrow must not lose lamports");
+
+    assert.isAbove(escGain, 0, "escrow received its share");
+    assert.isAbove(platGain, 0, "platform received its share");
+    // 90 / 10 within rounding: platform ≈ escrow / 9
+    const ratio = platGain / escGain;
+    assert.closeTo(ratio, 1 / 9, 0.005, `split should be 90/10, got ${escGain}/${platGain}`);
+    assert.equal(st.feesCollected.toNumber(), escGain, "escrow books only its own share");
+    assert.equal(await conn.getBalance(feeAuthority, "confirmed"), 0, "fee PDA keeps nothing");
+    console.log(`  vault ${vaultBefore} -> escrow +${escGain} (90%), platform +${platGain} (10%) sig=${sig}`);
   });
 
   /** every account `buyback` needs, shared by both buyback tests */
@@ -544,7 +605,7 @@ describe("airdrop_escrow (devnet)", () => {
     console.log(`  armed: ${st.authorized.toString()} token (havuzun %1'i), fire_slot=${st.fireSlot} (now=${now})`);
 
     // Try to fire straight away, while we are certainly still inside the delay.
-    // Done here rather than in a later test so an unlucky small draw cannot let
+    // Done here rather than in a later test so an unfavourable small allocate cannot let
     // the slot slip past before we get to it.
     const fireSlot = st.fireSlot.toNumber();
     if ((await conn.getSlot("confirmed")) < fireSlot) {
@@ -628,11 +689,16 @@ describe("airdrop_escrow (devnet)", () => {
                           [dev.publicKey.toBase58()], released);
     assert.equal(snap.leaves.length, 5, "same 5 holders");
     const total = BigInt(snap.total);
-    const cap = released * 1000n / 10000n;
-    assert.isTrue(total <= released, "cannot hand out more than released");
-    for (const l of snap.leaves) assert.isTrue(BigInt(l.amount) <= cap, `${l.holder} over the 10% cap`);
-    // 5 holders, 10% cap each: exactly half is handed out, the rest stays pending
-    assert.equal(total.toString(), (cap * 5n).toString(), "5 × cap");
+    // five holders: below CAP_MIN_HOLDERS, so no cap — everything released is
+    // handed out, strictly in proportion to weight
+    assert.equal(total.toString(), released.toString(), "≤10 holders: the whole release is distributed");
+    const W = BigInt(snap.totalWeight);
+    for (const l of snap.leaves) {
+      const expect = released * BigInt(l.weight) / W;
+      const got = BigInt(l.amount);
+      assert.isTrue(got >= expect && got <= expect + released, `${l.holder} pro rata (${got} vs ${expect})`);
+      assert.isTrue(got - expect < 1_000_000n, "only rounding dust above the exact share");
+    }
     const again = await snapshot(indexerRpc(), mint.toBase58(), slot, program.programId,
                                  [dev.publicKey.toBase58()], released);
     assert.equal(again.root, snap.root, "allocation is deterministic");
@@ -663,8 +729,8 @@ describe("airdrop_escrow (devnet)", () => {
     assert.equal(r.holderCount, snap.leaves.length);
     assert.equal(r.snapshotSlot.toNumber(), snap.snapshotSlot, "snapshot slot recorded");
     const st2: any = await program.account.escrow.fetch(escrow);
-    assert.equal(st2.pending.toString(), (released - total).toString(), "cap remainder stays pending");
-    console.log(`  root islendi: ${snap.leaves.length} holder, ${total} dagitiliyor / ${released} serbest, kalan pending sig=${sig}`);
+    assert.equal(st2.pending.toString(), "0", "the release is consumed by the round");
+    console.log(`  root islendi: ${snap.leaves.length} holder, ${total} dagitiliyor / ${released} serbest sig=${sig}`);
   });
 
   it("6. every holder claims exactly their share; nobody twice", async () => {
@@ -718,47 +784,15 @@ describe("airdrop_escrow (devnet)", () => {
     console.log("  agacta olmayan cuzdanin sahte claim'i reddedildi (BadProof)");
   });
 
-  it("8. the 10% cap is enforced on chain, not just by the indexer", async () => {
-    // A dishonest publisher commits a root that hands one wallet half the
-    // round. The proof checks out; the program still refuses the amount.
-    const st: any = await program.account.escrow.fetch(escrow);
-    let released = BigInt(st.pending.toString());
-    if (released === 0n) {
-      // nothing pending: make the escrow release something small first
-      console.log("  not: pending yok, tavan testi milestone'dan sonra kosacak");
-      capTestPending = true; return;
-    }
-    await capTest(released);
+  it("8. below eleven holders there is no cap: a 60% leaf is a valid share", async () => {
+    // Five holders, one of them heavy: the allocator gives the heaviest wallet
+    // whatever its weight says, and the program accepts it. (With eleven or
+    // more holders the same leaf is refused — see 10.)
+    const heavy = [...snap.leaves].sort((x: any, y: any) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1))[0];
+    const pct = Number(BigInt(heavy.amount) * 10000n / BigInt(snap.released)) / 100;
+    console.log(`  en agir holder payin %${pct}'ini aldi (tavan yok, ${snap.leaves.length} holder)`);
+    assert.isAbove(pct, 10, "a share above 10% went through with five holders");
   });
-  let capTestPending = false;
-  async function capTest(released: bigint) {
-    const roundIndex = 1;
-    const round = roundPda(escrow, roundIndex, program.programId);
-    const slot = await conn.getSlot("confirmed");
-    const doctored = await snapshot(indexerRpc(), mint.toBase58(), slot, program.programId,
-                                    [dev.publicKey.toBase58()], released);
-    // rewrite the amounts: leaf 0 gets 50% of the round, the rest nothing
-    const half = released / 2n;
-    doctored.leaves.forEach((l: any, i: number) => { l.amount = i === 0 ? half.toString() : "0"; });
-    const { root, layers } = buildTree(doctored.leaves);
-    await withRetry("open_round_doctored", () => program.methods
-      .openRound(roundIndex, [...root], new BN(released.toString()), new BN(half.toString()),
-                 doctored.leaves.length, new BN(doctored.snapshotSlot))
-      .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
-      .rpc({ commitment: "confirmed" }));
-    const l0 = doctored.leaves[0];
-    const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
-    let detail = "";
-    try {
-      await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount),
-          proofFor(layers, l0.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(h0.publicKey, round)).signers([h0]).rpc({ commitment: "confirmed" });
-      detail = "KABUL";
-    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
-    assert.match(detail, /ShareOverCap/, `over-cap leaf must be refused: ${detail.slice(0, 200)}`);
-    console.log(`  %50'lik leaf reddedildi (ShareOverCap), tavan %10`);
-  }
-
 
   it("9. milestone: doubling the market cap releases 5% and ratchets", async () => {
     const before: any = await program.account.escrow.fetch(escrow);
@@ -794,7 +828,7 @@ describe("airdrop_escrow (devnet)", () => {
         payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
         instructions: [
           ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          directBuyIx(mint, dev.publicKey, escrow, BigInt(Math.ceil(Number(need) * 1.03)), 1n),
+          directBuyIx(mint, dev.publicKey, sharingConfig, BigInt(Math.ceil(Number(need) * 1.03)), 1n),
         ],
       }).compileToV0Message([lutAcc]);
       const tx = new VersionedTransaction(msg);
@@ -837,6 +871,105 @@ describe("airdrop_escrow (devnet)", () => {
       "milestone does not go backwards");
     assert.equal(st2.armedKind, st2.armed ? 1 : 0, "no second milestone at the same cap");
     console.log(`  tas geri gitmedi sig=${again}`);
-    if (capTestPending) await capTest(BigInt(after.pending.toString()));
+  });
+
+  it("10. eleven holders: the 10% cap applies on chain and the remainder goes back to the pool", async () => {
+    // the milestone just released 5% of the pool; make eleven eligible holders
+    const st0: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(st0.pending.gtn(0), "milestone release pending");
+    // the dev tops up its tokens (the curve must not complete: keep buys small)
+    await send([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      directBuyIx(mint, dev.publicKey, sharingConfig, BigInt(0.3 * LAMPORTS_PER_SOL), 1n),
+    ]);
+    // 20M tokens each: at the doubled price that is ~0.13 SOL, over the $20 floor
+    const NEW_GRANT = 20_000_000n * 1_000_000n;
+    const more = Array.from({ length: 6 }, () => Keypair.generate());
+    for (const h of more) {
+      await send([
+        SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: h.publicKey, lamports: 0.02 * LAMPORTS_PER_SOL }),
+        createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, baseAta(h.publicKey), h.publicKey, mint, TOKEN_2022),
+        createTransferCheckedInstruction(pa.associatedBaseUser, mint, baseAta(h.publicKey), dev.publicKey,
+          NEW_GRANT, 6, [], TOKEN_2022),
+      ]);
+    }
+    holders.push(...more);
+    await sleep(2000); // a little holding time for the newcomers
+
+    // (a) a dishonest root paying one wallet 50% is refused on chain now
+    let released = BigInt(st0.pending.toString());
+    const slotA = await conn.getSlot("confirmed");
+    const doctored = await snapshot(indexerRpc(), mint.toBase58(), slotA, program.programId,
+                                    [dev.publicKey.toBase58()], released);
+    assert.equal(doctored.leaves.length, 11, "eleven eligible holders");
+    const half = released / 2n;
+    doctored.leaves.forEach((l: any, i: number) => { l.amount = i === 0 ? half.toString() : "0"; });
+    const bad = buildTree(doctored.leaves);
+    const round1 = roundPda(escrow, 1, program.programId);
+    await withRetry("open_round_doctored", () => program.methods
+      .openRound(1, [...bad.root], new BN(released.toString()), new BN(half.toString()), 11, new BN(doctored.snapshotSlot))
+      .accountsPartial({ publisher: dev.publicKey, escrow, round: round1, systemProgram: SystemProgram.programId })
+      .rpc({ commitment: "confirmed" }));
+    const l0 = doctored.leaves[0];
+    const h0 = holders.find((x) => x.publicKey.toBase58() === l0.holder)!;
+    let detail = "";
+    try {
+      await program.methods.claimShare(l0.index, new BN(l0.balance), new BN(l0.amount), proofFor(bad.layers, l0.index).map((b) => [...b]))
+        .accountsPartial(claimAccounts(h0.publicKey, round1)).signers([h0]).rpc({ commitment: "confirmed" });
+      detail = "KABUL";
+    } catch (e: any) { detail = String(e?.message ?? e) + JSON.stringify(e?.logs ?? []); }
+    assert.match(detail, /ShareOverCap/, `over-cap leaf must be refused with 11 holders: ${detail.slice(0, 200)}`);
+    console.log("  11 holder: %50'lik leaf reddedildi (ShareOverCap)");
+
+    // (b) a fresh release: volume arms, fires
+    await send([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      directBuyIx(mint, dev.publicKey, sharingConfig, BigInt(0.15 * LAMPORTS_PER_SOL), 1n),
+    ]);
+    await withRetry("check_trigger", () => program.methods.checkTrigger().accountsPartial(triggerAccounts()).rpc({ commitment: "confirmed" }));
+    let st: any = await program.account.escrow.fetch(escrow);
+    assert.isTrue(st.armed, "volume armed again");
+    while ((await conn.getSlot("confirmed")) < st.fireSlot.toNumber()) await sleep(400);
+    await withRetry("fire", () => program.methods.fireTrigger().accountsPartial({ escrow, bondingCurve: pa.bondingCurve }).rpc({ commitment: "confirmed" }));
+    st = await program.account.escrow.fetch(escrow);
+    released = BigInt(st.pending.toString());
+    assert.isTrue(released > 0n);
+
+    // (c) the honest allocation: heavy wallets capped at 10%, everyone paid,
+    //     whatever the cap held back is simply not allocated
+    const slotB = await conn.getSlot("confirmed");
+    const snap11 = await snapshot(indexerRpc(), mint.toBase58(), slotB, program.programId,
+                                  [dev.publicKey.toBase58()], released);
+    assert.equal(snap11.leaves.length, 11);
+    const cap = released * 1000n / 10000n;
+    for (const l of snap11.leaves) assert.isTrue(BigInt(l.amount) <= cap, `${l.holder} over the cap`);
+    const total = BigInt(snap11.total);
+    assert.isTrue(total <= released);
+    const capped = snap11.leaves.filter((l: any) => BigInt(l.amount) === cap).length;
+    console.log(`  11 holder: ${capped} cuzdan tavanda, ${total}/${released} dagitildi, kalan ${released - total} havuzda`);
+    const allocatedBefore = BigInt(st.allocated.toString());
+    const round2 = roundPda(escrow, 2, program.programId);
+    await withRetry("open_round_11", () => program.methods
+      .openRound(2, [...Buffer.from(snap11.root, "hex")], new BN(released.toString()), new BN(total.toString()), 11, new BN(snap11.snapshotSlot))
+      .accountsPartial({ publisher: dev.publicKey, escrow, round: round2, systemProgram: SystemProgram.programId })
+      .rpc({ commitment: "confirmed" }));
+    const st2: any = await program.account.escrow.fetch(escrow);
+    assert.equal(st2.pending.toString(), "0", "nothing carried over");
+    assert.equal((BigInt(st2.allocated.toString()) - allocatedBefore).toString(), total.toString(),
+      "only what the round hands out leaves the pool; the cap remainder stays in it");
+    const { layers } = buildTree(snap11.leaves);
+    for (const leaf of snap11.leaves) {
+      if (BigInt(leaf.amount) === 0n) continue;
+      const h = holders.find((x) => x.publicKey.toBase58() === leaf.holder)!;
+      const before = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
+      await withRetry(`claim11 ${leaf.index}`, () => program.methods
+        .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((b) => [...b]))
+        .accountsPartial(claimAccounts(h.publicKey, round2)).signers([h]).rpc({ commitment: "confirmed" }));
+      const after = await getAccount(conn, baseAta(h.publicKey), "confirmed", TOKEN_2022);
+      assert.equal((after.amount - before.amount).toString(), leaf.amount);
+    }
+    const r2: any = await program.account.round.fetch(round2);
+    assert.equal(r2.claimedAmount.toString(), total.toString(), "round fully paid");
+    console.log(`  11 holder claim etti, ${total} odendi`);
   });
 });

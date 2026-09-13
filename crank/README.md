@@ -8,8 +8,9 @@ Dakikada bir, programın çıkardığı **her coin** için:
 
 | adım | ne zaman |
 |---|---|
-| `collect_fees` | pump creator kasasında ≥ 0,001 SOL birikmişse |
-| `buyback` | escrow'un harcanabilir SOL'ü program eşiğini (0,01 SOL) geçiyorsa ve curve tamamlanmamışsa |
+| `setup_fee_sharing` | ücret paylaşımı kurulmamış her normal coin için bir kez: pump'ta creator ücretini %90 escrow / %10 platform böler (crank rent'i öder, kullanılmayanı geri alır); holder-rewards coin'de yapılmaz |
+| `collect_fees` | pump creator kasasında rent üstünde ≥ 0,0012 SOL birikmişse (pump ~0,0019 SOL altını dağıtmıyor); holder-rewards coin'de yapılmaz |
+| `buyback` | escrow'un harcanabilir SOL'ü program eşiğini (0,01 SOL) geçiyorsa ve curve tamamlanmamışsa; holder-rewards coin'de yapılmaz |
 | `check_trigger` | her zaman — hacim örneklemesi buradan geliyor |
 | `fire_trigger` | tetikleyici kurulu **ve** slot ≥ `fire_slot` ise; erken asla çağrılmaz |
 | `open_round` | fire sonrası `pending > 0` ise: indexer'la snapshot alır, serbest miktarı bakiye × tutma süresi oranında böler (cüzdan başına en fazla %10), kökü, miktarı ve snapshot slot'unu zincire yazar (`crank/snapshots/<mint>-<round>.json` dosyası kalır). Bekleyen miktar yalnızca bir önceki turun tavan artığıysa yeni tur açmaz |

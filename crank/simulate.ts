@@ -39,7 +39,10 @@ import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { pumpAccounts, escrowPda, escrowAta, directBuyIx, TOKEN_2022, TOKEN, WSOL } from "../tests/pump";
+import {
+  pumpAccounts, escrowPda, escrowAta, directBuyIx, feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts,
+  TOKEN_2022, TOKEN, WSOL,
+} from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
 
 const RPC_URL = process.env.ANCHOR_PROVIDER_URL ?? "http://127.0.0.1:8899";
@@ -100,7 +103,7 @@ async function main() {
   const configPda = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId)[0];
   const programData = PublicKey.findProgramAddressSync(
     [program.programId.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0];
-  await program.methods.setPlatform(crankKp.publicKey).accountsPartial({
+  await program.methods.setPlatform(crankKp.publicKey, crankKp.publicKey).accountsPartial({
     authority: dev.publicKey, config: configPda, program: program.programId, programData,
     systemProgram: SystemProgram.programId,
   }).rpc({ commitment: "confirmed" });
@@ -111,7 +114,10 @@ async function main() {
     const mintKp = Keypair.generate();
     const mint = mintKp.publicKey;
     const escrow = escrowPda(mint, program.programId);
-    const pa = pumpAccounts(mint, dev.publicKey, escrow);
+    const feeAuthority = feeAuthorityPda(mint, program.programId);
+    const sharingConfig = sharingConfigPda(mint);
+    const pa = pumpAccounts(mint, dev.publicKey, feeAuthority);       // launch-time
+    const paS = pumpAccounts(mint, dev.publicKey, sharingConfig);     // after fee sharing
     const escrowTa = escrowAta(escrow, mint);
     const manualPda = PublicKey.findProgramAddressSync([Buffer.from("manual"), mint.toBuffer()], program.programId)[0];
     const manualAta = getAssociatedTokenAddressSync(mint, manualPda, true, TOKEN_2022);
@@ -120,8 +126,8 @@ async function main() {
     const [createIx, lut] = AddressLookupTableProgram.createLookupTable({
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
-    const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint, dev.publicKey,
-                  manualPda, manualAta, configPda, SystemProgram.programId, program.programId];
+    const keys = [...Object.values(pa) as PublicKey[], ...Object.values(paS) as PublicKey[], escrow, escrowTa, mint, dev.publicKey,
+                  manualPda, manualAta, feeAuthority, configPda, SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
     await send([createIx]);
     for (let i = 0; i < uniq.length; i += 18) {
@@ -140,10 +146,10 @@ async function main() {
     const ix = await program.methods
       .launch(name, symbol, `https://example.com/${symbol.toLowerCase()}.json`,
               3000, new BN(amountTokens).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL),
-              [...Buffer.alloc(32)], 0)
+              [...Buffer.alloc(32)], 0, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
-        manualAuthority: manualPda, manualTokenAccount: manualAta,
+        manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
@@ -159,7 +165,14 @@ async function main() {
     await program.methods.setDelayWindow(new BN(DELAY_WINDOW))
       .accountsPartial({ platform: crankKp.publicKey, escrow }).signers([crankKp]).rpc({ commitment: "confirmed" });
     note(symbol, "launch", `mint=${mint.toBase58()} escrow=${escrow.toBase58()} sig=${sig}`);
-    return { symbol, mint, escrow, pa };
+    // fee sharing (escrow / platform split) — the crank would do this on its
+    // first tick too; doing it here keeps the market buys on one creator vault
+    const fsig = await program.methods.setupFeeSharing()
+      .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, crankKp.publicKey))
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .rpc({ commitment: "confirmed" });
+    note(symbol, "fee sharing set", `90% escrow / 10% platform sig=${fsig}`);
+    return { symbol, mint, escrow, pa: paS };
   }
 
   const hot = await launch("Crank Hot", "HOT", 300_000_000);
@@ -187,16 +200,16 @@ async function main() {
   }
 
   async function buy(c: typeof hot, sol: number, label: string, who: Keypair = trader) {
-    const ix = directBuyIx(c.mint, who.publicKey, c.escrow, BigInt(Math.round(sol * LAMPORTS_PER_SOL)), 1n);
+    const ix = directBuyIx(c.mint, who.publicKey, sharingConfigPda(c.mint), BigInt(Math.round(sol * LAMPORTS_PER_SOL)), 1n);
     const sig = await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], who);
     note(c.symbol, label, `${sol} SOL by ${who === trader ? "trader" : short(who.publicKey)} sig=${sig}`);
   }
   // two positions that just sit there for the whole run — they are the leaves
   // the trader competes with in every snapshot
-  for (const c of coins) for (const h of holders) await buy(c, 0.1, "holder buy", h);
+  for (const c of coins) for (const h of holders) await buy(c, 0.15, "holder buy", h); // ≥ 0.1 SOL: the $20 floor
 
   // an outside wallet (Phantom) cannot sign here, so it gets its position as a
-  // transfer from the dev: 60M tokens of each coin, comfortably over the 0.05
+  // transfer from the dev: 60M tokens of each coin, comfortably over the 0.1
   // SOL minimum at launch prices, plus SOL for the claim fees
   if (DEMO_WALLET) {
     const sig = await conn.requestAirdrop(DEMO_WALLET, 2 * LAMPORTS_PER_SOL);

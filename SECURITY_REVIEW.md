@@ -37,36 +37,38 @@ Fix: both knobs are signed by the platform (`NotPlatform` otherwise). Test F2.
 Production should still leave them at defaults; they exist so tests need not
 wait a week.
 
-### F3 — MEDIUM: draw randomness could be ground by any caller (superseded)
-The original finding: `draw` seeded the round from "the most recent slot
-hash", so a caller could wait for a hash they liked. It was fixed by pinning
-the draw slot at commit time, then made moot on 2026-09-13 when the random
-draw was removed altogether: a round now pays **every** eligible holder pro
-rata (balance × time held) with a 10% per-wallet cap, so there is no seed to
-grind and no winner to pick. What the program enforces on its own: the leaf
-amount is ≤ `MAX_SHARE_BPS` of the recorded release, the release is ≤ what
-triggers freed (`pending`), claims cannot exceed the round total, one claim
-per wallet per round (receipt PDA). Test F3 now commits a doctored root that
-pays one wallet 40% and shows the claim is refused (`ShareOverCap`), and that
-an inflated release is refused at `open_round` (`AmountNotAuthorized`).
+### F3 — MEDIUM: the round's randomness could be ground by any caller (superseded)
+The original finding: the randomness step seeded the round from "the most
+recent slot hash", so a caller could wait for a hash they liked. It was fixed
+by pinning the seed slot at commit time, then made moot on 2026-09-13 when
+randomness was removed altogether: a round now pays **every** eligible holder
+pro rata (balance × time held), with a 10% per-wallet cap from 11 holders on,
+so there is no seed to grind and nobody to pick. What the program enforces on
+its own: the leaf amount is ≤ `MAX_SHARE_BPS` of the recorded release (once
+the round has `CAP_MIN_HOLDERS`), the release is ≤ what triggers freed
+(`pending`), claims cannot exceed the round total, one claim per wallet per
+round (receipt PDA). Tests: F3 shows the allocation reproduces from chain and
+an inflated release is refused (`AmountNotAuthorized`); main suite 10 commits
+a doctored root paying one of eleven wallets 50% and shows the claim refused
+(`ShareOverCap`).
 
 ### F4 — MEDIUM: snapshot-then-dump
-`claim_prize` only checked that the holder still had *some* position worth
-≥ 0.05 SOL. Weight is balance × time held, so a whale could hold until the
+`claim_share` (then under its old name) only checked that the holder still had *some* position worth
+≥ 0.1 SOL (≈$20; 0.05 at the time). Weight is balance × time held, so a whale could hold until the
 snapshot, dump everything but dust after `RoundOpened`, and still collect a
-prize sized by the position they no longer have.
+share sized by the position they no longer have.
 
 Fix: the snapshot balance is now part of the leaf
-(`leaf = sha256("leaf", index, holder, balance, weight, cum_start)`) and
-`claim_prize` requires the holder's current balance ≥ `balance ×
+(today `leaf = sha256("leaf", index, holder, balance, amount)`) and
+`claim_share` requires the holder's current balance ≥ `balance ×
 CLAIM_HOLD_BPS / 10000` (`HoldingBelowSnapshot`). `CLAIM_HOLD_BPS = 10000`:
 you must still hold what the snapshot credited you for. This is a policy
 constant — lower it to soften, 0 restores the old rule. Test F4: after moving
 half the position away the claim fails; after moving it back it pays exactly
-one prize. Indexer, crank, web and simulation all carry the new leaf.
+one share. Indexer, crank, web and simulation all carry the new leaf.
 
 ### F5 — LOW: division by curve reserves
-`check_trigger`, `fire_trigger` and `claim_prize` divide by
+`check_trigger`, `fire_trigger` and `claim_share` divide by
 `virtual_token_reserves`. Pump never sets it to zero, but a zero would have
 been a panic (whole tx fails, no state harm). Guarded with `EmptyCurve`.
 
@@ -112,6 +114,18 @@ been a panic (whole tx fails, no state harm). Guarded with `EmptyCurve`.
 - **Buyback reimbursement.** `needed` is computed on chain and refunded
   exactly; the caller cannot profit, only pay fees. The reserve kept on the
   buyer PDA is bounded by a constant.
+- **Platform fee never touches the pool.** The platform's cut lives only in
+  pump's fee-sharing config for the coin (`setup_fee_sharing` writes it from
+  `Config.platform_fee_bps`, ≤ 10000); no instruction moves tokens out of the
+  escrow token account except `claim_share`, `claim_manual` and `intervene`.
+  The rate changes only via `propose_platform_fee` (platform authority) and,
+  ≥ `PLATFORM_FEE_DELAY_SLOTS` (7 days) later, the permissionless
+  `apply_platform_fee`; an early apply is refused (`FeeChangeTooEarly`, test
+  F6). A change reaches only coins set up afterwards — each coin's split is
+  fixed on pump at setup (pump revokes the admin after one update).
+- **Holder-rewards coins** carry `is_holder_reward` on the escrow;
+  `setup_fee_sharing`, `collect_fees` and `buyback` refuse (`NotApplicable`,
+  test F5), so nothing pretends to sweep a fee pump keeps.
 - **Buyback cap is per slot, not just per call.** `last_buyback_slot` is
   written on every spend and a second spend in the same slot is refused
   (`BuybackSameSlot`), so the 0.5%-of-reserves cap cannot be multiplied by

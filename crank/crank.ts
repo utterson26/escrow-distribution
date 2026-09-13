@@ -36,7 +36,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
-  pumpAccounts, escrowAta, buyerPda, baseAtaOf, TOKEN_2022, WSOL, TOKEN,
+  pumpAccounts, escrowAta, buyerPda, baseAtaOf, feeAuthorityPda, sharingConfigPda,
+  setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas, TOKEN_2022, WSOL, TOKEN,
 } from "../tests/pump";
 import { snapshot } from "../indexer/snapshot";
 
@@ -44,10 +45,11 @@ import { snapshot } from "../indexer/snapshot";
 // the authority; these only save the fee of a call that would be a no-op.
 const MIN_BUYBACK_LAMPORTS = 10_000_000n;
 const BUYBACK_RESERVE_LAMPORTS = 10_000_000n;
-/** Sweeping less than this is not worth the transaction fee. */
-const MIN_COLLECT_LAMPORTS = 1_000_000n;
+/** Below this above rent, pump will not distribute the vault anyway. */
+const MIN_COLLECT_LAMPORTS = 1_200_000n;
 
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
+let configPda: PublicKey;
 const KIND = ["none", "volume", "milestone"];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const roundPda = (escrow: PublicKey, index: number, program: PublicKey) => {
@@ -97,6 +99,7 @@ async function main() {
   });
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "../target/idl/airdrop_escrow.json"), "utf8"));
   const program = new Program(idl, provider) as any;
+  configPda = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId)[0];
   const escrowSize: number = program.account.escrow.size;
   const escrowRent = BigInt(await conn.getMinimumBalanceForRentExemption(escrowSize));
   const roundSize: number = program.account.round.size;
@@ -152,34 +155,55 @@ async function main() {
     const escrow = esc.address;
     const coin = short(mint);
     const buyer = buyerPda(mint, program.programId);
-    const pb = pumpAccounts(mint, buyer, escrow);
-    const pa = pumpAccounts(mint, esc.state.dev, escrow);
-    const quoteAta = (o: PublicKey) => getAssociatedTokenAddressSync(WSOL, o, true, TOKEN);
+    const feeAuthority = feeAuthorityPda(mint, program.programId);
+    const sharingConfig = sharingConfigPda(mint);
+    // pump's creator for this coin: the sharing config once fee sharing is set
+    // up, our fee PDA before that (and forever on a holder-rewards coin)
+    const creator = esc.state.feeSharingSet ? sharingConfig : feeAuthority;
+    const pb = pumpAccounts(mint, buyer, creator);
+    const pa = pumpAccounts(mint, esc.state.dev, creator);
+    const holderReward: boolean = !!esc.state.isHolderReward;
 
     const curveInfo = await conn.getAccountInfo(pa.bondingCurve, "confirmed");
     if (!curveInfo) { log({ tick, coin, event: "skip", reason: "no bonding curve" }); return; }
     const curveComplete = curveInfo.data.readUInt8(48) === 1;
 
-    // 1. creator fees: sweep the pump vault into the escrow when there is enough
-    //    to be worth a transaction. For SOL-quoted coins the fee sits as lamports
-    //    on the vault PDA; anything under rent is not ours to take.
+    // 0. fee sharing: a regular coin that was launched but not yet set up gets
+    //    its escrow / platform split now (permissionless; the crank fronts the
+    //    sharing config's rent and gets the unused part back)
+    if (!holderReward && !esc.state.feeSharingSet) {
+      try {
+        const cfg: any = await program.account.config.fetch(configPda, "confirmed");
+        const ix = await program.methods.setupFeeSharing().accountsPartial(
+          setupFeeSharingAccounts(mint, escrow, program.programId, keypair.publicKey, cfg.platformFeeWallet)).instruction();
+        const { sig } = await send([ix], 600_000);
+        log({ tick, coin, action: "setup_fee_sharing", result: "ok", platform_bps: cfg.platformFeeBps, sig });
+        esc.state = await program.account.escrow.fetch(escrow, "confirmed");
+      } catch (e) {
+        log({ tick, coin, action: "setup_fee_sharing", result: "error", error: errName(e) });
+      }
+      return; // the creator vault moved; pick the coin up again next tick
+    }
+
+    // 1. creator fees: have pump pay the vault out (escrow share / platform
+    //    share) when there is enough to be worth a transaction. pump itself
+    //    refuses to distribute below ~0.0019 SOL in the vault, so wait for a
+    //    little more than that. Not on holder-rewards coins: pump keeps their
+    //    creator fee for its own holder pool.
     const vaultLamports = BigInt(await conn.getBalance(pa.creatorVault, "confirmed"));
     const vaultFloor = BigInt(await conn.getMinimumBalanceForRentExemption(0));
     const sweepable = vaultLamports > vaultFloor ? vaultLamports - vaultFloor : 0n;
-    if (sweepable >= MIN_COLLECT_LAMPORTS) {
+    if (!holderReward && sweepable >= MIN_COLLECT_LAMPORTS) {
       try {
-        const ix = await program.methods.collectFees().accountsPartial({
-          payer: keypair.publicKey, escrow,
-          creatorTokenAccount: quoteAta(escrow),
-          creatorVault: pa.creatorVault,
-          creatorVaultTokenAccount: quoteAta(pa.creatorVault),
-          quoteMint: WSOL, quoteTokenProgram: TOKEN,
-          associatedTokenProgram: pa.associatedTokenProgram,
-          eventAuthority: pa.eventAuthority, pumpProgram: pa.pumpProgram,
-          systemProgram: SystemProgram.programId,
-        }).instruction();
+        const cfg: any = await program.account.config.fetch(configPda, "confirmed");
+        const ix = await program.methods.collectFees()
+          .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, keypair.publicKey))
+          .remainingAccounts(shareholderMetas(feeAuthority, cfg.platformFeeWallet, esc.state.platformFeeBps))
+          .instruction();
+        const before = BigInt(await conn.getBalance(escrow, "confirmed"));
         const { sig } = await send([ix]);
-        log({ tick, coin, action: "collect_fees", result: "ok", lamports: sweepable, sig });
+        const gained = BigInt(await conn.getBalance(escrow, "confirmed")) - before;
+        log({ tick, coin, action: "collect_fees", result: "ok", vault: sweepable, escrow_gained: gained, sig });
       } catch (e) {
         log({ tick, coin, action: "collect_fees", result: "error", error: errName(e) });
       }
@@ -193,7 +217,7 @@ async function main() {
     const fromEscrow = escrowLamports > escrowRent ? escrowLamports - escrowRent : 0n;
     const spendable = fromEscrow + buyerLamports - BUYBACK_RESERVE_LAMPORTS;
     const slotOpen = (await conn.getSlot("processed")) > Number(esc.state.lastBuybackSlot);
-    if (spendable >= MIN_BUYBACK_LAMPORTS && !curveComplete && slotOpen) {
+    if (!holderReward && spendable >= MIN_BUYBACK_LAMPORTS && !curveComplete && slotOpen) {
       try {
         const ix = await program.methods.buyback().accountsPartial({
           payer: keypair.publicKey, escrow, buyer, mint,

@@ -97,7 +97,7 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
                  style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
               <div style={{ flex: 1 }}>
                 <div className="v">{(Number(c.amount) / 1e6).toLocaleString("en-US")} tokens</div>
-                <div className="k">round #{c.roundIndex} · your share {c.sharePct}% (cap 10%)</div>
+                <div className="k">round #{c.roundIndex} · your share {c.sharePct}% of the round</div>
               </div>
               <button className="btn" disabled={busy} onClick={() => claim(c)}>
                 {busy ? "Claiming…" : "Claim"}

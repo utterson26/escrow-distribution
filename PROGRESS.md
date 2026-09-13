@@ -13,7 +13,7 @@ herkes aynı elemeyi uygular.
 
 Sebebi: dev, launch anında arzın büyük bir kısmını elinde tutuyor (bu koşuda
 %70'i). Ağırlık `bakiye × tutma süresi` olduğu için dev cüzdanı dahil
-edilseydi çekilişlerin neredeyse tamamını kazanır, airdrop anlamsızlaşırdı.
+edilseydi dağıtımların neredeyse tamamını alırdı, airdrop anlamsızlaşırdı.
 Aynı gerekçeyle protokolün kendi hesapları da elenir: bonding curve, mayhem
 kasası, escrow PDA'sı ve buyer PDA'sı. Bunlar coin adresinden deterministik
 olarak türetilir.
@@ -22,7 +22,7 @@ Not: eleme **anlık görüntü tarafında** yapılır, zincirde zorlanmaz. Yani 
 politika kararıdır, kriptografik bir garanti değil — ama `excluded`
 listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 
-## Sonuç: 23 adım — 10'u devnet'te, 11–23 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
+## Sonuç: 24 adım — 10'u devnet'te, 11–24 localnet'te doğrulandı; devnet güncellemesi fon bekliyor 🟡
 
 | # | Adım | Durum |
 |---|------|-------|
@@ -41,14 +41,15 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 13 | localnet (pump klonlu test ağı) | ✅ |
 | 14 | manuel airdrop + müdahale + ölü coin — localnet'te | ✅ 7/7 |
 | 15 | crank botu (check/buyback/fire, izinsiz keeper) — localnet 10 dk simülasyon | ✅ 8/8 |
-| 16 | crank uçtan uca: fire → snapshot → open_round → draw → claim — localnet 5 dk | ✅ 12/12 |
+| 16 | crank uçtan uca: fire → snapshot → open_round → allocate → claim — localnet 5 dk | ✅ 12/12 |
 | 17 | web localnet'te, Phantom ile claim | ✅ çalışıyor |
 | 18 | web: coin adı/sembolü, "how it works", ağ rozeti | ✅ |
 | 19 | Switchboard on-demand localnet'te | ❌ oracle gerektiriyor, slot hash kaldı (not aşağıda) |
 | 20 | güvenlik öz-denetimi: 5 bulgu düzeltildi + 4 regresyon testi | ✅ `SECURITY_REVIEW.md` |
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
-| 23 | **tasarım değişikliği:** rastgele çekiliş kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 24 | gorev.md: tavan artığı havuza, ≤10 holder tavansız, $20 eşik, pump ücret paylaşımı %90/%10 + 7 günlük oran değişimi, holder-rewards modu, terminoloji temizliği | ✅ 20/20, 6/6, 7/7, demo 3/3 |
 
 ## Devnet'te doğrulanabilir imzalar
 
@@ -66,8 +67,8 @@ escrow PDA `43vJaEY1qfDZ9hDBtD4Ud3HHtJuUya4A4jmaSmbNDvkG`:
 | check_trigger (armed iken no-op) | `64NywiXAunYKKdKE8yQ5ZuMv2KGmFSnUzCygJbhJNTSFdu8cmHC6Yv1S2asDCZuEhPiuyraYXko79JgBCKuKhy6Y` |
 | fire_trigger (gecikme dolunca) | `SK1g5mrbvgikUqHWn8M4UvCPBgziNbk1CCJoXVkkj4GBuv7dXGfGUhzxUfWFk8M1SKfd1PA2sunUKYPL93D9TRj` |
 | open_round | `4dnmW2MGZkWBzpitDDgSu3hUQ8BXWS7tS7KniqohTaBXwzxL2anaztiQUok6ACY3Aw9p7geVfpWEPtoLxRkRa5eM` |
-| draw | `XnMZ6XDk9hPhZ34oR6xxJcVSK5uCQWjBykM7vbeh7QjSZAxD2EJxXHbRGqPMJvSgFiQg9U5sXr7obaVDx9nxfGU` |
-| claim_prize | `3YcJbKg2BaWWyfp9pwf8gFvex35h3qRYLhiGU7RjSsH1wWZJQvzX6HSmBF3HqJVV9MTB8f9ecLqvFnEtiRg22FqP` |
+| allocate | `XnMZ6XDk9hPhZ34oR6xxJcVSK5uCQWjBykM7vbeh7QjSZAxD2EJxXHbRGqPMJvSgFiQg9U5sXr7obaVDx9nxfGU` |
+| claim_share (o zamanki adıyla) | `3YcJbKg2BaWWyfp9pwf8gFvex35h3qRYLhiGU7RjSsH1wWZJQvzX6HSmBF3HqJVV9MTB8f9ecLqvFnEtiRg22FqP` |
 | check_trigger (kilometre taşı) | `4RAu7bbRpwf5RynDhYTQcjbuqTDtSpWSC41bwJDzUV7hnGsFrzaASfeGyqbBg67DiBAtmPSxvr32x9xTECSPqL3p` |
 | fire_trigger (kilometre taşı) | `5gCgTUrNxyAwPpCphrHi53nq8VnPMJduiYuhAbXiwVa43ZgfgRjp7T7XiwQoNwYWUazYxSn4d9qi9pdN1np8ubK4` |
 
@@ -93,7 +94,7 @@ solana confirm -v <imza> --url devnet
   Eşik altı çağrı hiç pump CPI'ı yapmadan dönüyor.
 - **Holder doğrulama kanıtı:** 7 cüzdan fonlandı; 1'i her şeyi sattı, 1'i eşiğin
   altında kaldı. Indexer **tam olarak 5** uygun holder buldu, ikisini de eledi.
-  8 çekiliş yapıldı, 8 ödül ödendi; aynı çekiliş ikinci kez ödenmedi; ağaçta
+  8 dağıtım yapıldı, 8 ödül ödendi; aynı dağıtım ikinci kez ödenmedi; ağaçta
   olmayan bir cüzdanın başkasının yaprağıyla yaptığı sahte claim reddedildi.
 - **Determinizm kanıtı:** ödüller dağıtıldıktan **sonra** zincirden yeniden
   üretilen kök, dosyadakiyle birebir aynı çıktı:
@@ -210,14 +211,14 @@ Indexer bunu hesaplayıp bir özet (Merkle kökü) üretiyor, kök zincire yazı
 - token hesabı, claim eden cüzdanın kendi hesabı olmak zorunda (başkasının
   pozisyonunu göstererek eşiği geçemezsin)
 
-**Kazananı kimse seçemiyor:** Kök önce işleniyor (`open_round`), rastgelelik
-**sonra** çekiliyor (`draw`) ve en az bir slot beklemek zorunda. Yani kökü
-yazan kişi kimin kazanacağını bilemez. Kazanan, ağırlık aralığının çekilen sayıyı
+**Hak edeni kimse seçemiyor:** Kök önce işleniyor (`open_round`), rastgelelik
+**sonra** çekiliyor (`allocate`) ve en az bir slot beklemek zorunda. Yani kökü
+yazan kişi kimin kazanacağını bilemez. Hak eden, ağırlık aralığının çekilen sayıyı
 kapsadığını ispatlıyor; program tek tek kontrol ediyor.
 
 **Geriye kalan güven:** Indexer ağırlıkları çarpıtabilir (birinin sırasını
 kayırabilir). Yapamayacakları: elinde coin olmayana ödeme yaptırmak, eşiğin
-altındakini geçirmek, kazananı seçmek.
+altındakini geçirmek, hak edeni seçmek.
 
 ## Indexer'ı kendin doğrula
 
@@ -269,7 +270,7 @@ Dağıtım artık elle çağrılmıyor. İki koşul var, ikisi de izinsiz kontro
 - **Kilometre taşı:** piyasa değeri son taşın 2 katına çıkarsa havuzun kalanının
   **%5'i**. Taş yalnızca yukarı gider, geri inmez.
 
-İkisi birden olursa kilometre taşı kazanır (daha çok öder).
+İkisi birden olursa kilometre taşı öncelik alır (daha çok öder).
 
 **Eşik dolunca hemen dağıtılmaz.** `check_trigger` tetikleyiciyi kurar ve slot
 hash'inden türetilen **0–60 dk** arası rastgele bir slot belirler. `fire_trigger`
@@ -498,21 +499,21 @@ onlardan birinde yarım kalmış milestone tetikleyicisini (fire_slot 1202) slot
 
 Bilinen sınırlar: (1) Birden fazla crank aynı anda çalışırsa aynı işlemi iki
 kez denerler; ikincisi `NotArmed`/no-op ile döner, zarar yok ama ücret gider.
-(2) `open_round`/`draw` crank'te yok — kök indexer'dan geliyor, o ayrı iş.
+(2) `open_round`/`allocate` crank'te yok — kök indexer'dan geliyor, o ayrı iş.
 (3) Legacy tx kullanıyor; buyback 30 hesapla 1232 baytın altında kalıyor,
 ama pump hesap eklerse ALT gerekir.
 
 ## Seni bekleyen claim (Phantom, localnet)
 
 Cüzdan `2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K` — localnet'te 2 SOL ve her
-coin'den 60M token var; **7 çekiliş** claim edilmeden bırakıldı (güvenlik
+coin'den 60M token var; **7 dağıtım** claim edilmeden bırakıldı (güvenlik
 düzeltmelerinden sonraki koşu, 08:05 UTC; eski koşunun round'ları yeni leaf
 formatıyla geçersiz, onları kullanma):
 
-| Coin | Sayfa | Çekilişler | Ödül |
+| Coin | Sayfa | Dağıtımlar | Ödül |
 |---|---|---|---|
-| **Crank Hot (HOT)** `FG2F…B3pb` | http://localhost:3000/coin/FG2FGH2yQbXMwGhyyfb7uKotQiJvD7YMRgagFtnCB3pb | round 0 draw 5, 7; round 1 draw 7 | 2 × 116,2B + 602,8B token |
-| **Crank Slow (SLOW)** `LXEG…DPsq` | http://localhost:3000/coin/LXEGQSXWEirUBVukL2thfqf8RkV2UGi2VNGNDoYDPsq | round 0 draw 1, 3, 6, 7 | 4 × 112,5B token |
+| **Crank Hot (HOT)** `FG2F…B3pb` | http://localhost:3000/coin/FG2FGH2yQbXMwGhyyfb7uKotQiJvD7YMRgagFtnCB3pb | round 0 allocate 5, 7; round 1 allocate 7 | 2 × 116,2B + 602,8B token |
+| **Crank Slow (SLOW)** `LXEG…DPsq` | http://localhost:3000/coin/LXEGQSXWEirUBVukL2thfqf8RkV2UGi2VNGNDoYDPsq | round 0 allocate 1, 3, 6, 7 | 4 × 112,5B token |
 
 `/api/claim` ikisini de görüyor (`reproducible 2/2`, `1/1`). **Dikkat (F4):**
 claim, snapshot'taki 60M token'ı hâlâ tutmanı şart koşar; önce satarsan
@@ -521,25 +522,25 @@ claim, snapshot'taki 60M token'ı hâlâ tutmanı şart koşar; önce satarsan
 **12 Eylül 17:00 — disk dolunca (ledger 18 GB + 666 MB validator log) makine
 kapandı; validator `RESET=0 ./scripts/localnet.sh` ile eski ledger'dan geri
 kaldırıldı** (bozuk 0 baytlık 22900 snapshot'ı silindi, 22800'den yüklendi).
-Tek doğrulama: `/api/claim` iki coin için de aynı 7 çekilişi veriyor
+Tek doğrulama: `/api/claim` iki coin için de aynı 7 dağıtımı veriyor
 (HOT r0d5, r0d7, r1d7; SLOW r0d1, d3, d6, d7), cüzdan 4 SOL. Web
 http://localhost:3000 ayakta. `localnet.sh` artık `--limit-ledger-size 50000000`
 kullanıyor ve `RESET=0` ile mevcut ledger'ı korur.
 
-### HOT'un 3 çekilişi Phantom'la claim edildi ✅ (12 Eylül 13:29–13:32 UTC)
+### HOT'un 3 dağıtımı Phantom'la claim edildi ✅ (12 Eylül 13:29–13:32 UTC)
 
-Üçü de `2xfs…q36K` imzalı, `ClaimPrize → TransferChecked`, hata yok, 80.000 lamport ücret:
+Üçü de `2xfs…q36K` imzalı, `claim → TransferChecked`, hata yok, 80.000 lamport ücret:
 
-| Çekiliş | Slot | İmza | Token |
+| Dağıtım | Slot | İmza | Token |
 |---|---|---|---|
-| round 0 draw 5 | 24259 | `2kwXG5RHaVZ4kNm4KGE92jp2n8HRjLSehoBn5a5yp6pMLKPgLKHLKQAoroVgozgWsMQvD8SKkFpGoeCtU5B2T48n` | +116.247.042.419 |
-| round 0 draw 7 | 24360 | `1PefWuz3QAJKhjaE7AMyHm7kScP6MPW6aTSNntbaQEbhixZdpjrEhrSbW2L4c7tQe17Y8apPgz6Ep9h1BFmHTSs` | +116.247.042.419 |
-| round 1 draw 7 | 24407 | `2kngYVcGdbXZBK2zpXeu39ZCdxqpvWazEJzUwAyprJCkmUkhNwZwwWYuSGVRz41Tckh9nsMyiFizTgNxn9FR1ZNA` | +602.815.006.333 |
+| round 0 allocate 5 | 24259 | `2kwXG5RHaVZ4kNm4KGE92jp2n8HRjLSehoBn5a5yp6pMLKPgLKHLKQAoroVgozgWsMQvD8SKkFpGoeCtU5B2T48n` | +116.247.042.419 |
+| round 0 allocate 7 | 24360 | `1PefWuz3QAJKhjaE7AMyHm7kScP6MPW6aTSNntbaQEbhixZdpjrEhrSbW2L4c7tQe17Y8apPgz6Ep9h1BFmHTSs` | +116.247.042.419 |
+| round 1 allocate 7 | 24407 | `2kngYVcGdbXZBK2zpXeu39ZCdxqpvWazEJzUwAyprJCkmUkhNwZwwWYuSGVRz41Tckh9nsMyiFizTgNxn9FR1ZNA` | +602.815.006.333 |
 
 HOT bakiyesi 60.000.000.000.000 → 60.835.309.091.171 (toplam +835.309.091.171 =
 üç ödülün tamı). Escrow `claimed` = `allocated` = 5.752.496.390.016, yani HOT'ta
-dağıtılan her şey alındı. `/api/claim` HOT için artık boş, SLOW'un 4 çekilişi
-(round 0 draw 1, 3, 6, 7) hâlâ bekliyor.
+dağıtılan her şey alındı. `/api/claim` HOT için artık boş, SLOW'un 4 dağıtımı
+(round 0 allocate 1, 3, 6, 7) hâlâ bekliyor.
 
 Validator `--reset` ile yeniden başlatılırsa bunlar silinir; o zaman
 `DEMO_WALLET=2xfsZ29tHRXX86fgQbPazWi9hRGVqdnzhK32RbPuq36K npm run crank:sim` ile
@@ -550,8 +551,8 @@ görünüyorsa Phantom'daki seçili hesap/ağ meselesi, ağ değil.
 ## Adım 16 — crank uçtan uca: tetikten claim'e kimse dokunmadan ✅ (12/12)
 
 Crank artık fire'dan sonra `pending > 0` gördüğünde **indexer'la snapshot alır,
-kökü `open_round` ile yazar ve bir slot sonra `draw` çağırır**. Ayrıca her
-tick'te çekilişi yapılmamış round varsa (önceki tick çökmüş ya da dev elle
+kökü `open_round` ile yazar ve bir slot sonra `allocate` çağırır**. Ayrıca her
+tick'te dağıtımı yapılmamış round varsa (önceki tick çökmüş ya da dev elle
 açmış) onu da çeker. Snapshot dosyası `crank/snapshots/<mint>-<round>.json`
 olarak kalır (gitignore'da).
 
@@ -579,7 +580,7 @@ Ayrıca **indexer dev cüzdanını otomatik eler:** `snapshot()` escrow hesabın
 web'in yeniden üretimi bunu bilmediği için kök tutmazdı. Politika aynı
 (PROGRESS'in başındaki karar), artık zincirden türetiliyor.
 
-### Simülasyon (5 dk, 60 sn tick, 8 çekiliş/round)
+### Simülasyon (5 dk, 60 sn tick, 8 dağıtım/round)
 İki coin (platform = crank cüzdanı), trader + 2 sabit holder. Sonuç 12/12:
 
 | Kontrol | Sonuç |
@@ -592,12 +593,12 @@ web'in yeniden üretimi bunu bilmediği için kök tutmazdı. Politika aynı
 | **her fire'dan sonra snapshot + open_round** | 3 round: HOT#0 8×116,2B, SLOW#0 8×112,5B, HOT#1 8×602,8B token |
 | **her round çekildi** | 3/3, commit'ten 1–3 slot sonra |
 | **snapshot `snapshot_slot`'tan yeniden üretildi, kök tuttu** | 3/3 |
-| **kazananlar claim etti** | **24/24 çekiliş ödendi**, her ödeme tam `prize` kadar |
+| **hak edenler claim etti** | **24/24 dağıtım ödendi**, her ödeme tam `share` kadar |
 | hata / atlanan tick | 0 / 0 |
 
 Uçtan uca zincir: trade → check_trigger (armed) → fire (pending) →
-snapshot → open_round (kök + slot) → draw (seed) → holder kökü yeniden kurar,
-kazandığı çekilişleri ispatlar → claim_prize öder. Arada insan yok.
+snapshot → open_round (kök + slot) → allocate (seed) → holder kökü yeniden kurar,
+hak ettiği payı ispatlar → claim öder. Arada insan yok.
 
 ## Adım 17 — web localnet'te, Phantom ile claim ✅
 
@@ -605,9 +606,9 @@ kazandığı çekilişleri ispatlar → claim_prize öder. Arada insan yok.
   devnet). Sunucu tarafı zaten `HELIUS_RPC_URL`. `cd web && npm run dev:local`
   ikisini de `http://127.0.0.1:8899`'a çevirip 3000'de açar.
 - `/api/claim/<mint>` crank'in açtığı round'u `snapshot_slot`'tan yeniden
-  üretip (`reproducible: 1`) demo cüzdanın kazandığı çekilişleri listeledi.
+  üretip (`reproducible: 1`) demo cüzdanın hak ettiği dağıtımları listeledi.
 - `DEMO_WALLET=<Phantom adresi> npm run crank:sim`: o cüzdan da holder olur
-  (2 SOL airdrop + dev'den 60M token/coin) ve kazandığı çekilişler claim
+  (2 SOL airdrop + dev'den 60M token/coin) ve hak ettiği dağıtımlar claim
   edilmeden bırakılır; web'de Phantom'la claim edilir. Phantom ayarı:
   `crank/README.md` → "Phantom ile localnet".
 
@@ -619,15 +620,15 @@ izlediği zincirden okur, imzalar; Switchboard programı bu hash'i zincirdeki
 SlotHashes sysvar'ıyla karşılaştırır. Yerel validator'ı izleyen bir oracle
 yok, dolayısıyla reveal asla gelmez (crate `switchboard-on-demand 0.13.0`,
 `RandomnessAccountData::get_value` ayrıca `reveal_slot == clock.slot` ister,
-yani reveal ile `draw` aynı işlemde olmalı). "Localnet'te kendi altyapısını
+yani reveal ile `allocate` aynı işlemde olmalı). "Localnet'te kendi altyapısını
 kurar" denen `solana-randomness-service` eski SGX servisi, on-demand değil.
 Dokümanda localnet yok, yalnızca devnet.
 
 Devnet'e geçince yol: `Randomness.create` (rent) → `commitIx` ile `open_round`
-aynı tx'te → crank oracle'dan `revealIx` alıp `draw` ile aynı tx'te gönderir;
-program `seed_slot ≥ round.draw_slot` ve `get_value(clock.slot)` kontrol eder.
+aynı tx'te → crank oracle'dan `revealIx` alıp `allocate` ile aynı tx'te gönderir;
+program `seed_slot ≥ round hedef slotu` ve `get_value(clock.slot)` kontrol eder.
 Bu arada F3 (aşağıda) slot hash'in kullanıcı tarafından grind edilmesini
-kapattı; kalan tek etki `draw_slot`'un lideri.
+kapattı; kalan tek etki hedef slotun lideri.
 
 ## Adım 20 — güvenlik öz-denetimi ✅ (`SECURITY_REVIEW.md`)
 
@@ -638,20 +639,20 @@ regresyon testiyle, 4/4; `manual_airdrop.ts` 7/7 yeniden koştu):
 |---|---|---|---|
 | F1 | YÜKSEK | `platform` yetkilisini **launch eden seçiyordu** → dev kendini platform yapıp müdahale edebilirdi | `Config` PDA; yalnızca **program upgrade authority** `set_platform` ile yazar; launch kopyalar, argüman kalktı |
 | F2 | YÜKSEK | `set_day_window`/`set_delay_window` dev'deydi → 2 sn'lik günle 14 saniyede "ölü coin", F1 ile birleşince havuz dev'e | iki knob da **platform-only** |
-| F3 | ORTA | `draw` "en son slot hash"i kullanıyordu → herkes uygun slotu bekleyip çağırarak seed'i seçebilirdi | `draw_slot = commit + 2` commit'te sabitlenir; seed o slotun hash'i, ne zaman çağrıldığı fark etmez; pencere kaçarsa yeniden hedefleme |
+| F3 | ORTA | eski rastgelelik adımı "en son slot hash"i kullanıyordu → herkes uygun slotu bekleyip çağırarak seed'i seçebilirdi | seed slotu commit'te sabitlendi (sonra adım 23'te rastgelelik tümden kalktı) |
 | F4 | ORTA | snapshot sonrası dump: claim yalnızca "hâlâ ≥0,05 SOL" istiyordu | leaf'e `balance` girdi; claim `held_now ≥ balance × CLAIM_HOLD_BPS/10000` (şu an %100) — **politika sabiti, sen karar ver** |
 | F5 | DÜŞÜK | curve rezervine bölme | `EmptyCurve` guard |
 
 Program localnet'e deploy edildi; **devnet'te yok**. Leaf formatı ve `Round`
 düzeni değiştiği için eski round'lar/snapshot'lar geçersiz (devnet'te sıfırdan
 koşulacak). Doğrulama koşusu: `DEMO_WALLET` ile tek sim, 12/12, 17/24 claim +
-7 çekiliş Phantom'a bırakıldı.
+7 dağıtım Phantom'a bırakıldı.
 
 ## Bundan sonra
 Crank simülasyonu tek komut: `npm run crank:sim` (validator yoksa başlatır, deploy eder).
 Web'i localnet'e bağlamak: `cd web && npm run dev:local` → http://localhost:3000.
 **Devnet'e çıkarken:** adım 16 ve 20'deki program değişiklikleri (publisher, snapshot_slot,
-Config/set_platform, draw_slot, leaf'te balance) henüz devnet'te yok;
+Config/set_platform, snapshot slotu, leaf'te balance) henüz devnet'te yok;
 `cargo-build-sbf --arch v0` + deploy + `anchor idl build` + `set_platform` şart.
 Kurulum sıfırdan: `README.md`.
 Geliştirme localnet'te: önce `cd programs/airdrop_escrow && cargo-build-sbf --arch v0`
@@ -738,7 +739,7 @@ Aşağıdakiler kapandı; yeniden açılmayacak.
 3. **30 gün sonrası müdahale:** yalnızca **platform yetkilisi**, yalnızca
    **iki hedef** (dev cüzdanı / otomatik havuz). `intervene` tam bu.
 4. **Buyback sınırı %0,5/çağrı üretimde kalır.**
-5. ~~Switchboard beklemede~~ — adım 23: çekiliş kalktı, Switchboard'a gerek kalmadı.
+5. ~~Switchboard beklemede~~ — adım 23: dağıtım kalktı, Switchboard'a gerek kalmadı.
 
 ## pump.fun docs güncellemesi — holder rewards (13 Eylül) ✅
 
@@ -792,22 +793,22 @@ Burak, Ceren, Deniz) → Deniz hepsini **gerçekten satar** (`sell_v2`,
 `tests/pump.ts`'e `directSellIx` eklendi) → creator ücreti `collect_fees` ile
 escrow'a → 0,2 SOL bağış + **5 parça buyback** (her parça ~0,0095 SOL = rezervin
 %0,5'i, kalan sonraya) → hacim tetikleyicisi kurulur, erken `fire` TooEarly →
-süre dolunca fire → snapshot (Deniz listede yok) → `open_round` → `draw` →
-Deniz kazanan satırla sahte claim dener → **BadProof** → kazananlar claim eder.
+süre dolunca fire → snapshot (Deniz listede yok) → `open_round` → `allocate` →
+Deniz hak eden satırla sahte claim dener → **BadProof** → hak edenler claim eder.
 Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tabloları.
 
 - Alım tutarları küçük tutuldu (0,12/0,10/0,08/0,06 SOL): toplam net alım
   ~0,62 SOL'ü geçerse piyasa değeri 2× olup **kilometre taşı** hacimden önce
   kurulur (program ikisi de hazırsa taşı seçer). Demo hacim tetikleyicisini
   göstermek istiyor.
-- Sahte claim adımı kazananların claim'inden **önce**: sonra denenince ret
+- Sahte claim adımı hak edenlerin claim'inden **önce**: sonra denenince ret
   sebebi `AlreadyClaimed` çıkıyor, ispat değil. Ayrıca satır olarak 1.
-  çekilişi gerçekten kazanan leaf kullanılıyor; rastgele satırla ret
+  dağıtımı gerçekten hak eden leaf kullanılıyor; rastgele satırla ret
   `TicketOutOfRange` oluyor.
-- `DEMO_LEAVE_LAST=1`: son çekiliş claim edilmez, cüzdan anahtarları
+- `DEMO_LEAVE_LAST=1`: son dağıtım claim edilmez, cüzdan anahtarları
   `demo-wallets.json`'a (gitignore) yazılır → Phantom'a aktarıp web'den
   claim butonunu denemek için. Son koşu böyle bırakıldı: coin
-  `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO.md'deki), son çekilişin sahibi
+  `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO.md'deki), son dağıtımın sahibi
   `demo-wallets.json`'da, 446K coin claim bekliyor.
 - **Buyback parçaları arası slot beklemesi (düzeltme):** ilk sürümde 2. parça
   ara sıra `BuybackSameSlot` yiyordu — `escrow.lastBuybackSlot` "confirmed"
@@ -828,13 +829,13 @@ Her adımda imza + Türkçe tek satır; DEMO.md'de öncesi/sonrası bakiye tablo
   Coin: `C5TvUhY6AZP6Uec6PuVqNsRBAA6UhU8n2x98eMky4t42` (DEMO.md'deki).
 - **Web kontrolü (localnet):** `/api/escrows` demo coin'leri listeliyor,
   `/`, `/coin/<mint>`, `/feed` 200; `/api/claim/<mint>?wallet=…` snapshot'ı
-  slot'tan yeniden üretip kazanan çekilişi buluyor (0,4 sn). Claim butonunun
+  slot'tan yeniden üretip hak eden dağıtımı buluyor (0,4 sn). Claim butonunun
   yaptığı işlem `ClaimPanel.tsx`'teki encoding'in birebir kopyasıyla Ayşe'nin
   anahtarından gönderildi: +446.026.143.433 = ödül, sonrasında claimable 0.
   Kırık bir şey çıkmadı. (Phantom tıklaması elle denenmedi; encoding ve API
   zincirde doğrulandı.)
 
-## Adım 23 — dağıtım modeli değişti: çekiliş yok, herkese pro-rata (13 Eylül) ✅
+## Adım 23 — dağıtım modeli değişti: dağıtım yok, herkese pro-rata (13 Eylül) ✅
 
 **Karar (senden):** rastgele/ağırlıklı seçim kalktı. Her turda serbest bırakılan
 miktar TÜM uygun holder'lara ağırlık = bakiye × tutma süresi oranında bölünür;
@@ -844,10 +845,9 @@ kilometre taşı %5, 0–60 dk rastgele gecikme, TooEarly) aynen kaldı.
 
 **Program (`open_round` / `claim_share`):**
 - `Round`: `root, released, total, holder_count, claimed_amount, claimed_count,
-  commit_slot, snapshot_slot`. `seed/drawn/draw_slot/winner_count/prize/
-  claimed_bits` gitti; `draw` instruction'ı, `RoundDrawn/RoundRetargeted/
-  PrizeClaimed` event'leri, `MAX_WINNERS/DRAW_DELAY_SLOTS/SLOT_HASHES_WINDOW`
-  sabitleri ve 6 hata kodu silindi. Yeni: `MAX_SHARE_BPS = 1000`,
+  commit_slot, snapshot_slot`. Eski rastgelelik alanları (seed, hedef slot,
+  hak eden sayısı, ödül, claim bitmap'i), rastgelelik instruction'ı, ona ait üç
+  event, üç sabit ve 6 hata kodu silindi. Yeni: `MAX_SHARE_BPS = 1000`,
   `ShareOverCap`, `RoundExhausted`, `TotalOverReleased`, `NoHolders`.
 - `open_round(index, root, released, total, holder_count, snapshot_slot)`:
   `released ≤ pending` (tavan buna göre ölçüldüğü için şişirilemez),
@@ -878,7 +878,7 @@ dakika aynı artıkla tur açardı). 11+ holder'da oransal paylar görünür; de
 yüzden 12 cüzdanla koşuyor (Ayşe ve ilk 5 tavanda, 6 küçük %9,7→%7,1
 oransal, %100 dağıtıldı).
 
-**Crank/simülasyon:** `draw` adımı ve `CRANK_WINNERS` gitti; `open_round`
+**Crank/simülasyon:** rastgelelik adımı ve tur başına hak eden sayısı ayarı gitti; `open_round`
 `pending`'i `released` olarak verir. Simülasyon her holder için payını
 claim eder (`claim_share`, receipt PDA). Crank sim bu turda **koşulmadı**
 (10 dk; test suite'leri ve demo koştu).
@@ -910,6 +910,74 @@ DEMO.md kısımları, 8, 9. **Uygulanmayan/bilinmeyen:** eşik ("minimum" neyin
 eşiği?), "coin tipi" ve "platform ücreti" tanımları — web'de mevcut bilgiyle
 (regular / %0) gösterildi, programda böyle bir alan yok. Kalan maddeleri
 gönderirsen ekleyeceğim.
+
+## Adım 24 — gorev.md (13 Eylül) ✅
+
+**Kararlar uygulandı:** tavan artığı havuzda kalıyor (`open_round` `pending`'i
+sıfırlar, yalnızca `total` `allocated`'a eklenir; devreden "pending" yok, havuz
+sızmaz). Tavan ≤10 uygun holder'da kapalı, ≥11'de %10 (`CAP_MIN_HOLDERS`,
+hem indexer hem program). Claim makbuzu rent'i (~0,0009 SOL) kabul.
+
+**2. Eşik:** `MIN_POSITION_LAMPORTS` 0,05 → **0,1 SOL (≈$20)**; indexer aynı.
+Test grantları/alımları buna göre büyütüldü (ana test 500M launch, 35–40M
+token grant; demo alımları 0,12 SOL).
+
+**3. Platform ücreti — pump'ın fee-sharing'i üzerinden:**
+- Coin'in pump'taki creator'ı artık escrow değil, **dataless `fee` PDA'sı**
+  (`["fee", mint]`): veri taşıyan escrow PDA'sı pump'ın sharing config'inin
+  rent'ini ödeyemez/`init`'e payer olamaz; dataless sistem hesabı olabilir.
+  Buyer PDA'sıyla aynı desen.
+- `setup_fee_sharing` (izinsiz, launch'tan sonra ayrı tx; crank de yapar):
+  payer fee PDA'ya 0,01 SOL rent yatırır → CPI `pump_fees::create_fee_sharing_config`
+  (payer = fee PDA) → CPI `update_fee_shares_v2` (shareholders: fee PDA
+  10000−bps, platform cüzdanı bps; pump önce mevcut kasayı creator'a öder, bunun
+  için remaining accounts = [fee PDA]) → kullanılmayan rent payer'a, o arada
+  ödenen ücret escrow'a. pump admin'i tek güncellemeden sonra iptal ediyor: coin
+  başına **bir kez**, oran coin için sabit.
+- `collect_fees`: CPI `pump::distribute_creator_fees_v2` (remaining accounts =
+  pay sahipleri sırayla [fee PDA, platform cüzdanı]) → fee PDA'nın payı escrow'a
+  süpürülür. Test 2: kasa 9,78M → escrow +8,0M (%90), platform +0,89M (%10).
+  **pump ~0,0019 SOL altındaki kasayı dağıtmıyor** (hata vermeden log
+  basıyor); crank eşiği 0,0012 SOL/rent üstü. Creator ücreti yerel klonda 30
+  bps çıktı (Global'de `creator_fee_basis_points=5` yazsa da).
+- `Config`: `platform_fee_bps` (1000), `platform_fee_wallet`,
+  `pending_fee_bps`, `fee_effective_slot`. `set_platform(platform, fee_wallet)`.
+  `propose_platform_fee(bps)` platform-only, etkin slot = şimdi + 1.512.000
+  (7 gün), `PlatformFeeProposed`; `apply_platform_fee` izinsiz, erken →
+  `FeeChangeTooEarly`, `PlatformFeeApplied`. Test F6 erken reddi doğruluyor;
+  **başarılı apply localnet'te test edilmedi** (7 gün beklemek gerekir, knob
+  koymadım). Oran değişimi yalnızca sonraki `setup_fee_sharing`'lere yansır.
+- localnet.sh pump AMM programını da klonluyor (`update_fee_shares_v2` hesap
+  olarak istiyor). Config düzeni değiştiği için ledger sıfırlandı.
+
+**4. Holder-rewards modu:** `launch(..., is_holder_reward)`; `create_v2`'ye
+geçilir; `Escrow.is_holder_reward`. `setup_fee_sharing`/`collect_fees`/`buyback`
+→ `NotApplicable` (test F5, buyback dahil). Yerel pump klonu bu bayrağı
+bilmiyor (eski sürüm, kuyruk argümanı yok sayıyor) — coin normal yaratılıyor,
+kural bizim tarafta uygulanıyor; devnet pump güncellenince gerçek olur.
+
+**5. Terminoloji:** lottery/draw/winner/lucky/prize/çekiliş/zar/kazanan/şans/
+piyango kod, test, README, DEMO, PROGRESS, SECURITY_REVIEW ve web'de yok
+(grep temiz; `withdraw` hariç). Tarihçe bölümlerinde mekanik değişim yapıldı,
+anlam korunmaya çalışıldı.
+
+**6. Testler:** ana 20/20 (1c ücret paylaşımı; 2 %90/%10; 5 ≤10 holder tam
+dağıtım; 8 ≤10 holder'da %60'lık leaf geçerli; 10 on bir holder: %50 leaf
+`ShareOverCap`, tavanlı tur, artık havuzda, 11 claim), security 6/6 (F5
+holder-rewards retleri, F6 7 gün gecikme), manual 7/7, allocate birim 6/6.
+
+**7. Web:** coin tipi `Escrow.is_holder_reward`'dan, platform ücreti
+`Escrow.platform_fee_bps`'ten (kurulmamışsa "fee split not set up"), listede
+`Config`'ten güncel oran + bekleyen değişiklik ve etkin slot. Claim paneli
+"cap 10%" yazısı kaldırıldı (≤10 holder'da tavan yok).
+
+**Demo:** 14 adım, ücret paylaşımı adımı eklendi (3), baseline alımlardan
+sonra alınıyor (12×0,12 SOL alım kilometre taşını tetiklemesin), collect adımı
+escrow/platform bölünmesini gösteriyor. 3/3 temiz (71/73/68 sn).
+
+**Koşulmayan:** crank simülasyonu (`npm run crank:sim`, 10 dk) bu turda
+koşulmadı; crank kodu setup/collect/holder-rewards için güncellendi ama
+uçtan uca denenmedi.
 
 ## Senden karar bekleyenler (yeni)
 

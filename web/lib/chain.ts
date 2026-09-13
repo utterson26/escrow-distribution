@@ -49,7 +49,23 @@ export interface Escrow {
   manualRoot?: string; manualBps?: number; manualTotal?: bigint;
   manualClaimedBps?: number; manualUnlockTs?: bigint; manualLocked?: boolean;
   platform?: string; dead?: boolean; lowVolumeDays?: number;
+  /** generation 5: pump holder-rewards coin (no fee sweep / buyback), fee sharing state */
+  isHolderReward?: boolean; feeSharingSet?: boolean; platformFeeBps?: number;
   generation: number;
+}
+
+/** Program-wide config: platform authority and the platform's cut of the creator fee. */
+export interface Config {
+  platform: string; platformFeeBps: number; platformFeeWallet: string;
+  pendingFeeBps: number; feeEffectiveSlot: bigint;
+}
+export function decodeConfig(data: Buffer): Config {
+  const r = new R(data);
+  const platform = r.key(); r.u8(); // bump
+  return {
+    platform, platformFeeBps: r.u16(), platformFeeWallet: r.key(),
+    pendingFeeBps: r.u16(), feeEffectiveSlot: r.u64(),
+  };
 }
 
 class R {
@@ -98,6 +114,12 @@ export function decodeEscrow(address: string, data: Buffer): Escrow {
     e.lowVolumeDays = r.u8(); e.dead = r.bool();
     e.generation = 4;
   }
+  // day_seconds, last_buyback_slot, bump, then the generation-5 block
+  if (r.left() >= 8 + 8 + 1 + 4) {
+    r.i64(); r.u64(); r.u8();
+    e.isHolderReward = r.bool(); e.feeSharingSet = r.bool(); e.platformFeeBps = r.u16();
+    e.generation = 5;
+  }
   return e;
 }
 
@@ -120,8 +142,10 @@ export function decodeRound(address: string, data: Buffer): Round {
     commitSlot: r.u64(), snapshotSlot: r.u64(),
   };
 }
-/** Most of one round a single wallet may receive (program constant MAX_SHARE_BPS). */
+/** Most of one round a single wallet may receive (program constant MAX_SHARE_BPS)... */
 export const MAX_SHARE_BPS = 1000;
+/** ...once a round has this many eligible holders (program constant CAP_MIN_HOLDERS). */
+export const CAP_MIN_HOLDERS = 11;
 
 export const pda = (seeds: (Buffer | Uint8Array)[], prog = PROGRAM_ID) =>
   PublicKey.findProgramAddressSync(seeds, prog)[0];

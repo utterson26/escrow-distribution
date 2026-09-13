@@ -18,9 +18,23 @@ const pda = (seeds: (Buffer | Uint8Array)[], prog: PublicKey) =>
 const ata = (owner: PublicKey, mint: PublicKey, tp: PublicKey) =>
   getAssociatedTokenAddressSync(mint, owner, true, tp);
 
-export function pumpAccounts(mint: PublicKey, dev: PublicKey, escrow: PublicKey) {
+export const PUMP_AMM = new PublicKey("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
+
+/** pump fees PDA that owns the creator vault once fee sharing is set up */
+export const sharingConfigPda = (mint: PublicKey) =>
+  pda([Buffer.from("sharing-config"), mint.toBuffer()], FEE_PROGRAM);
+/** our dataless PDA that is the coin's creator on pump until the sharing config takes over */
+export const feeAuthorityPda = (mint: PublicKey, program: PublicKey) =>
+  pda([Buffer.from("fee"), mint.toBuffer()], program);
+
+/**
+ * `creator` is whoever pump currently sees as the coin creator: the fee PDA
+ * right after launch, the sharing config once `setup_fee_sharing` has run.
+ * The creator vault is derived from it.
+ */
+export function pumpAccounts(mint: PublicKey, dev: PublicKey, creator: PublicKey) {
   const bondingCurve = pda([Buffer.from("bonding-curve"), mint.toBuffer()], PUMP);
-  const creatorVault = pda([Buffer.from("creator-vault"), escrow.toBuffer()], PUMP);
+  const creatorVault = pda([Buffer.from("creator-vault"), creator.toBuffer()], PUMP);
   const userVolumeAccumulator = pda(
     [Buffer.from("user_volume_accumulator"), dev.toBuffer()], PUMP);
   const solVault = pda([Buffer.from("sol-vault")], MAYHEM);
@@ -144,3 +158,43 @@ export function directSellIx(
     ],
   });
 }
+
+/** Accounts for our program's `setup_fee_sharing` (pump fee-sharing config: escrow / platform split). */
+export function setupFeeSharingAccounts(
+  mint: PublicKey, escrow: PublicKey, program: PublicKey, payer: PublicKey, platformFeeWallet: PublicKey,
+) {
+  const sharingConfig = sharingConfigPda(mint);
+  const pumpCreatorVault = pda([Buffer.from("creator-vault"), sharingConfig.toBuffer()], PUMP);
+  const coinCreatorVaultAuthority = pda([Buffer.from("creator_vault"), sharingConfig.toBuffer()], PUMP_AMM);
+  return {
+    payer, escrow, config: pda([Buffer.from("config")], program),
+    feeAuthority: feeAuthorityPda(mint, program), platformFeeWallet, mint,
+    global: pda([Buffer.from("global")], PUMP),
+    bondingCurve: pda([Buffer.from("bonding-curve"), mint.toBuffer()], PUMP),
+    sharingConfig, pumpCreatorVault, pumpCreatorVaultAta: ata(pumpCreatorVault, WSOL, TOKEN),
+    coinCreatorVaultAuthority, coinCreatorVaultAta: ata(coinCreatorVaultAuthority, WSOL, TOKEN),
+    quoteMint: WSOL, quoteTokenProgram: TOKEN, associatedTokenProgram: ATA_PROGRAM,
+    pumpEventAuthority: pda([Buffer.from("__event_authority")], PUMP), pumpProgram: PUMP,
+    feeEventAuthority: pda([Buffer.from("__event_authority")], FEE_PROGRAM), feeProgram: FEE_PROGRAM,
+    pumpAmmProgram: PUMP_AMM, ammEventAuthority: pda([Buffer.from("__event_authority")], PUMP_AMM),
+    systemProgram: SystemProgram.programId,
+  };
+}
+
+/** Accounts for `collect_fees` after fee sharing; remaining accounts must be the shareholders in order. */
+export function collectFeesAccounts(mint: PublicKey, escrow: PublicKey, program: PublicKey, payer: PublicKey) {
+  const sharingConfig = sharingConfigPda(mint);
+  const creatorVault = pda([Buffer.from("creator-vault"), sharingConfig.toBuffer()], PUMP);
+  return {
+    payer, escrow, feeAuthority: feeAuthorityPda(mint, program), mint,
+    bondingCurve: pda([Buffer.from("bonding-curve"), mint.toBuffer()], PUMP),
+    sharingConfig, creatorVault, creatorVaultQuoteTokenAccount: ata(creatorVault, WSOL, TOKEN),
+    quoteMint: WSOL, quoteTokenProgram: TOKEN, associatedTokenProgram: ATA_PROGRAM,
+    eventAuthority: pda([Buffer.from("__event_authority")], PUMP), pumpProgram: PUMP,
+    systemProgram: SystemProgram.programId,
+  };
+}
+export const shareholderMetas = (feeAuthority: PublicKey, platformFeeWallet: PublicKey, platformBps: number) => [
+  { pubkey: feeAuthority, isWritable: true, isSigner: false },
+  ...(platformBps > 0 ? [{ pubkey: platformFeeWallet, isWritable: true, isSigner: false }] : []),
+];

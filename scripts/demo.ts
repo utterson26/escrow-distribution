@@ -28,6 +28,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   pumpAccounts, escrowPda, escrowAta, buyerPda, baseAtaOf, directBuyIx, directSellIx,
+  feeAuthorityPda, sharingConfigPda, setupFeeSharingAccounts, collectFeesAccounts, shareholderMetas,
   TOKEN_2022, TOKEN, WSOL,
 } from "../tests/pump";
 import { snapshot, buildTree, proofFor } from "../indexer/snapshot";
@@ -93,8 +94,13 @@ async function main() {
   const escrowTa = escrowAta(escrow, mint);
   const buyer = buyerPda(mint, program.programId);
   const buyerTa = baseAtaOf(buyer, mint);
-  const pa = pumpAccounts(mint, dev.publicKey, escrow);
-  const pb = pumpAccounts(mint, buyer, escrow);
+  // pump'ın gördüğü creator: launch'ta ücret PDA'mız, ücret paylaşımı kurulunca pump'ın sharing config'i
+  const feeAuthority = feeAuthorityPda(mint, program.programId);
+  const sharingConfig = sharingConfigPda(mint);
+  const pa = pumpAccounts(mint, dev.publicKey, feeAuthority);   // launch
+  const paS = pumpAccounts(mint, dev.publicKey, sharingConfig); // sonrası
+  const pb = pumpAccounts(mint, buyer, sharingConfig);
+  const platformWallet = Keypair.generate(); // platformun ücret cüzdanı (%10)
   const manualPda = PublicKey.findProgramAddressSync([Buffer.from("manual"), mint.toBuffer()], program.programId)[0];
   const manualAta = getAssociatedTokenAddressSync(mint, manualPda, true, TOKEN_2022);
   const configPda = PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId)[0];
@@ -148,19 +154,26 @@ async function main() {
   const devSolStart = await conn.getBalance(dev.publicKey, "confirmed");
 
   // ---- 0. hazırlık: platform yetkilisi + lookup table ----
-  step("Hazırlık", "Platform yetkilisi belirlendi, adres tablosu kuruldu (büyük işlemler sığsın diye)");
-  sig("set_platform", await rpc(program.methods.setPlatform(dev.publicKey).accountsPartial({
+  step("Hazırlık", "Platform yetkilisi ve platform ücret cüzdanı belirlendi, adres tablosu kuruldu (büyük işlemler sığsın diye)");
+  sig("set_platform", await rpc(program.methods.setPlatform(dev.publicKey, platformWallet.publicKey).accountsPartial({
     authority: dev.publicKey, config: configPda, program: program.programId, programData,
     systemProgram: SystemProgram.programId,
   })));
+  await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: platformWallet.publicKey, lamports: 0.01 * LAMPORTS_PER_SOL })]);
+  {
+    const cfg: any = await program.account.config.fetch(configPda, "confirmed");
+    note(`platform ücreti: creator ücretinin %${cfg.platformFeeBps / 100}'u → ${short(platformWallet.publicKey)} (kilitli havuzdan asla pay alınmaz)`);
+  }
   {
     const slot = await conn.getSlot("finalized");
     const [createIx, addr] = AddressLookupTableProgram.createLookupTable({
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     lut = addr;
-    const keys = [...Object.values(pa) as PublicKey[], ...Object.values(pb) as PublicKey[],
-      escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa, manualPda, manualAta, configPda,
+    const sfs = setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, platformWallet.publicKey);
+    const keys = [...Object.values(pa) as PublicKey[], ...Object.values(paS) as PublicKey[], ...Object.values(pb) as PublicKey[],
+      ...Object.values(sfs) as PublicKey[],
+      escrow, escrowTa, mint, dev.publicKey, buyer, buyerTa, manualPda, manualAta, configPda, feeAuthority, sharingConfig,
       SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
     sig("lookup_table", await send([createIx]));
@@ -180,16 +193,16 @@ async function main() {
 
   // ---- 1. launch ----
   step("Coin basıldı ve %30'u kilitlendi",
-    "Tek işlemde: pump.fun'da coin yaratıldı, dev 650M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti");
-  // 650M: piyasa değeri yüksek başlasın ki 12 alım kilometre taşını (2×) tetiklemesin (eşik ~1,05 SOL, alımlar net ~0,92)
-  const AMOUNT = 650_000_000n * DEC;
+    "Tek işlemde: pump.fun'da coin yaratıldı, dev 550M coin aldı, bunun %30'u escrow'a (kilitli havuza) gitti");
+  // 550M: 12 alım (~1,5 SOL) curve'ü tamamlamasın (gerçek rezerv 243M kalır, alımlar ~218M alır)
+  const AMOUNT = 550_000_000n * DEC;
   {
     const ix = await program.methods
       .launch("Demo Coin", "DEMO", "https://example.com/demo.json", 3000,
-              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0)
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
-        manualAuthority: manualPda, manualTokenAccount: manualAta,
+        manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
         ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
     before({ "escrow coin": "0 coin", "dev coin": "0 coin" });
@@ -200,22 +213,23 @@ async function main() {
     note(`escrow: ${escrow.toBase58()}`);
   }
 
-  // ---- 2. baseline ----
-  step("Tetikleyici başlangıç noktası",
-    "Program piyasa değerini ilk kez kaydetti; bundan sonraki hacim ve fiyat hareketleri bu noktaya göre ölçülür");
-  sig("set_delay_window", await rpc(program.methods.setDelayWindow(new BN(DELAY_WINDOW))
-    .accountsPartial({ platform: dev.publicKey, escrow })));
-  const triggerAccounts = { escrow, bondingCurve: pa.bondingCurve, slotHashes: SLOT_HASHES };
-  sig("check_trigger", await rpc(program.methods.checkTrigger().accountsPartial(triggerAccounts)));
+  // ---- 2. ücret paylaşımı ----
+  step("Ücret paylaşımı kuruldu: %90 havuz, %10 platform",
+    "pump.fun'ın ücret paylaşım ayarı bu coin için açıldı: her alım-satımın creator ücreti otomatik olarak %90 escrow'a, %10 platform cüzdanına gider. Bu bölünme kilitli havuza dokunmaz; yalnızca ücret bölünür");
   {
+    sig("setup_fee_sharing", await program.methods.setupFeeSharing()
+      .accountsPartial(setupFeeSharingAccounts(mint, escrow, program.programId, dev.publicKey, platformWallet.publicKey))
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+      .rpc({ commitment: "confirmed" }));
     const st = await escrowState();
-    note(`piyasa değeri: ${sol(st.lastMilestoneMcap.toNumber())} — dağıtım gecikme penceresi demo için ~${Math.round(DELAY_WINDOW * 0.4)} sn (üretimde 60 dk)`);
+    note(`coin tipi: ${st.isHolderReward ? "holder-rewards" : "regular"} — platform payı %${st.platformFeeBps / 100}, pump'taki paylaşım kaydı ${short(sharingConfig)}`);
   }
 
   // ---- 3. dört cüzdan alır ----
   step("On iki cüzdan piyasadan aldı",
     "Ayşe (büyük), Burak, Ceren, Deniz ve sekiz küçük yatırımcı doğrudan pump.fun'dan coin aldı; her alımın küçük bir kısmı creator ücreti olarak birikti");
-  const BUYS = [0.15, 0.08, 0.08, 0.07, ...Array(8).fill(0.07)];
+  // her pozisyon ≥ 0,1 SOL (≈$20 eşiği) olmalı; Ayşe büyük
+  const BUYS = [0.15, 0.12, 0.12, 0.12, ...Array(8).fill(0.12)];
   {
     for (const w of wallets) {
       await send([
@@ -224,18 +238,30 @@ async function main() {
         createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, wsolAta(w.publicKey), w.publicKey, WSOL, TOKEN),
       ]);
     }
-    const vaultBefore = await conn.getBalance(pa.creatorVault, "confirmed");
+    const vaultBefore = await conn.getBalance(paS.creatorVault, "confirmed");
     before({ "creator ücreti kasası": sol(vaultBefore) });
     for (let i = 0; i < wallets.length; i++) {
       const w = wallets[i];
       const s = await send([
         ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        directBuyIx(mint, w.publicKey, escrow, BigInt(Math.round(BUYS[i] * LAMPORTS_PER_SOL)), 1n),
+        directBuyIx(mint, w.publicKey, sharingConfig, BigInt(Math.round(BUYS[i] * LAMPORTS_PER_SOL)), 1n),
       ], w);
       sig(`${NAMES[i]} ${BUYS[i]} SOL ile aldı → ${tok(await coinBal(w.publicKey))}`, s);
       await sleep(800); // tutma süreleri farklı olsun
     }
-    after({ "creator ücreti kasası": sol(await conn.getBalance(pa.creatorVault, "confirmed")) });
+    after({ "creator ücreti kasası": sol(await conn.getBalance(paS.creatorVault, "confirmed")) });
+  }
+
+  // ---- 4. baseline (alımlardan sonra: demo hacim tetikleyicisini göstermek istiyor, kilometre taşını değil) ----
+  step("Tetikleyici başlangıç noktası",
+    "Program piyasa değerini ilk kez kaydetti; bundan sonraki hacim ve fiyat hareketleri bu noktaya göre ölçülür (üretimde bu kaydı keeper her dakika yapar)");
+  sig("set_delay_window", await rpc(program.methods.setDelayWindow(new BN(DELAY_WINDOW))
+    .accountsPartial({ platform: dev.publicKey, escrow })));
+  const triggerAccounts = { escrow, bondingCurve: pa.bondingCurve, slotHashes: SLOT_HASHES };
+  sig("check_trigger", await rpc(program.methods.checkTrigger().accountsPartial(triggerAccounts)));
+  {
+    const st = await escrowState();
+    note(`piyasa değeri: ${sol(st.lastMilestoneMcap.toNumber())} — dağıtım gecikme penceresi demo için ~${Math.round(DELAY_WINDOW * 0.4)} sn (üretimde 60 dk)`);
   }
 
   // ---- 4. Deniz hepsini satar ----
@@ -247,27 +273,29 @@ async function main() {
     before({ "Deniz coin": tok(bal), "Deniz SOL": sol(await conn.getBalance(d.publicKey, "confirmed")) });
     const s = await send([
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-      directSellIx(mint, d.publicKey, escrow, bal, 0n),
+      directSellIx(mint, d.publicKey, sharingConfig, bal, 0n),
     ], d);
     sig("sell", s);
     after({ "Deniz coin": tok(await coinBal(d.publicKey)), "Deniz SOL": sol(await conn.getBalance(d.publicKey, "confirmed")) });
   }
 
   // ---- 5. collect_fees ----
-  step("Biriken ücret havuza süpürüldü",
-    "Alım-satımlardan biriken creator ücreti pump.fun kasasından escrow'a çekildi; bu para holder'lar için harcanacak");
+  step("Biriken ücret dağıtıldı: %90 havuza, %10 platforma",
+    "pump.fun kasasında biriken creator ücreti paylaşım ayarına göre ödendi: %90 escrow'a (holder'lar için harcanacak), %10 platform cüzdanına");
   {
-    before({ "escrow SOL": sol(await conn.getBalance(escrow, "confirmed")), "creator ücreti kasası": sol(await conn.getBalance(pa.creatorVault, "confirmed")) });
-    sig("collect_fees", await rpc(program.methods.collectFees().accountsPartial({
-      payer: dev.publicKey, escrow,
-      creatorTokenAccount: wsolAta(escrow), creatorVault: pa.creatorVault,
-      creatorVaultTokenAccount: wsolAta(pa.creatorVault),
-      quoteMint: WSOL, quoteTokenProgram: TOKEN, associatedTokenProgram: pa.associatedTokenProgram,
-      eventAuthority: pa.eventAuthority, pumpProgram: pa.pumpProgram, systemProgram: SystemProgram.programId,
-    })));
-    after({ "escrow SOL": sol(await conn.getBalance(escrow, "confirmed")), "creator ücreti kasası": sol(await conn.getBalance(pa.creatorVault, "confirmed")) });
+    const vault = paS.creatorVault;
+    before({ "creator ücreti kasası": sol(await conn.getBalance(vault, "confirmed")),
+             "escrow SOL": sol(await conn.getBalance(escrow, "confirmed")),
+             "platform cüzdanı": sol(await conn.getBalance(platformWallet.publicKey, "confirmed")) });
+    const e0 = await conn.getBalance(escrow, "confirmed"), p0 = await conn.getBalance(platformWallet.publicKey, "confirmed");
+    sig("collect_fees", await program.methods.collectFees()
+      .accountsPartial(collectFeesAccounts(mint, escrow, program.programId, dev.publicKey))
+      .remainingAccounts(shareholderMetas(feeAuthority, platformWallet.publicKey, 1000))
+      .rpc({ commitment: "confirmed" }));
+    const e1 = await conn.getBalance(escrow, "confirmed"), p1 = await conn.getBalance(platformWallet.publicKey, "confirmed");
+    after({ "creator ücreti kasası": sol(await conn.getBalance(vault, "confirmed")), "escrow SOL": sol(e1), "platform cüzdanı": sol(p1) });
     const st = await escrowState();
-    note(`programın kaydettiği toplam ücret: ${sol(st.feesCollected.toNumber())}`);
+    note(`escrow +${sol(e1 - e0)} (%${e1 - e0 > 0 ? Math.round(100 * (e1 - e0) / (e1 - e0 + p1 - p0)) : 0}), platform +${sol(p1 - p0)}; programın kaydettiği toplam ücret: ${sol(st.feesCollected.toNumber())}`);
   }
 
   // ---- 6. bağış + buyback parçalı ----
@@ -405,14 +433,14 @@ async function main() {
     note(snap.leaves.some((l: any) => l.holder === seller)
       ? "UYARI: Deniz listede (beklenmiyordu)"
       : `Deniz (${short(seller)}) listede YOK — hepsini sattığı için`);
-    note(`serbest ${tok(released)}, dağıtılan ${tok(snap.total)}; tavan yüzünden kalan ${tok(released - BigInt(snap.total))} sonraki tura devrediyor`);
+    note(`serbest ${tok(released)}, dağıtılan ${tok(snap.total)}; tavanın tuttuğu ${tok(released - BigInt(snap.total))} havuzda kalıyor (sızmaz, sonraki tetikleyiciyle yeniden değerlendirilir)`);
     note(`dev cüzdanı hazine sayılır, listede yok. kök: ${snap.root.slice(0, 16)}… slot ${snap.snapshotSlot}`);
     fs.writeFileSync(path.join(__dirname, "../snapshot.json"), JSON.stringify(snap, null, 2));
   }
 
   // ---- 10. open_round ----
   step("Paylaşım zincire mühürlendi",
-    "Listenin kökü, serbest bırakılan miktar ve snapshot anı zincire yazıldı: kim ne alacak artık sabit ve herkes aynı girdilerle aynı sonucu üretebilir. Zar yok, seçim yok");
+    "Listenin kökü, serbest bırakılan miktar ve snapshot anı zincire yazıldı: kim ne alacak artık sabit ve herkes aynı girdilerle aynı sonucu üretebilir. Rastgelelik yok, seçim yok");
   const round = PublicKey.findProgramAddressSync(
     [Buffer.from("round"), escrow.toBuffer(), Buffer.from(new Uint32Array([0]).buffer)], program.programId)[0];
   let r: any;

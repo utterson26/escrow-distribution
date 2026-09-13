@@ -1,5 +1,5 @@
 // Allocation rules, checked without a chain: npx ts-node -T indexer/allocate.test.ts
-import { allocate, MAX_SHARE_BPS } from "./snapshot";
+import { allocate, MAX_SHARE_BPS, CAP_MIN_HOLDERS } from "./snapshot";
 import * as assert from "assert";
 
 const R = 1_000_000n;
@@ -26,10 +26,17 @@ const cap = (R * MAX_SHARE_BPS) / 10000n; // 100_000
   assert.ok(a.slice(2).every((x) => x <= cap));
   assert.strictEqual(a.reduce((x, y) => x + y, 0n), R);
 }
-// 4. everyone capped: 3 holders → 30% handed out, 70% left pending
+// 4. below CAP_MIN_HOLDERS there is no cap: 3 holders share everything pro rata
 {
   const a = allocate([5n, 3n, 2n], R);
-  assert.deepStrictEqual(a, [cap, cap, cap]);
+  assert.deepStrictEqual(a, [R / 2n, R * 3n / 10n, R / 5n]);
+  assert.strictEqual(a.reduce((x, y) => x + y, 0n), R, "nothing held back");
+}
+// 4b. exactly at the threshold the cap is on
+{
+  const w = Array(CAP_MIN_HOLDERS).fill(1n); w[0] = 100n;
+  const a = allocate(w, R);
+  assert.strictEqual(a[0], cap, "whale capped once there are 11 holders");
 }
 // 5. deterministic: same input, same output; zero weights get nothing
 {
@@ -37,4 +44,4 @@ const cap = (R * MAX_SHARE_BPS) / 10000n; // 100_000
   assert.deepStrictEqual(allocate(w, R), allocate(w, R));
   assert.strictEqual(allocate(w, R)[1], 0n);
 }
-console.log("allocate: 5/5 ok");
+console.log("allocate: 6/6 ok");

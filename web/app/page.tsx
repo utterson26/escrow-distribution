@@ -1,5 +1,5 @@
-import { buildRows, coinLabel } from "@/lib/data";
-import { fmtTokens, fmtSol, short, network } from "@/lib/chain";
+import { buildRows, coinLabel, fetchConfig } from "@/lib/data";
+import { fmtTokens, fmtSol, short, network, Config } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,7 +27,8 @@ function Next({ t }: { t: any }) {
 export default async function Home() {
   let rows: any[] = [];
   let error: string | null = null;
-  try { rows = await buildRows(); } catch (e: any) { error = String(e?.message ?? e); }
+  let cfg: Config | null = null;
+  try { rows = await buildRows(); cfg = await fetchConfig(); } catch (e: any) { error = String(e?.message ?? e); }
 
   if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
   const net = network().name;
@@ -55,8 +56,8 @@ export default async function Home() {
                 </td>
                 <td>{r.escrowPct}%</td>
                 <td>{r.devPct}%</td>
-                <td>{r.capPct}% of a round</td>
-                <td>{r.coinType} · {r.platformFeePct}%</td>
+                <td>{r.capPct}% (from {r.capMinHolders} holders)</td>
+                <td>{r.coinType} · {r.platformFeePct === null ? "fee split not set up" : `${r.platformFeePct}% platform`}</td>
                 <td>{fmtTokens(BigInt(r.poolRemaining))}</td>
                 <td>{fmtSol(BigInt(r.marketCapLamports))} SOL</td>
                 <td>
@@ -74,7 +75,11 @@ export default async function Home() {
         Every number above is read live from the program on {net}. Holder and dev shares are of the
         launch buy: the holder share went into escrow for distributions, the rest stayed with the
         dev wallet — which never takes part in a distribution itself. Each round is split pro rata
-        (balance × time held) over every eligible holder, no wallet taking more than the cap.
+        (balance × time held) over every eligible holder, no wallet taking more than the cap once
+        there are enough holders. The platform fee is a cut of pump&apos;s creator fee only — it is
+        written into each coin&apos;s pump fee-sharing config and never touches the locked pool.
+        {cfg && <> Current platform rate for new launches: {cfg.platformFeeBps / 100}%
+          {cfg.feeEffectiveSlot > 0n && ` (change to ${cfg.pendingFeeBps / 100}% pending, effective at slot ${cfg.feeEffectiveSlot})`}.</>}
       </div>
     </>
   );

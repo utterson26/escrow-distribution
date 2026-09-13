@@ -10,6 +10,8 @@
  *       over the 10% cap cannot pay out
  *   F4  a holder who dumped after the snapshot cannot claim; holding it again
  *       makes the claim go through
+ *   F5  a holder-rewards coin: fee sharing, collect_fees and buyback are refused
+ *   F6  the platform fee only changes after a 7-day delay; early apply fails
  */
 import * as anchor from "@coral-xyz/anchor";
 import { BN } from "@coral-xyz/anchor";
@@ -23,7 +25,10 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { assert } from "chai";
-import { pumpAccounts, escrowPda, escrowAta, directBuyIx, TOKEN_2022, TOKEN, WSOL } from "./pump";
+import {
+  pumpAccounts, escrowPda, escrowAta, directBuyIx, feeAuthorityPda, setupFeeSharingAccounts,
+  collectFeesAccounts, buyerPda, baseAtaOf, TOKEN_2022, TOKEN, WSOL,
+} from "./pump";
 import { snapshot, buildTree, proofFor, Snapshot } from "../indexer/snapshot";
 import { configPda, setPlatform } from "./config";
 
@@ -47,7 +52,8 @@ describe("security review regressions (localnet)", () => {
   const mintKp = Keypair.generate();
   const mint = mintKp.publicKey;
   const escrow = escrowPda(mint, program.programId);
-  const pa = pumpAccounts(mint, dev.publicKey, escrow);
+  const feeAuthority = feeAuthorityPda(mint, program.programId);
+  const pa = pumpAccounts(mint, dev.publicKey, feeAuthority); // no fee sharing here: creator stays the fee PDA
   const escrowTa = escrowAta(escrow, mint);
   const manualPda = PublicKey.findProgramAddressSync([Buffer.from("manual"), mint.toBuffer()], program.programId)[0];
   const manualAta = getAssociatedTokenAddressSync(mint, manualPda, true, TOKEN_2022);
@@ -85,7 +91,7 @@ describe("security review regressions (localnet)", () => {
   });
 
   it("F1: only the upgrade authority can set the platform; a launch copies it", async () => {
-    const ix = await program.methods.setPlatform(stranger.publicKey).accountsPartial({
+    const ix = await program.methods.setPlatform(stranger.publicKey, stranger.publicKey).accountsPartial({
       authority: stranger.publicKey, config: configPda(program.programId), program: program.programId,
       programData: PublicKey.findProgramAddressSync(
         [program.programId.toBuffer()], new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"))[0],
@@ -103,7 +109,7 @@ describe("security review regressions (localnet)", () => {
       authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
     });
     const keys = [...Object.values(pa) as PublicKey[], escrow, escrowTa, mint, dev.publicKey,
-                  manualPda, manualAta, configPda(program.programId), SystemProgram.programId, program.programId];
+                  manualPda, manualAta, feeAuthority, configPda(program.programId), SystemProgram.programId, program.programId];
     const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
     await send([createIx]);
     for (let i = 0; i < uniq.length; i += 18) {
@@ -119,10 +125,10 @@ describe("security review regressions (localnet)", () => {
     await sleep(1000);
     const launchIx = await program.methods
       .launch("Sec Test", "SEC", "https://example.com/sec.json", 3000,
-              new BN(300_000_000).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0)
+              new BN(300_000_000).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, false)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
-        manualAuthority: manualPda, manualTokenAccount: manualAta, ...pa, systemProgram: SystemProgram.programId,
+        manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority, ...pa, systemProgram: SystemProgram.programId,
       }).instruction();
     const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
     const bh = await conn.getLatestBlockhash("confirmed");
@@ -163,7 +169,7 @@ describe("security review regressions (localnet)", () => {
     await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc({ commitment: "confirmed" }); // baseline
     for (const h of holders) {
       await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-                  directBuyIx(mint, h.publicKey, escrow, BigInt(0.1 * LAMPORTS_PER_SOL), 1n)], h);
+                  directBuyIx(mint, h.publicKey, feeAuthority, BigInt(0.15 * LAMPORTS_PER_SOL), 1n)], h);
     }
     await program.methods.checkTrigger().accountsPartial(triggerAccounts).rpc({ commitment: "confirmed" });
     let st: any = await program.account.escrow.fetch(escrow);
@@ -177,9 +183,8 @@ describe("security review regressions (localnet)", () => {
     const snapSlot = await conn.getSlot("confirmed");
     snap = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released);
     assert.equal(snap.leaves.length, 2, "both holders, dev excluded automatically");
-    // two holders, 10% cap: each gets exactly the cap, 80% stays pending
-    const cap = released * 1000n / 10000n;
-    for (const l of snap.leaves) assert.equal(l.amount, cap.toString(), "capped at 10%");
+    // two holders: below the cap threshold, the whole release is split pro rata
+    assert.equal(snap.total, released.toString(), "nothing held back with two holders");
     // anyone re-running with the recorded (slot, released) gets the same root
     const again = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released);
     assert.equal(again.root, snap.root, "reproducible");
@@ -194,58 +199,154 @@ describe("security review regressions (localnet)", () => {
     assert.equal(r.released.toString(), released.toString(), "release recorded for reproducers");
     assert.equal(r.snapshotSlot.toNumber(), snapSlot, "slot recorded for reproducers");
     st = await program.account.escrow.fetch(escrow);
-    assert.equal(st.pending.toString(), (released - BigInt(snap.total)).toString(), "cap remainder stays pending");
+    assert.equal(st.pending.toString(), "0", "the release is consumed; nothing is carried");
 
-    // a publisher who commits a root paying one wallet 40% gets nowhere: the
-    // proof verifies, the program refuses the amount
-    const released2 = BigInt(st.pending.toString()); // what is still pending after round 0
-    const doctored = JSON.parse(JSON.stringify(snap));
-    doctored.leaves[0].amount = (released2 * 4000n / 10000n).toString();
-    doctored.leaves[1].amount = "0";
-    const { root: badRoot, layers: badLayers } = buildTree(doctored.leaves);
-    const round1 = roundPda(1);
-    // a release above what is pending is refused outright: the cap is measured
-    // against `released`, so it cannot be inflated either
+    // a release above what triggers freed is refused outright, so a publisher
+    // cannot inflate the base the cap is measured against
+    const { root: badRoot } = buildTree(snap.leaves);
     await expectError("inflated release",
-      program.methods.openRound(1, [...badRoot], new BN((released2 + 1n).toString()), new BN(doctored.leaves[0].amount), 2, new BN(snapSlot))
-        .accountsPartial({ publisher: platform.publicKey, escrow, round: round1, systemProgram: SystemProgram.programId })
+      program.methods.openRound(1, [...badRoot], new BN((released + 1n).toString()), new BN(snap.total), 2, new BN(snapSlot))
+        .accountsPartial({ publisher: platform.publicKey, escrow, round: roundPda(1), systemProgram: SystemProgram.programId })
         .signers([platform]).rpc({ commitment: "confirmed" }),
       /AmountNotAuthorized/);
-    await program.methods
-      .openRound(1, [...badRoot], new BN(released2.toString()), new BN(doctored.leaves[0].amount),
-                 2, new BN(snapSlot))
-      .accountsPartial({ publisher: platform.publicKey, escrow, round: round1, systemProgram: SystemProgram.programId })
-      .signers([platform]).rpc({ commitment: "confirmed" });
-    const l = doctored.leaves[0];
-    const w = holders.find((k) => k.publicKey.toBase58() === l.holder)!;
-    await expectError("over-cap leaf",
-      program.methods.claimShare(l.index, new BN(l.balance), new BN(l.amount), proofFor(badLayers, l.index).map((b) => [...b]))
-        .accountsPartial(claimAccounts(w.publicKey, round1)).signers([w]).rpc({ commitment: "confirmed" }),
-      /ShareOverCap/);
   });
 
   it("F4: a holder who dumped after the snapshot cannot claim until they hold it again", async () => {
     const round = roundPda(0);
     const { layers } = buildTree(snap.leaves);
     const leaf = snap.leaves[0];
-    const winner = holders.find((k) => k.publicKey.toBase58() === leaf.holder)!;
-    const other = holders.find((k) => k !== winner)!;
+    const eligible holder = holders.find((k) => k.publicKey.toBase58() === leaf.holder)!;
+    const other = holders.find((k) => k !== eligible holder)!;
 
     // dump half the position to the other holder
     const half = BigInt(leaf.balance) / 2n;
-    await send([createTransferCheckedInstruction(baseAta(winner.publicKey), mint, baseAta(other.publicKey),
-      winner.publicKey, half, 6, [], TOKEN_2022)], winner);
+    await send([createTransferCheckedInstruction(baseAta(eligible holder.publicKey), mint, baseAta(other.publicKey),
+      eligible holder.publicKey, half, 6, [], TOKEN_2022)], eligible holder);
     const claim = () => program.methods
       .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((b) => [...b]))
-      .accountsPartial(claimAccounts(winner.publicKey, round)).signers([winner]).rpc({ commitment: "confirmed" });
+      .accountsPartial(claimAccounts(eligible holder.publicKey, round)).signers([eligible holder]).rpc({ commitment: "confirmed" });
     await expectError("claim after dumping", claim(), /HoldingBelowSnapshot/);
 
     // get it back, claim goes through and pays exactly the allocated amount
-    await send([createTransferCheckedInstruction(baseAta(other.publicKey), mint, baseAta(winner.publicKey),
+    await send([createTransferCheckedInstruction(baseAta(other.publicKey), mint, baseAta(eligible holder.publicKey),
       other.publicKey, half, 6, [], TOKEN_2022)], other);
-    const before = BigInt((await conn.getTokenAccountBalance(baseAta(winner.publicKey), "confirmed")).value.amount);
+    const before = BigInt((await conn.getTokenAccountBalance(baseAta(eligible holder.publicKey), "confirmed")).value.amount);
     await claim();
-    const after = BigInt((await conn.getTokenAccountBalance(baseAta(winner.publicKey), "confirmed")).value.amount);
+    const after = BigInt((await conn.getTokenAccountBalance(baseAta(eligible holder.publicKey), "confirmed")).value.amount);
     assert.equal((after - before).toString(), leaf.amount);
+  });
+
+  it("F5: a holder-rewards coin refuses fee sharing, collect_fees and buyback", async () => {
+    // pump keeps that coin's creator fee for its own holder pool, so there is
+    // nothing for the escrow to sweep or buy back with
+    const mintKp2 = Keypair.generate();
+    const mint2 = mintKp2.publicKey;
+    const escrow2 = escrowPda(mint2, program.programId);
+    const fee2 = feeAuthorityPda(mint2, program.programId);
+    const pa2 = pumpAccounts(mint2, dev.publicKey, fee2);
+    const escrowTa2 = escrowAta(escrow2, mint2);
+    const manual2 = PublicKey.findProgramAddressSync([Buffer.from("manual"), mint2.toBuffer()], program.programId)[0];
+    const manualAta2 = getAssociatedTokenAddressSync(mint2, manual2, true, TOKEN_2022);
+    const buyer2 = buyerPda(mint2, program.programId);
+    const pb2 = pumpAccounts(mint2, buyer2, fee2);
+
+    const slot = await conn.getSlot("finalized");
+    const [createIx, lut] = AddressLookupTableProgram.createLookupTable({
+      authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot,
+    });
+    const keys = [...Object.values(pa2) as PublicKey[], ...Object.values(pb2) as PublicKey[], escrow2, escrowTa2, mint2,
+                  dev.publicKey, manual2, manualAta2, fee2, buyer2, baseAtaOf(buyer2, mint2),
+                  configPda(program.programId), SystemProgram.programId, program.programId];
+    const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
+    await send([createIx]);
+    for (let i = 0; i < uniq.length; i += 18) {
+      await send([AddressLookupTableProgram.extendLookupTable({
+        payer: dev.publicKey, authority: dev.publicKey, lookupTable: lut, addresses: uniq.slice(i, i + 18),
+      })]);
+    }
+    for (let i = 0; i < 60; i++) {
+      const acc = (await conn.getAddressLookupTable(lut)).value;
+      if (acc && acc.state.addresses.length >= uniq.length) break;
+      await sleep(500);
+    }
+    await sleep(1000);
+    const launchIx = await program.methods
+      .launch("Holder Rewards", "HR", "https://example.com/hr.json", 3000,
+              new BN(100_000_000).mul(new BN(10 ** 6)), new BN(1 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, true)
+      .accountsPartial({
+        dev: dev.publicKey, mint: mint2, escrow: escrow2, config: configPda(program.programId), escrowTokenAccount: escrowTa2,
+        manualAuthority: manual2, manualTokenAccount: manualAta2, feeAuthority: fee2, ...pa2, systemProgram: SystemProgram.programId,
+      }).instruction();
+    const lutAcc = (await conn.getAddressLookupTable(lut)).value!;
+    const bh = await conn.getLatestBlockhash("confirmed");
+    const msg = new TransactionMessage({
+      payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), launchIx],
+    }).compileToV0Message([lutAcc]);
+    const tx = new VersionedTransaction(msg);
+    await provider.sendAndConfirm(tx, [mintKp2], { commitment: "confirmed", skipPreflight: true, maxRetries: 10 });
+    const st: any = await program.account.escrow.fetch(escrow2);
+    assert.isTrue(st.isHolderReward, "flag recorded at launch");
+
+    await expectError("setup_fee_sharing on a holder-rewards coin",
+      program.methods.setupFeeSharing()
+        .accountsPartial(setupFeeSharingAccounts(mint2, escrow2, program.programId, dev.publicKey, platform.publicKey))
+        .rpc({ commitment: "confirmed" }),
+      /NotApplicable/);
+    await expectError("collect_fees on a holder-rewards coin",
+      program.methods.collectFees()
+        .accountsPartial(collectFeesAccounts(mint2, escrow2, program.programId, dev.publicKey))
+        .rpc({ commitment: "confirmed" }),
+      /NotApplicable/);
+    // buyback: give the escrow something to spend so the guard is what refuses
+    await send([SystemProgram.transfer({ fromPubkey: dev.publicKey, toPubkey: escrow2, lamports: 0.05 * LAMPORTS_PER_SOL })]);
+    const bbIx = await program.methods.buyback().accountsPartial({
+      payer: dev.publicKey, escrow: escrow2, buyer: buyer2, mint: mint2,
+      buyerTokenAccount: baseAtaOf(buyer2, mint2), escrowTokenAccount: escrowTa2,
+      global: pb2.global, quoteMint: WSOL, quoteTokenProgram: TOKEN,
+      feeRecipient: pb2.feeRecipient, associatedQuoteFeeRecipient: pb2.associatedQuoteFeeRecipient,
+      buybackFeeRecipient: pb2.buybackFeeRecipient, associatedQuoteBuybackFeeRecipient: pb2.associatedQuoteBuybackFeeRecipient,
+      bondingCurve: pb2.bondingCurve, associatedBaseBondingCurve: pb2.associatedBaseBondingCurve,
+      associatedQuoteBondingCurve: pb2.associatedQuoteBondingCurve, associatedQuoteUser: pb2.associatedQuoteUser,
+      creatorVault: pb2.creatorVault, associatedCreatorVault: pb2.associatedCreatorVault,
+      sharingConfig: pb2.sharingConfig, globalVolumeAccumulator: pb2.globalVolumeAccumulator,
+      userVolumeAccumulator: pb2.userVolumeAccumulator, associatedUserVolumeAccumulator: pb2.associatedUserVolumeAccumulator,
+      feeConfig: pb2.feeConfig, feeProgram: pb2.feeProgram, eventAuthority: pb2.eventAuthority, pumpProgram: pb2.pumpProgram,
+      baseTokenProgram: TOKEN_2022, associatedTokenProgram: pb2.associatedTokenProgram, systemProgram: SystemProgram.programId,
+    }).instruction();
+    const bh2 = await conn.getLatestBlockhash("confirmed");
+    const msg2 = new TransactionMessage({
+      payerKey: dev.publicKey, recentBlockhash: bh2.blockhash,
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), bbIx],
+    }).compileToV0Message([lutAcc]);
+    const tx2 = new VersionedTransaction(msg2);
+    await expectError("buyback on a holder-rewards coin",
+      provider.sendAndConfirm(tx2, [], { commitment: "confirmed", skipPreflight: false }), /NotApplicable|0x/);
+  });
+
+  it("F6: a platform fee change needs a 7-day delay; applying early is refused", async () => {
+    const cfg0: any = await program.account.config.fetch(configPda(program.programId));
+    assert.equal(cfg0.platformFeeBps, 1000, "initial 10%");
+    await expectError("dev proposes",
+      program.methods.proposePlatformFee(500).accountsPartial({ platform: dev.publicKey, config: configPda(program.programId) })
+        .rpc({ commitment: "confirmed" }), /NotPlatform/);
+    await expectError("over 100%",
+      program.methods.proposePlatformFee(10001).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+        .signers([platform]).rpc({ commitment: "confirmed" }), /BadFeeBps/);
+    await expectError("apply with nothing pending",
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      /NoPendingFee/);
+    const now = await conn.getSlot("confirmed");
+    await program.methods.proposePlatformFee(500).accountsPartial({ platform: platform.publicKey, config: configPda(program.programId) })
+      .signers([platform]).rpc({ commitment: "confirmed" });
+    const cfg: any = await program.account.config.fetch(configPda(program.programId));
+    assert.equal(cfg.pendingFeeBps, 500);
+    assert.isAtLeast(cfg.feeEffectiveSlot.toNumber(), now + 1_512_000 - 5, "effective ~7 days (1.512M slots) out");
+    assert.equal(cfg.platformFeeBps, 1000, "rate unchanged until applied");
+    await expectError("apply early",
+      program.methods.applyPlatformFee().accountsPartial({ config: configPda(program.programId) }).rpc({ commitment: "confirmed" }),
+      /FeeChangeTooEarly/);
+    const cfg2: any = await program.account.config.fetch(configPda(program.programId));
+    assert.equal(cfg2.platformFeeBps, 1000, "still 10% after the early attempt");
   });
 });

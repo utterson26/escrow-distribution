@@ -5,9 +5,10 @@ the dev's buy in it, and hand it back to holders through verifiable,
 automatic distributions: trading volume and market-cap milestones release tokens,
 every eligible holder gets a pro-rata share (balance × time held, no wallet
 above 10% of a round), the Merkle root of the allocation is committed on chain,
-holders claim with a proof. Creator fees are swept into the escrow
-and bought back into the coin. Nobody — the dev included — can withdraw the
-escrow.
+holders claim with a proof. pump's creator fee is split on pump itself —
+90% to the escrow, 10% to the platform — and the escrow's share is bought back
+into the coin. Nobody — the dev included — can withdraw the escrow, and the
+platform never takes from it.
 
 Everything runs on a **local validator with the pump.fun programs cloned from
 devnet**, so you can try the whole loop in ten minutes without SOL.
@@ -16,7 +17,7 @@ devnet**, so you can try the whole loop in ten minutes without SOL.
 
 | path | what |
 |---|---|
-| `programs/airdrop_escrow` | the Anchor program (`launch`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `claim_share`, manual distribution list, platform intervention) |
+| `programs/airdrop_escrow` | the Anchor program (`launch`, `setup_fee_sharing`, `collect_fees`, `buyback`, `check_trigger` / `fire_trigger`, `open_round` / `claim_share`, `propose_platform_fee` / `apply_platform_fee`, manual distribution list, platform intervention) |
 | `indexer/snapshot.ts` | deterministic holder snapshot → Merkle root; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: checks triggers, buys back, fires, snapshots, allocates, opens rounds — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | Next.js site: coins, rounds, claim with Phantom, event feed |
@@ -79,11 +80,11 @@ Testnet Mode → Localnet; extension only) — details in
 ## Demo
 
 `npm run demo` (localnet up, env as above) plays the whole story once — launch,
-twelve buyers, one sells out, fee sweep, chunked buyback, volume trigger, random
-delay, snapshot, pro-rata split with the 10% cap, root committed, a forged claim
-refused, everyone claims — printing a
+fee sharing set up, twelve buyers, one sells out, 90/10 fee payout, chunked
+buyback, volume trigger, random delay, snapshot, pro-rata split with the 10% cap,
+root committed, a forged claim refused, everyone claims — printing a
 signature per step and writing it up in [DEMO.md](DEMO.md). `DEMO_LEAVE_LAST=1`
-leaves the last prize unclaimed and drops the wallets in `demo-wallets.json`
+leaves the last share unclaimed and drops the wallets in `demo-wallets.json`
 so you can claim it from the web page with Phantom. The demo's indexer always
 reads the chain the demo runs on; a `HELIUS_RPC_URL` in your shell is ignored.
 
@@ -108,19 +109,33 @@ Every run mints a new coin; on localnet that is free.
   The release fires at a random slot inside the next hour.
 - **Snapshot + split.** The indexer replays every token account's history to
   `snapshot_slot`, weights holders by balance × slots held, excludes the dev
-  and the protocol's own accounts, and splits the release pro rata — no wallet
-  above `MAX_SHARE_BPS` (10%) of a round, the excess re-split over the others
-  until nobody is over. The Merkle root of the (holder, balance, amount) rows,
+  and the protocol's own accounts (positions under 0.1 SOL ≈ $20 are out), and
+  splits the release pro rata — from `CAP_MIN_HOLDERS` (11) on no wallet above
+  `MAX_SHARE_BPS` (10%) of a round, the excess re-split over the others until
+  nobody is over. The Merkle root of the (holder, balance, amount) rows,
   the slot and the release go on chain, so anyone can rebuild and compare
   (`indexer/snapshot.ts reproduce`). Nothing is random.
 - **Claim.** A holder proves their row; the program itself checks the amount
   is under the cap (measured against the recorded release, which cannot exceed
   what triggers freed), that they still hold the snapshot balance and at least
-  0.05 SOL worth. One claim per wallet per round (a receipt PDA).
-- **Fees → buyback.** The escrow is the pump creator; `collect_fees` sweeps the
-  vault, `buyback` converts at most 0.5% of the curve's reserves per call into
-  the coin and adds it to the pool — and spends at most once per slot, so the
-  cap cannot be defeated by stacking calls into one transaction.
+  0.1 SOL worth (≈$20). One claim per wallet per round (a receipt PDA).
+- **Fees → buyback.** The coin's creator on pump is a dataless program PDA;
+  `setup_fee_sharing` opens pump's fee-sharing config for the coin with the
+  split from the program config (90% to that PDA, 10% to the platform wallet,
+  fixed per coin on pump). `collect_fees` has pump pay the vault out and sweeps
+  the PDA's share into the escrow; `buyback` converts at most 0.5% of the
+  curve's reserves per call into the coin and adds it to the pool — and spends
+  at most once per slot, so the cap cannot be defeated by stacking calls into
+  one transaction. The platform rate can only change through
+  `propose_platform_fee` → 7 days → `apply_platform_fee`, and only for coins
+  set up afterwards. The locked pool is never touched by any fee.
+- **Holder-rewards coins.** `launch(..., is_holder_reward = true)` creates a
+  pump holder-rewards coin: pump pays its creator fee into pump's own holder
+  pool, so `setup_fee_sharing`, `collect_fees` and `buyback` refuse with
+  `NotApplicable`; only the locked supply and the triggered distributions run.
+- **Cap.** From 11 eligible holders on, no wallet takes more than 10% of a
+  round (the excess is re-split over the others); below that the cap is off.
+  Whatever a round does not hand out simply stays in the pool.
 
 What is trusted, what is not, and what was found in review:
 [SECURITY_REVIEW.md](SECURITY_REVIEW.md).

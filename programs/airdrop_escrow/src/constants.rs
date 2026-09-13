@@ -10,6 +10,11 @@ pub const BUYER_SEED: &[u8] = b"buyer";
 pub const MANUAL_SEED: &[u8] = b"manual";
 #[constant]
 pub const CONFIG_SEED: &[u8] = b"config";
+/// Dataless, system-owned PDA that is the coin's creator on pump: it can pay
+/// rent and sign for the fee-sharing config, which a data-carrying escrow PDA
+/// cannot. Everything it receives is swept into the escrow.
+#[constant]
+pub const FEE_SEED: &[u8] = b"fee";
 
 /// SlotHashes sysvar. Not re-exported by anchor-lang 1.2, so pinned by address.
 pub const SLOT_HASHES: Pubkey = pubkey!("SysvarS1otHashes111111111111111111111111111");
@@ -34,8 +39,8 @@ pub const BUYBACK_MAX_RESERVE_BPS: u64 = 50; // 0.5%
 pub const BUYBACK_SLIPPAGE_BPS: u64 = 200; // 2%
 
 /// Minimum position, valued at the bonding curve price, to be eligible for a
-/// prize. Fixed in SOL: a true dollar figure would need a price feed.
-pub const MIN_POSITION_LAMPORTS: u64 = 50_000_000; // 0.05 SOL
+/// share: about $20. Fixed in SOL: a true dollar figure would need a price feed.
+pub const MIN_POSITION_LAMPORTS: u64 = 100_000_000; // 0.1 SOL
 /// Volume since the last distribution must reach this share of market cap.
 pub const VOLUME_TRIGGER_BPS: u128 = 100; // 1%
 /// Share of the remaining pool a volume trigger releases.
@@ -78,7 +83,21 @@ pub const RECEIPT_SEED: &[u8] = b"receipt";
 /// here and hands the excess to the others pro rata; the program refuses any
 /// leaf above it, so a publisher cannot commit a root that favours one wallet.
 pub const MAX_SHARE_BPS: u64 = 1_000; // 10%
-/// A winner must still hold at least this share of their snapshot balance when
+/// The cap only applies once a round has this many eligible holders; below
+/// it, ten wallets could not absorb a round and the cap would only strand
+/// tokens.
+pub const CAP_MIN_HOLDERS: u32 = 11;
+
+/// Platform's cut of the creator fee, set on pump's fee-sharing config at
+/// launch. Read from `Config`; this is the initial value.
+pub const DEFAULT_PLATFORM_FEE_BPS: u16 = 1_000; // 10%
+/// A proposed platform fee only takes effect this many slots later: 7 days at
+/// ~400 ms per slot.
+pub const PLATFORM_FEE_DELAY_SLOTS: u64 = 1_512_000;
+/// Rent the fee PDA needs to open pump's 1024-byte sharing config, fronted by
+/// whoever calls `setup_fee_sharing`.
+pub const FEE_SHARING_RENT_LAMPORTS: u64 = 10_000_000; // 0.01 SOL
+/// A holder must still hold at least this share of their snapshot balance when
 /// claiming. 10000 = the whole position; a holder who dumped after the
-/// snapshot forfeits the prize. Lower it to soften the rule, 0 disables it.
+/// snapshot forfeits the share. Lower it to soften the rule, 0 disables it.
 pub const CLAIM_HOLD_BPS: u64 = 10_000;

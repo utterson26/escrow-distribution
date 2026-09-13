@@ -74,6 +74,18 @@ pub enum EscrowError {
     EmptyCurve,
     #[msg("arithmetic overflow")]
     Overflow,
+    #[msg("not applicable to a holder-rewards coin")]
+    NotApplicable,
+    #[msg("fee sharing has not been set up for this coin")]
+    FeeSharingNotSetUp,
+    #[msg("fee sharing is already set up for this coin")]
+    FeeSharingAlreadySetUp,
+    #[msg("platform fee must be <= 10000 bps")]
+    BadFeeBps,
+    #[msg("no platform fee change is pending")]
+    NoPendingFee,
+    #[msg("the platform fee change is not effective yet")]
+    FeeChangeTooEarly,
     #[msg("bonding curve is complete; the coin has migrated")]
     CurveComplete,
     #[msg("buy returned fewer tokens than the on-chain quote allows")]

@@ -15,6 +15,7 @@ pub use state::*;
 
 declare_id!("5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe");
 declare_program!(pump);
+declare_program!(pump_fees);
 
 #[program]
 pub mod airdrop_escrow {
@@ -23,11 +24,57 @@ pub mod airdrop_escrow {
     /// Set the platform authority. Only the program's upgrade authority may do
     /// this, so a launcher cannot name themselves platform: the platform is the
     /// key that opens rounds, intervenes on stuck tokens and turns the test knobs.
-    pub fn set_platform(ctx: Context<SetPlatform>, platform: Pubkey) -> Result<()> {
+    pub fn set_platform(
+        ctx: Context<SetPlatform>,
+        platform: Pubkey,
+        platform_fee_wallet: Pubkey,
+    ) -> Result<()> {
         require_keys_neq!(platform, Pubkey::default(), EscrowError::NotPlatform);
+        require_keys_neq!(platform_fee_wallet, Pubkey::default(), EscrowError::NotPlatform);
         let config = &mut ctx.accounts.config;
+        let fresh = config.platform == Pubkey::default();
         config.platform = platform;
+        config.platform_fee_wallet = platform_fee_wallet;
         config.bump = ctx.bumps.config;
+        if fresh {
+            config.platform_fee_bps = DEFAULT_PLATFORM_FEE_BPS;
+            config.pending_fee_bps = 0;
+            config.fee_effective_slot = 0;
+        }
+        Ok(())
+    }
+
+    /// Propose a new platform fee rate. It goes live only after
+    /// `PLATFORM_FEE_DELAY_SLOTS` (7 days), via `apply_platform_fee`, and only
+    /// for coins set up after that — a coin's own split is fixed on pump when
+    /// `setup_fee_sharing` runs. Platform authority only.
+    pub fn propose_platform_fee(ctx: Context<PlatformFeeChange>, new_bps: u16) -> Result<()> {
+        require!(new_bps as u64 <= BPS_DENOM, EscrowError::BadFeeBps);
+        let config = &mut ctx.accounts.config;
+        let now = Clock::get()?.slot;
+        config.pending_fee_bps = new_bps;
+        config.fee_effective_slot = now.saturating_add(PLATFORM_FEE_DELAY_SLOTS);
+        emit!(PlatformFeeProposed {
+            current_bps: config.platform_fee_bps,
+            new_bps,
+            proposed_slot: now,
+            effective_slot: config.fee_effective_slot,
+        });
+        Ok(())
+    }
+
+    /// Make a proposed platform fee effective once its delay has elapsed.
+    /// Permissionless: the delay, not the caller, is the safeguard.
+    pub fn apply_platform_fee(ctx: Context<ApplyPlatformFee>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.fee_effective_slot > 0, EscrowError::NoPendingFee);
+        let now = Clock::get()?.slot;
+        require!(now >= config.fee_effective_slot, EscrowError::FeeChangeTooEarly);
+        let old = config.platform_fee_bps;
+        config.platform_fee_bps = config.pending_fee_bps;
+        config.pending_fee_bps = 0;
+        config.fee_effective_slot = 0;
+        emit!(PlatformFeeApplied { old_bps: old, new_bps: config.platform_fee_bps, slot: now });
         Ok(())
     }
 
@@ -44,6 +91,7 @@ pub mod airdrop_escrow {
         max_sol_cost: u64,
         manual_root: [u8; 32],
         manual_bps: u16,
+        is_holder_reward: bool,
     ) -> Result<()> {
         require!(manual_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
         require!(escrow_bps as u64 <= BPS_DENOM, EscrowError::InvalidBps);
@@ -51,9 +99,11 @@ pub mod airdrop_escrow {
 
         let mint_key = ctx.accounts.mint.key();
         let escrow_key = ctx.accounts.escrow.key();
+        let fee_key = ctx.accounts.fee_authority.key();
 
-        // ---- 1. create_v2: the coin's creator is our escrow PDA -----------------
-        cpi_create_v2(&ctx.accounts, name, symbol, uri, escrow_key)?;
+        // ---- 1. create_v2: the coin's creator is our dataless fee PDA -----------
+        // (a data-carrying PDA could not pay for pump's sharing config later)
+        cpi_create_v2(&ctx.accounts, name, symbol, uri, fee_key, is_holder_reward)?;
 
         // ---- 2. the mint now exists: open both base ATAs ------------------------
         // Cannot be `init_if_needed` in the Accounts struct because the mint is
@@ -182,6 +232,9 @@ pub mod airdrop_escrow {
         escrow.dead = false;
         escrow.day_seconds = DEFAULT_DAY_SECONDS;
         escrow.last_buyback_slot = 0;
+        escrow.is_holder_reward = is_holder_reward;
+        escrow.fee_sharing_set = false;
+        escrow.platform_fee_bps = 0;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -194,34 +247,143 @@ pub mod airdrop_escrow {
         Ok(())
     }
 
-    /// Sweep the pump bonding-curve creator vault. The creator is our escrow PDA,
-    /// so the lamports land on the PDA itself.
-    pub fn collect_fees(ctx: Context<CollectFees>) -> Result<()> {
-        let before = ctx.accounts.escrow.to_account_info().lamports();
+    /// Split this coin's creator fee on pump between the escrow and the
+    /// platform: opens pump's fee-sharing config for the mint and fixes the
+    /// shareholders to (fee PDA, 10000 − platform bps) and (platform wallet,
+    /// platform bps). The fee PDA signs and pays; `payer` fronts its rent.
+    /// One-shot per coin (pump revokes the admin after the update). Not for
+    /// holder-rewards coins, whose creator fee never reaches us.
+    pub fn setup_fee_sharing(ctx: Context<SetupFeeSharing>) -> Result<()> {
+        require!(!ctx.accounts.escrow.is_holder_reward, EscrowError::NotApplicable);
+        require!(!ctx.accounts.escrow.fee_sharing_set, EscrowError::FeeSharingAlreadySetUp);
+        let bps = ctx.accounts.config.platform_fee_bps;
+        require!(bps as u64 <= BPS_DENOM, EscrowError::BadFeeBps);
+        require_keys_eq!(
+            ctx.accounts.platform_fee_wallet.key(),
+            ctx.accounts.config.platform_fee_wallet,
+            EscrowError::NotPlatform
+        );
+
+        // rent for the 1024-byte sharing config, paid by the fee PDA
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.key(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.payer.to_account_info(),
+                    to: ctx.accounts.fee_authority.to_account_info(),
+                },
+            ),
+            FEE_SHARING_RENT_LAMPORTS,
+        )?;
 
         let mint_key = ctx.accounts.escrow.mint;
-        let bump = ctx.accounts.escrow.bump;
-        let seeds: &[&[u8]] = &[ESCROW_SEED, mint_key.as_ref(), &[bump]];
+        let fee_bump = ctx.bumps.fee_authority;
+        let fee_seeds: &[&[u8]] = &[FEE_SEED, mint_key.as_ref(), &[fee_bump]];
+        cpi_create_fee_sharing_config(&ctx.accounts, fee_seeds)?;
+        // what the rent did not use goes back to the payer at the end; anything
+        // the update pays out on top (fees already in the vault) is the escrow's
+        let rent_left = ctx.accounts.fee_authority.lamports();
 
-        pump::cpi::collect_creator_fee_v2(CpiContext::new_with_signer(
+        let mut shareholders = vec![pump_fees::types::Shareholder {
+            address: ctx.accounts.fee_authority.key(),
+            share_bps: (BPS_DENOM as u16) - bps,
+        }];
+        if bps > 0 {
+            shareholders.push(pump_fees::types::Shareholder {
+                address: ctx.accounts.platform_fee_wallet.key(),
+                share_bps: bps,
+            });
+        }
+        cpi_update_fee_shares(&ctx.accounts, fee_seeds, shareholders)?;
+
+        let now = ctx.accounts.fee_authority.lamports();
+        let fees_part = now.saturating_sub(rent_left);
+        for (to, amount) in [
+            (ctx.accounts.escrow.to_account_info(), fees_part),
+            (ctx.accounts.payer.to_account_info(), rent_left.min(now)),
+        ] {
+            if amount == 0 {
+                continue;
+            }
+            anchor_lang::system_program::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.system_program.key(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.fee_authority.to_account_info(),
+                        to,
+                    },
+                    &[fee_seeds],
+                ),
+                amount,
+            )?;
+        }
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.fees_collected = escrow
+            .fees_collected
+            .checked_add(fees_part)
+            .ok_or(EscrowError::Overflow)?;
+        escrow.fee_sharing_set = true;
+        escrow.platform_fee_bps = bps;
+        emit!(FeeSharingSet {
+            escrow: escrow.key(),
+            sharing_config: ctx.accounts.sharing_config.key(),
+            platform_fee_bps: bps,
+            platform_fee_wallet: ctx.accounts.platform_fee_wallet.key(),
+        });
+        Ok(())
+    }
+
+    /// Pay out the pump creator vault: pump splits it between the fee PDA and
+    /// the platform wallet per the sharing config, then the fee PDA's share is
+    /// swept into the escrow. Permissionless. Remaining accounts: exactly the
+    /// shareholders, in order — [fee PDA, platform wallet] (pump checks them).
+    pub fn collect_fees<'info>(ctx: Context<'info, CollectFees<'info>>) -> Result<()> {
+        require!(!ctx.accounts.escrow.is_holder_reward, EscrowError::NotApplicable);
+        require!(ctx.accounts.escrow.fee_sharing_set, EscrowError::FeeSharingNotSetUp);
+        let before = ctx.accounts.escrow.to_account_info().lamports();
+
+        let mut cpi = CpiContext::new(
             pump::ID,
-            pump::cpi::accounts::CollectCreatorFeeV2 {
-                creator: ctx.accounts.escrow.to_account_info(),
-                creator_token_account: ctx.accounts.creator_token_account.to_account_info(),
+            pump::cpi::accounts::DistributeCreatorFeesV2 {
+                payer: ctx.accounts.payer.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                bonding_curve: ctx.accounts.bonding_curve.to_account_info(),
+                sharing_config: ctx.accounts.sharing_config.to_account_info(),
                 creator_vault: ctx.accounts.creator_vault.to_account_info(),
-                creator_vault_token_account: ctx
+                system_program: ctx.accounts.system_program.to_account_info(),
+                event_authority: ctx.accounts.event_authority.to_account_info(),
+                program: ctx.accounts.pump_program.to_account_info(),
+                creator_vault_quote_token_account: ctx
                     .accounts
-                    .creator_vault_token_account
+                    .creator_vault_quote_token_account
                     .to_account_info(),
                 quote_mint: ctx.accounts.quote_mint.to_account_info(),
                 quote_token_program: ctx.accounts.quote_token_program.to_account_info(),
                 associated_token_program: ctx.accounts.associated_token_program.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                event_authority: ctx.accounts.event_authority.to_account_info(),
-                program: ctx.accounts.pump_program.to_account_info(),
             },
-            &[seeds],
-        ))?;
+        );
+        cpi = cpi.with_remaining_accounts(ctx.remaining_accounts.to_vec());
+        pump::cpi::distribute_creator_fees_v2(cpi, false)?;
+
+        // the fee PDA's share → escrow (dataless system account; keep nothing)
+        let mint_key = ctx.accounts.escrow.mint;
+        let fee_bump = ctx.bumps.fee_authority;
+        let fee_seeds: &[&[u8]] = &[FEE_SEED, mint_key.as_ref(), &[fee_bump]];
+        let sweep = ctx.accounts.fee_authority.lamports();
+        if sweep > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.system_program.key(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.fee_authority.to_account_info(),
+                        to: ctx.accounts.escrow.to_account_info(),
+                    },
+                    &[fee_seeds],
+                ),
+                sweep,
+            )?;
+        }
 
         let after = ctx.accounts.escrow.to_account_info().lamports();
         let gained = after.saturating_sub(before);
@@ -651,8 +813,8 @@ pub mod airdrop_escrow {
     /// allocation of `released` tokens across the holder snapshot taken at
     /// `snapshot_slot`. `total` is the sum of the leaf amounts — at most
     /// `released`, less when the per-wallet cap leaves a remainder, which then
-    /// stays `pending` for the next round. Both slot and `released` are
-    /// recorded so anyone can rebuild the exact allocation and check the root.
+    /// goes back to the pool. Both slot and `released` are recorded so anyone
+    /// can rebuild the exact allocation and check the root.
     pub fn open_round(
         ctx: Context<OpenRound>,
         index: u32,
@@ -702,10 +864,10 @@ pub mod airdrop_escrow {
             .allocated
             .checked_add(total)
             .ok_or(EscrowError::Overflow)?;
-        escrow.pending = escrow
-            .pending
-            .checked_sub(total)
-            .ok_or(EscrowError::Overflow)?;
+        // Whatever the round did not hand out (cap remainder, rounding) is not
+        // carried: it simply stays in the pool, un-allocated, for a later
+        // trigger. Nothing leaks out of the escrow.
+        escrow.pending = 0;
 
         emit!(RoundOpened {
             escrow: round.escrow,
@@ -757,11 +919,14 @@ pub mod airdrop_escrow {
 
         // The cap is a program rule, not an allocator convention: a root that
         // hands one wallet more than MAX_SHARE_BPS of the release cannot pay out.
-        let cap = (round.released as u128)
-            .checked_mul(MAX_SHARE_BPS as u128)
-            .ok_or(EscrowError::Overflow)?
-            / BPS_DENOM as u128;
-        require!(amount as u128 <= cap, EscrowError::ShareOverCap);
+        // ...once there are enough holders for a cap to mean anything.
+        if round.holder_count >= CAP_MIN_HOLDERS {
+            let cap = (round.released as u128)
+                .checked_mul(MAX_SHARE_BPS as u128)
+                .ok_or(EscrowError::Overflow)?
+                / BPS_DENOM as u128;
+            require!(amount as u128 <= cap, EscrowError::ShareOverCap);
+        }
         require!(
             round
                 .claimed_amount
@@ -836,6 +1001,7 @@ pub mod airdrop_escrow {
     /// A no-op below `MIN_BUYBACK_LAMPORTS` — it returns `Ok(())` rather than
     /// erroring so a keeper can call it on a schedule without handling failures.
     pub fn buyback(ctx: Context<Buyback>) -> Result<()> {
+        require!(!ctx.accounts.escrow.is_holder_reward, EscrowError::NotApplicable);
         let escrow_ai = ctx.accounts.escrow.to_account_info();
         let rent_min = Rent::get()?.minimum_balance(escrow_ai.data_len());
         // The escrow must stay rent-exempt; only what sits above that is spendable.
@@ -1065,6 +1231,70 @@ pub mod airdrop_escrow {
 }
 
 
+/// Own frame: pump_fees' account structs are wide.
+#[inline(never)]
+fn cpi_create_fee_sharing_config(a: &SetupFeeSharing, fee_seeds: &[&[u8]]) -> Result<()> {
+    pump_fees::cpi::create_fee_sharing_config(CpiContext::new_with_signer(
+        pump_fees::ID,
+        pump_fees::cpi::accounts::CreateFeeSharingConfig {
+            event_authority: a.fee_event_authority.to_account_info(),
+            program: a.fee_program.to_account_info(),
+            payer: a.fee_authority.to_account_info(),
+            global: a.global.to_account_info(),
+            mint: a.mint.to_account_info(),
+            sharing_config: a.sharing_config.to_account_info(),
+            system_program: a.system_program.to_account_info(),
+            bonding_curve: a.bonding_curve.to_account_info(),
+            pump_program: a.pump_program.to_account_info(),
+            pump_event_authority: a.pump_event_authority.to_account_info(),
+            pool: None,
+            pump_amm_program: None,
+            pump_amm_event_authority: None,
+        },
+        &[fee_seeds],
+    ))
+}
+
+#[inline(never)]
+fn cpi_update_fee_shares(
+    a: &SetupFeeSharing,
+    fee_seeds: &[&[u8]],
+    shareholders: Vec<pump_fees::types::Shareholder>,
+) -> Result<()> {
+    // pump first pays out whatever the vault holds to the *current*
+    // shareholders — just the creator at this point — so it wants them as
+    // remaining accounts
+    pump_fees::cpi::update_fee_shares_v2(
+        CpiContext::new_with_signer(
+            pump_fees::ID,
+            pump_fees::cpi::accounts::UpdateFeeSharesV2 {
+                event_authority: a.fee_event_authority.to_account_info(),
+                program: a.fee_program.to_account_info(),
+                authority: a.fee_authority.to_account_info(),
+                global: a.global.to_account_info(),
+                mint: a.mint.to_account_info(),
+                sharing_config: a.sharing_config.to_account_info(),
+                bonding_curve: a.bonding_curve.to_account_info(),
+                pump_creator_vault: a.pump_creator_vault.to_account_info(),
+                pump_creator_vault_ata: a.pump_creator_vault_ata.to_account_info(),
+                system_program: a.system_program.to_account_info(),
+                pump_program: a.pump_program.to_account_info(),
+                pump_event_authority: a.pump_event_authority.to_account_info(),
+                pump_amm_program: a.pump_amm_program.to_account_info(),
+                amm_event_authority: a.amm_event_authority.to_account_info(),
+                quote_mint: a.quote_mint.to_account_info(),
+                token_program: a.quote_token_program.to_account_info(),
+                associated_token_program: a.associated_token_program.to_account_info(),
+                coin_creator_vault_authority: a.coin_creator_vault_authority.to_account_info(),
+                coin_creator_vault_ata: a.coin_creator_vault_ata.to_account_info(),
+            },
+            &[fee_seeds],
+        )
+        .with_remaining_accounts(vec![a.fee_authority.to_account_info()]),
+        shareholders,
+    )
+}
+
 /// Kept in its own frame on purpose: the pump CPI account structs are large
 /// enough that building them alongside each other overflows the 4KB BPF stack.
 #[inline(never)]
@@ -1074,6 +1304,7 @@ fn cpi_create_v2<'info>(
     symbol: String,
     uri: String,
     creator: Pubkey,
+    is_holder_reward: bool,
 ) -> Result<()> {
         pump::cpi::create_v2(
             CpiContext::new(
@@ -1106,7 +1337,7 @@ fn cpi_create_v2<'info>(
             false,                          // is_mayhem_mode
             pump::types::OptionBool(false), // is_cashback_enabled: deprecated, must stay off
             pump::types::OptionU64(0),      // creator_fee_bps: 0 = standard schedule (SOL pair)
-            pump::types::OptionBool(false), // is_holder_reward: fees go to the escrow, not pump's holder pool
+            pump::types::OptionBool(is_holder_reward), // true: pump pays the creator fee to its holder pool, not to us
         )?;
 
     Ok(())
@@ -1221,6 +1452,26 @@ pub struct Launched {
     pub dev: Pubkey,
     pub bought: u64,
     pub escrowed: u64,
+}
+#[event]
+pub struct FeeSharingSet {
+    pub escrow: Pubkey,
+    pub sharing_config: Pubkey,
+    pub platform_fee_bps: u16,
+    pub platform_fee_wallet: Pubkey,
+}
+#[event]
+pub struct PlatformFeeProposed {
+    pub current_bps: u16,
+    pub new_bps: u16,
+    pub proposed_slot: u64,
+    pub effective_slot: u64,
+}
+#[event]
+pub struct PlatformFeeApplied {
+    pub old_bps: u16,
+    pub new_bps: u16,
+    pub slot: u64,
 }
 #[event]
 pub struct FeesCollected {
@@ -1360,6 +1611,11 @@ pub struct Launch<'info> {
     /// CHECK: ATA, opened in-handler
     #[account(mut)]
     pub manual_token_account: UncheckedAccount<'info>,
+    /// The coin's creator on pump. Dataless and system-owned so it can later
+    /// pay for and sign the fee-sharing config.
+    /// CHECK: PDA, seeds checked here
+    #[account(seeds = [FEE_SEED, mint.key().as_ref()], bump)]
+    pub fee_authority: UncheckedAccount<'info>,
 
     // ---- pump: shared ----
     /// CHECK: pump PDA
@@ -1461,16 +1717,22 @@ pub struct CollectFees<'info> {
         bump = escrow.bump
     )]
     pub escrow: Box<Account<'info, Escrow>>,
-
-    /// CHECK: ATA of the escrow for the quote mint
-    #[account(mut)]
-    pub creator_token_account: UncheckedAccount<'info>,
-    /// CHECK: pump PDA ["creator-vault", escrow]
+    /// CHECK: PDA, seeds checked; receives the escrow's share, swept in-handler
+    #[account(mut, seeds = [FEE_SEED, escrow.mint.as_ref()], bump)]
+    pub fee_authority: UncheckedAccount<'info>,
+    /// CHECK: the coin mint
+    #[account(address = escrow.mint)]
+    pub mint: UncheckedAccount<'info>,
+    /// CHECK: pump PDA, validated by pump
+    pub bonding_curve: UncheckedAccount<'info>,
+    /// CHECK: pump fees PDA ["sharing-config", mint], validated by pump
+    pub sharing_config: UncheckedAccount<'info>,
+    /// CHECK: pump PDA ["creator-vault", sharing_config]
     #[account(mut)]
     pub creator_vault: UncheckedAccount<'info>,
-    /// CHECK: ATA of the creator vault
+    /// CHECK: ATA of the creator vault (unused for SOL)
     #[account(mut)]
-    pub creator_vault_token_account: UncheckedAccount<'info>,
+    pub creator_vault_quote_token_account: UncheckedAccount<'info>,
     /// CHECK: wSOL
     pub quote_mint: UncheckedAccount<'info>,
     /// CHECK: token program for the quote mint
@@ -1483,6 +1745,89 @@ pub struct CollectFees<'info> {
     #[account(address = pump::ID)]
     pub pump_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+}
+
+/// Anyone may set a coin up; the fee PDA does the signing.
+#[derive(Accounts)]
+pub struct SetupFeeSharing<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump
+    )]
+    pub escrow: Box<Account<'info, Escrow>>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    /// CHECK: PDA, seeds checked; signs and pays for the sharing config
+    #[account(mut, seeds = [FEE_SEED, escrow.mint.as_ref()], bump)]
+    pub fee_authority: UncheckedAccount<'info>,
+    /// CHECK: must equal config.platform_fee_wallet (checked in-handler)
+    pub platform_fee_wallet: UncheckedAccount<'info>,
+    /// CHECK: the coin mint
+    #[account(address = escrow.mint)]
+    pub mint: UncheckedAccount<'info>,
+    /// CHECK: pump PDA
+    pub global: UncheckedAccount<'info>,
+    /// CHECK: pump PDA; its creator field is migrated to the sharing config
+    #[account(mut)]
+    pub bonding_curve: UncheckedAccount<'info>,
+    /// CHECK: pump fees PDA ["sharing-config", mint], created by the CPI
+    #[account(mut)]
+    pub sharing_config: UncheckedAccount<'info>,
+    /// CHECK: pump PDA ["creator-vault", sharing_config]
+    #[account(mut)]
+    pub pump_creator_vault: UncheckedAccount<'info>,
+    /// CHECK: ATA of that vault (unused for SOL)
+    #[account(mut)]
+    pub pump_creator_vault_ata: UncheckedAccount<'info>,
+    /// CHECK: pump AMM PDA ["creator_vault", sharing_config] (unused pre-graduation)
+    #[account(mut)]
+    pub coin_creator_vault_authority: UncheckedAccount<'info>,
+    /// CHECK: ATA of that authority (unused for SOL)
+    #[account(mut)]
+    pub coin_creator_vault_ata: UncheckedAccount<'info>,
+    /// CHECK: wSOL
+    pub quote_mint: UncheckedAccount<'info>,
+    /// CHECK: token program for the quote mint
+    pub quote_token_program: UncheckedAccount<'info>,
+    /// CHECK: ATA program
+    pub associated_token_program: UncheckedAccount<'info>,
+    /// CHECK: pump PDA
+    pub pump_event_authority: UncheckedAccount<'info>,
+    /// CHECK: pump program
+    #[account(address = pump::ID)]
+    pub pump_program: UncheckedAccount<'info>,
+    /// CHECK: pump fees PDA
+    pub fee_event_authority: UncheckedAccount<'info>,
+    /// CHECK: pump fees program
+    #[account(address = pump_fees::ID)]
+    pub fee_program: UncheckedAccount<'info>,
+    /// CHECK: pump AMM program (only consulted for graduated coins)
+    pub pump_amm_program: UncheckedAccount<'info>,
+    /// CHECK: pump AMM PDA
+    pub amm_event_authority: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Platform authority proposes; anyone may apply once the delay has passed.
+#[derive(Accounts)]
+pub struct PlatformFeeChange<'info> {
+    pub platform: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        constraint = config.platform == platform.key() @ EscrowError::NotPlatform
+    )]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+pub struct ApplyPlatformFee<'info> {
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]

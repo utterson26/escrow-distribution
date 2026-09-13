@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import ClaimPanel from "@/components/ClaimPanel";
 import { fetchEscrows, fetchRounds, fetchMetadata, coinLabel } from "@/lib/data";
 import {
-  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network, MAX_SHARE_BPS,
+  conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network, MAX_SHARE_BPS, CAP_MIN_HOLDERS,
 } from "@/lib/chain";
 
 export const dynamic = "force-dynamic";
@@ -54,30 +54,38 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         <ol className="note" style={{ margin: "6px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
           <li><b>Lock.</b> At launch the dev buys the coin and {e.escrowBps / 100}% of that buy is locked in
             an escrow account owned by the program. Nobody can withdraw it, the dev included.</li>
-          <li><b>Fees.</b> The escrow is the coin&apos;s creator on pump.fun, so every trade&apos;s creator fee
-            lands in the escrow instead of a person&apos;s wallet.</li>
+          <li><b>Fees.</b> The coin&apos;s creator on pump.fun is a program-owned account, and pump&apos;s
+            fee-sharing config splits every trade&apos;s creator fee {e.feeSharingSet ? `${100 - (e.platformFeeBps ?? 0) / 100}% to the escrow, ${(e.platformFeeBps ?? 0) / 100}% to the platform` : "between the escrow and the platform"}.
+            The platform never takes from the locked pool. (A holder-rewards coin keeps its creator fee on pump
+            for pump&apos;s own holder pool instead.)</li>
           <li><b>Buyback.</b> Anyone can turn that SOL into more of the coin. Each call spends at most 0.5% of
             the curve&apos;s reserves, so front-running it is not worth the gas. The tokens join the pool.</li>
           <li><b>Trigger.</b> When trading volume since the last airdrop reaches 1% of market cap, 1% of the pool
             is released; when market cap doubles, 5%. The release fires at a random moment inside the next
             hour, so nobody knows the distribution slot in advance.</li>
           <li><b>Split.</b> A snapshot of holders is taken — weight is balance × time held, the dev and the
-            protocol&apos;s own accounts excluded — and the release is split pro rata over all of them, no
-            wallet taking more than {MAX_SHARE_BPS / 100}% of a round (the excess goes to the others). Only the
+            protocol&apos;s own accounts excluded — and the release is split pro rata over all of them; from
+            {CAP_MIN_HOLDERS} holders on no wallet takes more than {MAX_SHARE_BPS / 100}% of a round (the excess goes
+            to the others, and what cannot be placed stays in the pool). Only the
             Merkle root of the (wallet, amount) rows goes on chain, with the snapshot slot and the release, so
             anyone can rebuild it. Nothing is random.</li>
           <li><b>Claim.</b> A holder proves their row against the root; the program checks on its own that the
             amount respects the cap and that they still hold what the snapshot credited them, worth at least
-            0.05 SOL. One claim per wallet per round. Connect a wallet below to see what this coin owes you.</li>
+            0.1 SOL (about $20). One claim per wallet per round. Connect a wallet below to see what this coin owes you.</li>
         </ol>
       </div>
 
       <div className="card grid">
         <Stat k="Holder share" v={`${e.escrowBps / 100}%`} sub="of the launch buy, locked for holders" />
         <Stat k="Dev share" v={`${100 - e.escrowBps / 100}%`} sub="never in a distribution" />
-        <Stat k="Cap per wallet" v={`${MAX_SHARE_BPS / 100}%`} sub="of any one round" />
-        <Stat k="Coin type" v="regular" sub="creator fee → escrow, not pump holder rewards" />
-        <Stat k="Platform fee" v="0%" sub="the escrow keeps the whole creator fee" />
+        <Stat k="Cap per wallet" v={`${MAX_SHARE_BPS / 100}%`} sub={`of a round, from ${CAP_MIN_HOLDERS} eligible holders on`} />
+        <Stat k="Coin type" v={e.isHolderReward ? "holder-rewards" : "regular"}
+              sub={e.isHolderReward ? "pump pays the creator fee to its holder pool; no sweep, no buyback here"
+                                    : "creator fee → escrow (minus the platform cut)"} />
+        <Stat k="Platform fee" v={e.isHolderReward ? "—" : e.feeSharingSet ? `${(e.platformFeeBps ?? 0) / 100}%` : "not set up"}
+              sub={e.isHolderReward ? "not applicable" : e.feeSharingSet
+                ? "of the creator fee, fixed in this coin's pump fee-sharing config; never from the locked pool"
+                : "the crank sets the escrow / platform split on its next pass"} />
         <Stat k="Pool remaining" v={fmtTokens(pool)} sub="not yet committed" />
         <Stat k="Escrow holds" v={fmtTokens(escrowHeld)} sub="tokens on hand" />
         <Stat k="Market cap" v={curve ? `${fmtSol(marketCap(curve))} SOL` : "—"} />
@@ -149,7 +157,7 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         <div className="note">
           The dev wallet does not take part in the airdrop. It holds the largest balance right
           after launch, and since weight is balance multiplied by holding time, including it
-          would let it win nearly every draw. It is excluded from the snapshot as treasury,
+          would let it win nearly every allocate. It is excluded from the snapshot as treasury,
           together with the protocol&apos;s own accounts — the bonding curve, the escrow and the
           buyback PDA. The exclusion list is written into every snapshot file, so anyone
           rebuilding the tree applies exactly the same one.

@@ -19,7 +19,7 @@ export const PUMP = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
 export const MAYHEM = new PublicKey("MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e");
 export const ESCROW_PROGRAM = new PublicKey("5iJybmLoueR89iFLp1abte7s75coVexn7LKkXUQtUGHe");
 /** Minimum position value, in lamports, priced off the bonding curve. */
-export const MIN_POSITION_LAMPORTS = 50_000_000n; // 0.05 SOL — must match the program
+export const MIN_POSITION_LAMPORTS = 100_000_000n; // 0.1 SOL ≈ $20 — must match the program
 
 export interface Leaf {
   index: number;
@@ -53,19 +53,22 @@ export interface Snapshot {
 
 /** Most of one round a single wallet may receive — must match the program. */
 export const MAX_SHARE_BPS = 1000n;
+/** The cap only applies from this many eligible holders on — must match the program. */
+export const CAP_MIN_HOLDERS = 11;
 
 /**
  * Pro-rata split of `released` over `weights`, no wallet above the cap.
  * Whatever the cap holds back is re-split over the uncapped wallets, again
- * and again until nobody is over; if everyone ends up capped the remainder
- * is simply not handed out (it stays pending on chain). Integer arithmetic,
+ * and again until nobody is over; rounding dust that cannot be placed under
+ * the cap stays in the pool. Integer arithmetic,
  * deterministic order, so every reproducer gets the same amounts.
  */
 export function allocate(weights: bigint[], released: bigint): bigint[] {
   const n = weights.length;
   const amounts: bigint[] = new Array(n).fill(0n);
   if (n === 0 || released === 0n) return amounts;
-  const cap = (released * MAX_SHARE_BPS) / 10000n;
+  // below CAP_MIN_HOLDERS the cap is off: nobody is capped, the whole release goes out
+  const cap = n >= CAP_MIN_HOLDERS ? (released * MAX_SHARE_BPS) / 10000n : released;
   const capped: boolean[] = new Array(n).fill(false);
   let remaining = released;
   for (let iter = 0; iter <= n; iter++) {
