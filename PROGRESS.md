@@ -49,6 +49,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 | 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 28 | gorev-3saat: frenler (tavan 50 SOL, pause, migrate_config), SECURITY_REVIEW baştan, mainnet deploy hazırlığı (dry-run), README/LICENSE/web/grant/announcement, CUSTOM_PAIR.md | ✅ localnet yeşil; devnet SOL yok |
 | 27 | devnet: adım 26 deploy (slot 497817683); devnet testleri ana 17/20, security 5/6→6/6, manual 7/7 | ⚠️ bakiye 0,54 SOL |
 | 26 | min kilit %1 arz + kilitli pay = manual_bps + holder_bps (alımın yüzdesi) | ✅ 20/20, 6/6, 7/7, demo 2/2 |
 | 25 | devnet deploy (slot 497793986) + gerçek pump.fun ile devnet demo 14/14; devnet test koşusu yarım (SOL) | ⚠️ bakiye 0,50 SOL |
@@ -1192,6 +1193,27 @@ devnet'te **yok**: deploy sonrası `migrate_config` şart (launch, Config'i
 - `docs/GRANT_ONEPAGER.md`: problem, çözüm, devnet kanıtları (coin ve
   program linkleri), public good, bütçe (~7–9k$), 3 aylık milestone'lar.
 - `docs/ANNOUNCEMENT.md`: 8 tweetlik thread taslağı, ölçülü.
+
+## gorev-3saat.md — bölüm 5: Custom Pair keşfi (kod yok) ✅
+
+`docs/CUSTOM_PAIR.md`: pump'ın sunduğu (v2 arayüzünde `quote_mint`,
+`create_v2`'nin 3 opsiyonel remaining account'u, `virtual_quote_reserves`,
+`Global.whitelisted_quote_mints` + `QuoteControl`, custom pair'de kendi
+`creator_fee_bps`'i, ücret paylaşımı token ATA'larıyla), programımızda
+değişecek yerler tablosu (launch, kilit değeri, collect/setup, **buyback en
+büyük iş**, tetikleyici, claim eşiği, indexer, crank, web), holder-rewards ile
+birleşim, DOĞRULANAMADI işaretli sorular (mainnet whitelist'i, quote biriminde
+tavan/eşik, buyer PDA gerekli mi, program-owned shareholder), tahmin ~4–5 iş
+günü — whitelisted bir quote'a erişim ön koşul.
+
+## Bugünkü son durum (13 Eylül, gorev-3saat sonu)
+
+- Localnet: ana 20/20, security 6/6, manual 7/7 (frenler dahil), allocate 6/6,
+  demo temiz. Program adım 27 + frenler (Config 118 bayt, `migrate_config`).
+- Devnet: **adım 26 sürümü** (frenler yok), bakiye **0,538 SOL**. Bölüm 1
+  koşulmadı; gereken ~4 SOL (sell-back ile) / ~6 SOL (sell-back'siz).
+- Web: beta kutusu, explorer linkleri, Config'in yeni alanları decode
+  ediliyor; `cfg.paused` ve tavan listede henüz gösterilmiyor (küçük iş).
 
 ## Senden karar bekleyenler (yeni)
 
