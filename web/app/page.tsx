@@ -32,7 +32,7 @@ export default async function Home() {
 
   if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
   const net = network().name;
-  if (!rows.length) return <div className="empty">No launches found on {net} yet.</div>;
+  if (!rows.length) return <div className="empty">No coins have been launched on {net} yet.</div>;
 
   return (
     <>

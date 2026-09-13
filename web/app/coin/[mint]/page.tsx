@@ -46,7 +46,11 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
           {short(mint, 6)} ·{" "}
           <a href={net.explorerAddress(mint)} target="_blank" rel="noreferrer">{mint}</a>
         </div>
-        <div className="k">escrow {short(e.address, 6)} · dev {short(e.dev, 6)}</div>
+        <div className="k">
+          escrow <a href={net.explorerAddress(e.address)} target="_blank" rel="noreferrer" className="mono">{e.address}</a>
+          {" "}· <a href={net.explorerAddress(ata(new PublicKey(e.address), new PublicKey(mint)).toBase58())} target="_blank" rel="noreferrer">verify the locked tokens on the explorer</a>
+          {" "}· creator wallet {short(e.dev, 6)}
+        </div>
       </div>
 
       <div className="card">
@@ -61,7 +65,7 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
             for pump&apos;s own holder pool instead.)</li>
           <li><b>Buyback.</b> Anyone can turn that SOL into more of the coin. Each call spends at most 0.5% of
             the curve&apos;s reserves, so front-running it is not worth the gas. The tokens join the pool.</li>
-          <li><b>Trigger.</b> When trading volume since the last airdrop reaches 1% of market cap, 1% of the pool
+          <li><b>Trigger.</b> When trading volume since the last distribution reaches 1% of market cap, 1% of the pool
             is released; when market cap doubles, 5%. The release fires at a random moment inside the next
             hour, so nobody knows the distribution slot in advance.</li>
           <li><b>Split.</b> A snapshot of holders is taken — weight is balance × time held, the dev and the
@@ -72,7 +76,7 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
             anyone can rebuild it. Nothing is random.</li>
           <li><b>Claim.</b> A holder proves their row against the root; the program checks on its own that the
             amount respects the cap and that they still hold what the snapshot credited them, worth at least
-            0.1 SOL (about $20). One claim per wallet per round. Connect a wallet below to see what this coin owes you.</li>
+            0.1 SOL (about $20). One claim per wallet per round. Connect a wallet below to see what this coin has set aside for you.</li>
         </ol>
       </div>
 
@@ -167,14 +171,14 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       )}
 
       <div className="card" style={{ marginTop: 22 }}>
-        <div className="k">How the dev wallet is treated</div>
+        <div className="k">How the creator wallet is treated</div>
         <div className="note">
-          The dev wallet does not take part in the airdrop. It holds the largest balance right
-          after launch, and since weight is balance multiplied by holding time, including it
-          would let it win nearly every allocate. It is excluded from the snapshot as treasury,
-          together with the protocol&apos;s own accounts — the bonding curve, the escrow and the
-          buyback PDA. The exclusion list is written into every snapshot file, so anyone
-          rebuilding the tree applies exactly the same one.
+          The creator wallet never takes part in a distribution. It holds the largest balance
+          right after launch, and since weight is balance multiplied by holding time, including
+          it would let it take most of every round. It is excluded from the snapshot as treasury,
+          together with the protocol&apos;s own accounts — the bonding curve, the escrow, the
+          buyback and fixed-list accounts. The exclusion list is written into every snapshot
+          file, so anyone rebuilding the allocation applies exactly the same one.
         </div>
       </div>
     </>

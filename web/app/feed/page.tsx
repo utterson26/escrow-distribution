@@ -17,13 +17,13 @@ export default async function Feed() {
   try { items = await fetchFeed(30); } catch (e: any) { error = String(e?.message ?? e); }
 
   if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
-  if (!items.length) return <div className="empty">Nothing yet.</div>;
+  if (!items.length) return <div className="empty">No activity yet.</div>;
   const net = network();
   const metas = await fetchMetadata([...new Set(items.map((i) => i.mint).filter(Boolean))] as string[]);
 
   return (
     <>
-      <h2>Recent airdrops</h2>
+      <h2>Activity</h2>
       <div className="card" style={{ padding: 0, overflowX: "auto" }}>
         <table>
           <thead>

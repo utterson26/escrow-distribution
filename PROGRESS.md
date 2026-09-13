@@ -1178,6 +1178,21 @@ devnet'te **yok**: deploy sonrası `migrate_config` şart (launch, Config'i
   iki tetikleyici, launch alımı tablosu (öneri 100M token ≈ 3,1 SOL, kilit
   ~0,9 SOL).
 
+## gorev-3saat.md — bölüm 4: halka açık yüz ✅
+
+- README baştan (İngilizce): tek paragraf, mekanik (kilit, iki ücret modu,
+  tetikleyiciler, oransal dağıtım, tavan, eşik, ölü coin), güven modeli,
+  doğrulama, çalıştırma, repo haritası, durum. Yasaklı kelime yok, Bonk yok.
+- `LICENSE` MIT.
+- Web: başlık "escrow-distribution", nav "Activity", her sayfada ölçülü beta
+  kutusu (unaudited, 50 SOL per-coin lock cap, launches can pause / claims
+  never); coin sayfasında escrow adresi tam + explorer linki + "verify the
+  locked tokens on the explorer" (escrow ATA); metinler düzeltildi (creator
+  wallet, distribution, "set aside a share for you").
+- `docs/GRANT_ONEPAGER.md`: problem, çözüm, devnet kanıtları (coin ve
+  program linkleri), public good, bütçe (~7–9k$), 3 aylık milestone'lar.
+- `docs/ANNOUNCEMENT.md`: 8 tweetlik thread taslağı, ölçülü.
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**

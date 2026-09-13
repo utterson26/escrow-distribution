@@ -27,7 +27,7 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
 
   useEffect(() => {
     if (!publicKey) { setData(null); return; }
-    setMsg("Rebuilding the snapshot from chain history…");
+    setMsg("Rebuilding the allocation from chain history…");
     fetch(`/api/claim/${mint}?wallet=${publicKey.toBase58()}&escrow=${escrow}`)
       .then((r) => r.json())
       .then((d) => { setData(d); setMsg(null); })
@@ -60,7 +60,7 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
         ],
       });
       const sig = await sendTransaction(new Transaction().add(ix), connection);
-      setMsg(`Sent: ${sig}`);
+      setMsg(`Claim sent: ${sig}`);
     } catch (e: any) {
       setMsg(String(e?.message ?? e));
     } finally { setBusy(false); }
@@ -70,7 +70,7 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
     return (
       <div className="card">
         <div className="k">Your share</div>
-        <div className="note">Connect a wallet to see whether this coin owes you anything.</div>
+        <div className="note">Connect a wallet to see whether this coin has set aside a share for you.</div>
         <div style={{ marginTop: 10 }}><WalletMultiButton /></div>
       </div>
     );
