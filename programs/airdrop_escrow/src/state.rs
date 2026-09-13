@@ -29,6 +29,17 @@ pub struct Config {
     /// Emergency stop for *launches only*. Claims, triggers and distributions
     /// never pause: a holder's tokens are never locked by the platform.
     pub paused: bool,
+    /// Beta: only these keys may open rounds (zero = empty slot). Set by the
+    /// platform; the platform itself is slot 0 at creation. Permissionless
+    /// publishing with an on-chain fraud proof comes after the audit.
+    pub publishers: [Pubkey; 4],
+    /// Smallest position, in lamports at the curve price, that takes part in
+    /// a round (0 = MIN_POSITION_LAMPORTS). Copied onto each round at
+    /// `open_round` so reproducers use the value the round was built with.
+    /// Changing it takes a proposal and the same delay as the fee.
+    pub min_position_lamports: u64,
+    pub pending_min_position_lamports: u64,
+    pub min_position_effective_slot: u64,
 }
 
 #[account]
@@ -165,6 +176,9 @@ pub struct Round {
     /// Slot the holder snapshot behind `root` was taken at.
     pub snapshot_slot: u64,
     pub bump: u8,
+    /// The eligibility floor this round was built with (from `Config` at
+    /// `open_round`); `claim_share` checks against this, not the live config.
+    pub min_position_lamports: u64,
 }
 
 /// Marks one holder's claim in one round. Its existence is the "already

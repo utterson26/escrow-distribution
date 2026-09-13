@@ -25,8 +25,8 @@ sign.
 | Party | Can | Cannot |
 |---|---|---|
 | Nobody | — | move tokens out of the escrow token account except through `claim_share`, `claim_manual`, `intervene` (below) |
-| Dev (launcher) | choose lock split, manual list, fee mode at launch; `publish_manual_list`; open rounds | withdraw the lock; change the list; pick who gets a share; pause; change fees |
-| Platform authority (`Config.platform`) | open rounds; `intervene` (only: unclaimed manual shares after 30 days → dev or pool; a dead coin's pool → dev); test knobs; propose fee / lock-cap changes; pause **launches** | take tokens for itself; skip the 7-day delay; stop claims, triggers, rounds or buybacks |
+| Dev (launcher) | choose lock split, manual list, fee mode at launch; `publish_manual_list` | withdraw the lock; change the list; open rounds (beta allowlist); pick who gets a share; pause; change fees |
+| Platform authority (`Config.platform`) | open rounds (it is on the publisher list); set the publisher list; `intervene` (only: unclaimed manual shares after 30 days → dev or pool; a dead coin's pool → dev); test knobs; propose fee / lock-cap / eligibility-floor changes; pause **launches** | take tokens for itself; skip the 7-day delay; stop claims, triggers, rounds or buybacks |
 | Upgrade authority | upgrade the program; `set_platform`; `migrate_config` | anything at runtime without an upgrade — which is why it must be a multisig on mainnet |
 | Any wallet | `check_trigger`, `fire_trigger`, `buyback`, `collect_fees`, `setup_fee_sharing`, `apply_*` after the delay, claim its own share | claim for someone else; claim twice; claim over the cap |
 | pump.fun | price the coin, hold the creator vault, split the fee per the sharing config | touch the escrow |
@@ -43,9 +43,11 @@ Program-side invariants (every one has a test):
 - `launch`: `manual_bps + holder_bps ∈ (0, 10000]`; a manual slice iff a root;
   lock ≥ 1% of total supply; lock value at the launch price ≤
   `Config.max_locked_value_lamports`; refused while `Config.paused`.
-- Platform fee and lock cap change only through propose → delay → apply
-  (`fee_delay_slots`, 7 days in production; the knob `set_fee_delay` is
-  platform-only and floored).
+- Platform fee, lock cap and eligibility floor change only through propose →
+  delay → apply (`fee_delay_slots`, 7 days in production; the knob
+  `set_fee_delay` is platform-only and floored). `open_round` copies the
+  floor onto the round.
+- `open_round`: the signer must be on `Config.publishers` (beta).
 - `buyback`: at most 0.5% of the curve's quote reserves per call, one spend
   per slot, on-chain quote with 2% slippage floor, canonical curve only.
 
@@ -150,13 +152,23 @@ Fixed: `protocolOwners` excludes the `manual` PDA. Surfaced by the demo.
    rate-limit before exposing widely.
 9. **Dead-coin intervention leaves `pending` stale** (harmless; `open_round`
    then fails on `NothingToClaim`).
-10. **`holder_count` is the publisher's word.** The on-chain cap switches on
-    at 11 declared holders. A dishonest publisher could declare 10, commit a
-    tree that favours one wallet and lock everyone past index 9 out of the
-    round — visible to any reproducer (their leaves are missing), but not
-    refused on chain. Same class as (1); the fraud-proof follow-up covers it.
-11. **Dollar thresholds are fixed in SOL** (0.1 SOL ≈ $20 at the time of
-    writing); a price feed would be needed for true dollar rules.
+10. **`holder_count` is the publisher's word — beta limit: publishing is
+    allowlisted.** The on-chain cap switches on at 11 declared holders; a
+    dishonest publisher could declare 10, commit a tree that favours one
+    wallet and lock everyone past index 9 out of the round — visible to any
+    reproducer, not refused on chain. Decision (2026-09-13): during the beta
+    only keys on `Config.publishers` (the platform's crank wallet, up to
+    four, set by the platform) may call `open_round`; the dev is not one of
+    them. Permissionless publishing with an on-chain fraud proof comes after
+    the audit. This narrows the trust in (1) to the platform's own keeper.
+11. **Dollar thresholds are fixed in SOL, and changeable only slowly.** The
+    eligibility floor (`Config.min_position_lamports`, 0.1 SOL ≈ $20) and the
+    per-coin lock cap (`max_locked_value_lamports`, 50 SOL) are lamport
+    constants the platform can change through propose → 7 days → apply.
+    Each round records the floor it was built with (`Round.min_position_lamports`)
+    and `claim_share` checks against that, so a later change never breaks an
+    open round's reproducibility. A price oracle (Pyth) is deferred to the
+    custom-pair work (`docs/CUSTOM_PAIR.md`), where quotes stop being SOL.
 
 ## 6. Attack surface, by instruction
 
@@ -167,7 +179,7 @@ Fixed: `protocolOwners` excludes the `manual` PDA. Surfaced by the demo.
 | `collect_fees` | payer (any) | vault → fee PDA → escrow; vault → platform | pass wrong shareholders | pump checks them against its config |
 | `buyback` | payer (any) | escrow SOL → curve → escrow tokens | sandwich; drain via stacking; forged curve | 0.5% cap, one per slot, on-chain quote −2%, canonical curve seeds |
 | `check_trigger` / `fire_trigger` | any | none / pool → `pending` | fire early; re-arm | `TooEarly`, `AlreadyArmed`, random delay |
-| `open_round` | dev or platform | pool → `allocated` | over-release; favour a wallet | `released ≤ pending`, on-chain 10% cap, reproducible allocation |
+| `open_round` | listed publisher (beta) | pool → `allocated` | over-release; favour a wallet | allowlist, `released ≤ pending`, on-chain 10% cap, reproducible allocation |
 | `claim_share` | holder | escrow → holder | forge, double claim, claim after dump | proof, receipt, hold check, cap |
 | `claim_manual` | wallet | manual → wallet | forge, double claim | proof, bitmap, bps sum |
 | `intervene` | platform | manual/pool → dev or pool | steal | only two targets, 30-day lock / dead flag |
@@ -196,7 +208,8 @@ Fixed: `protocolOwners` excludes the `manual` PDA. Surfaced by the demo.
    `init` with `payer = holder` abusable (rent griefing, account pre-creation)?
 4. `open_round` trusts the publisher's `holder_count`; it only bounds
    `leaf_index` and the cap threshold. Can a wrong count be used to disable
-   the cap (`holder_count < 11` with more real leaves)?
+   the cap (`holder_count < 11` with more real leaves)? (Mitigated in the beta
+   by the publisher allowlist; we want a design for the permissionless case.)
 5. Fee-sharing setup fronts rent from the payer to a dataless PDA and returns
    the leftover in the same instruction — any way to leave lamports on the
    PDA or take them from it?

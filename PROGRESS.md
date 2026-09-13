@@ -49,6 +49,7 @@ listesi anlık görüntüde yazılı olduğu için herkes denetleyebilir.
 | 21 | README (10 dakikada localnet) | ✅ |
 | 22 | uçtan uca demo scripti + DEMO.md (yatırımcı anlatımı) + web kontrolü | ✅ `npm run demo` |
 | 23 | **tasarım değişikliği:** rastgele dağıtım kalktı → pro-rata dağıtım, %10 cüzdan tavanı, claim makbuzu | ✅ 18/18, 4/4, 7/7, demo 3/3 |
+| 29 | publisher allowlist (beta) + eşik/tavan 7 gün gecikmeli, round tabanı kaydeder | ✅ 20/20, 6/6, 7/7 |
 | 28 | gorev-3saat: frenler (tavan 50 SOL, pause, migrate_config), SECURITY_REVIEW baştan, mainnet deploy hazırlığı (dry-run), README/LICENSE/web/grant/announcement, CUSTOM_PAIR.md | ✅ localnet yeşil; devnet SOL yok |
 | 27 | devnet: adım 26 deploy (slot 497817683); devnet testleri ana 17/20, security 5/6→6/6, manual 7/7 | ⚠️ bakiye 0,54 SOL |
 | 26 | min kilit %1 arz + kilitli pay = manual_bps + holder_bps (alımın yüzdesi) | ✅ 20/20, 6/6, 7/7, demo 2/2 |
@@ -1214,6 +1215,37 @@ günü — whitelisted bir quote'a erişim ön koşul.
   koşulmadı; gereken ~4 SOL (sell-back ile) / ~6 SOL (sell-back'siz).
 - Web: beta kutusu, explorer linkleri, Config'in yeni alanları decode
   ediliyor; `cfg.paused` ve tavan listede henüz gösterilmiyor (küçük iş).
+
+## Adım 29 — iki karar uygulandı (13 Eylül) ✅
+
+**(1) Publisher allowlist (beta):** `Config.publishers: [Pubkey; 4]`;
+`set_platform` platformu listeye ekler, `set_publishers` (platform-only,
+anında) listeyi değiştirir. `open_round` artık `escrow.dev || escrow.platform`
+değil, **yalnızca listedekiler** (`NotPublisher`); `OpenRound` hesaplarına
+`config` eklendi (sabit seed, Anchor otomatik çözüyor). Crank listede olup
+olmadığına bakıyor. Permissionless + fraud-proof audit sonrasına;
+SECURITY_REVIEW §5.10 ve README'ye "beta sınırı" olarak yazıldı.
+**Dikkat:** `migrate_config` sonrası liste boş kalır → `set_platform` ya da
+`set-publishers` şart (checklist'e girdi).
+
+**(2) Eşik ve tavan SOL cinsinden, 7 gün gecikmeli:** tavan zaten
+(`propose_lock_cap`); şimdi `Config.min_position_lamports` (0 = 0,1 SOL) +
+`propose_min_position` → `fee_delay_slots` → `apply_min_position`.
+`open_round` o anki tabanı **round'a kopyalar** (`Round.min_position_lamports`,
+kuyruğa eklendi; eski round'larda 0 = varsayılan); `claim_share` round'un
+tabanına bakar, indexer `snapshot(..., released, minPosition)` ile aynı tabanı
+kullanır ve `minPositionLamports` alanına yazar; web `/api/claim` ve sim
+round'daki tabanla yeniden üretir; crank Config'ten okur. Oracle Custom Pair
+işine ertelendi (README, SECURITY_REVIEW §5.11).
+
+- `config-admin.ts`: `set-publishers`, `propose-min-position`,
+  `apply-min-position`; `show` yeni alanları basıyor.
+- Test F3 genişledi: dev taban öneremez (`NotPlatform`), 5 slot gecikmeyle
+  0,05 SOL taban uygulanır (erken apply `MinPositionChangeTooEarly`), snapshot
+  ve round tabanı kaydeder, **dev round açamaz** (`NotPublisher`), platform
+  ikinci publisher ekler, taban 0,1 SOL'e geri. Localnet: ana 20/20, security
+  6/6, manual 7/7, allocate 6/6, demo temiz.
+- Devnet programı hâlâ adım 26 sürümü (SOL yok).
 
 ## Senden karar bekleyenler (yeni)
 

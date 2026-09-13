@@ -68,7 +68,7 @@ pub enum EscrowError {
     HolderMismatch,
     #[msg("only the dev authority may call this")]
     NotDev,
-    #[msg("only the dev or the platform authority may open a round")]
+    #[msg("only a publisher listed in the config may open a round (beta)")]
     NotPublisher,
     #[msg("snapshot slot is in the future")]
     SnapshotInFuture,
@@ -102,6 +102,10 @@ pub enum EscrowError {
     LockCapChangeTooEarly,
     #[msg("launches are paused by the platform")]
     Paused,
+    #[msg("no minimum-position change is pending")]
+    NoPendingMinPosition,
+    #[msg("the minimum-position change is not effective yet")]
+    MinPositionChangeTooEarly,
     #[msg("bonding curve is complete; the coin has migrated")]
     CurveComplete,
     #[msg("buy returned fewer tokens than the on-chain quote allows")]

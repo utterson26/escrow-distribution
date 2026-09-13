@@ -14,9 +14,10 @@
  *                  (10% cap per wallet), commit the root
  *
  * open_round is the one step that is not permissionless — the root is the
- * trust point of the whole scheme — so it runs only when this wallet is the
- * coin's dev or its platform authority. Everything else the crank does is
- * enforced on chain; the pre-checks only avoid paying for obvious no-ops.
+ * trust point of the whole scheme — so it runs only when this wallet is on
+ * the config's publisher list (beta: the platform's crank key). Everything
+ * else the crank does is enforced on chain; the pre-checks only avoid paying
+ * for obvious no-ops.
  *
  *   RPC_URL            default ANCHOR_PROVIDER_URL, else http://127.0.0.1:8899
  *   CRANK_KEYPAIR      default ANCHOR_WALLET, else ~/.config/solana/id.json
@@ -323,10 +324,13 @@ async function main() {
     const pending = BigInt(st.pending.toString());
     if (pending === 0n) return;
     const me = keypair.publicKey;
-    if (!me.equals(st.dev) && !me.equals(st.platform)) {
-      log({ tick, coin, action: "open_round", result: "skip", reason: "not dev or platform", pending });
+    const cfg: any = await program.account.config.fetch(configPda, "confirmed");
+    const listed = (cfg.publishers as PublicKey[]).some((k) => k.equals(me));
+    if (!listed) {
+      log({ tick, coin, action: "open_round", result: "skip", reason: "not on the publisher list", pending });
       return;
     }
+    const minPosition = BigInt(cfg.minPositionLamports.toString()) || 100_000_000n;
     const lastReleased = rounds.reduce((m, r) => (r.state.index >= m.i ? { i: r.state.index, v: BigInt(r.state.released.toString()) } : m), { i: -1, v: 0n });
     const lastTotal = rounds.reduce((m, r) => (r.state.index >= m.i ? { i: r.state.index, v: BigInt(r.state.total.toString()) } : m), { i: -1, v: 0n });
     if (lastReleased.i >= 0 && pending === lastReleased.v - lastTotal.v) {
@@ -337,7 +341,7 @@ async function main() {
     const snapSlot = await conn.getSlot("confirmed");
     let snap;
     try {
-      snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], pending);
+      snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], pending, minPosition);
     } catch (e) {
       log({ tick, coin, action: "snapshot", result: "error", error: errName(e) });
       return;

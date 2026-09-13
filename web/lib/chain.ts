@@ -63,6 +63,9 @@ export interface Config {
   maxLockedValueLamports?: bigint; pendingLockCapLamports?: bigint; lockCapEffectiveSlot?: bigint;
   /** launches paused (claims, triggers and rounds never pause) */
   paused?: boolean;
+  /** beta: only these keys may open rounds */
+  publishers?: string[];
+  minPositionLamports?: bigint; pendingMinPositionLamports?: bigint; minPositionEffectiveSlot?: bigint;
 }
 export const DEFAULT_MAX_LOCKED_VALUE_LAMPORTS = 50_000_000_000n;
 export function decodeConfig(data: Buffer): Config {
@@ -76,6 +79,11 @@ export function decodeConfig(data: Buffer): Config {
   if (r.left() >= 8 + 8 + 8 + 1) {
     c.maxLockedValueLamports = r.u64() || DEFAULT_MAX_LOCKED_VALUE_LAMPORTS;
     c.pendingLockCapLamports = r.u64(); c.lockCapEffectiveSlot = r.u64(); c.paused = r.bool();
+  }
+  if (r.left() >= 4 * 32 + 8 + 8 + 8) {
+    c.publishers = [r.key(), r.key(), r.key(), r.key()].filter((k) => k !== "11111111111111111111111111111111");
+    c.minPositionLamports = r.u64() || DEFAULT_MIN_POSITION_LAMPORTS;
+    c.pendingMinPositionLamports = r.u64(); c.minPositionEffectiveSlot = r.u64();
   }
   return c;
 }
@@ -144,15 +152,21 @@ export interface Round {
   holderCount: number;
   claimedAmount: bigint; claimedCount: number;
   commitSlot: bigint; snapshotSlot: bigint;
+  /** eligibility floor the round was built with (older rounds: the 0.1 SOL default) */
+  minPositionLamports: bigint;
 }
+export const DEFAULT_MIN_POSITION_LAMPORTS = 100_000_000n;
 export function decodeRound(address: string, data: Buffer): Round {
   const r = new R(data);
-  return {
+  const round: Round = {
     address, escrow: r.key(), index: r.u32(), root: r.bytes(32).toString("hex"),
     released: r.u64(), total: r.u64(), holderCount: r.u32(),
     claimedAmount: r.u64(), claimedCount: r.u32(),
-    commitSlot: r.u64(), snapshotSlot: r.u64(),
+    commitSlot: r.u64(), snapshotSlot: r.u64(), minPositionLamports: DEFAULT_MIN_POSITION_LAMPORTS,
   };
+  r.u8(); // bump
+  if (r.left() >= 8) round.minPositionLamports = r.u64() || DEFAULT_MIN_POSITION_LAMPORTS;
+  return round;
 }
 /** Most of one round a single wallet may receive (program constant MAX_SHARE_BPS)... */
 export const MAX_SHARE_BPS = 1000;

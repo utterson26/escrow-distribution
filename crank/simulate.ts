@@ -317,7 +317,7 @@ async function main() {
     for (const { publicKey: roundAddr, account: r } of rounds) {
       claimStats.rounds++;
       const snap = await snapshot(RPC_URL, c.mint.toBase58(), r.snapshotSlot.toNumber(), program.programId,
-                                  [], BigInt(r.released.toString()));
+                                  [], BigInt(r.released.toString()), BigInt(r.minPositionLamports.toString()) || 100_000_000n);
       const rootOnChain = Buffer.from(r.root).toString("hex");
       if (snap.root !== rootOnChain) {
         note(c.symbol, `round ${r.index} root mismatch`, `chain=${rootOnChain.slice(0, 12)} rebuilt=${snap.root.slice(0, 12)}`);

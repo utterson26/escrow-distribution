@@ -41,6 +41,8 @@ pub const BUYBACK_SLIPPAGE_BPS: u64 = 200; // 2%
 /// Minimum position, valued at the bonding curve price, to be eligible for a
 /// share: about $20. Fixed in SOL: a true dollar figure would need a price feed.
 pub const MIN_POSITION_LAMPORTS: u64 = 100_000_000; // 0.1 SOL
+/// Publisher allowlist size (beta: only listed keys may open rounds).
+pub const MAX_PUBLISHERS: usize = 4;
 /// Volume since the last distribution must reach this share of market cap.
 pub const VOLUME_TRIGGER_BPS: u128 = 100; // 1%
 /// Share of the remaining pool a volume trigger releases.

@@ -5,9 +5,9 @@
  *       upgrade authority can write — a launcher cannot name themselves
  *   F2  the test knobs (day window, delay window) answer to the platform, not
  *       the dev, so a dev cannot flag their own coin dead and ask for the pool
- *   F3  a round is a pure function of chain history: the release and slot are
- *       recorded, the allocation reproduces, and a root that pays one wallet
- *       over the 10% cap cannot pay out
+ *   F3  a round is a pure function of chain history: release, slot and the
+ *       eligibility floor are recorded, the allocation reproduces, only listed
+ *       publishers may commit, the floor changes only with the delay
  *   F4  a holder who dumped after the snapshot cannot claim; holding it again
  *       makes the claim go through
  *   F5  a holder-rewards coin: fee sharing, collect_fees and buyback are refused
@@ -220,16 +220,43 @@ describe("security review regressions (localnet)", () => {
     assert.isTrue(st.pending.gtn(0));
     const released = BigInt(st.pending.toString());
 
+    // the eligibility floor is a delayed platform setting; narrow the delay
+    // (test knob), lower the floor to 0.05 SOL, and see the round carry it
+    const cfgAddr = configPda(program.programId);
+    const platformOnly = { platform: platform.publicKey, config: cfgAddr };
+    await program.methods.setFeeDelay(new BN(5)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    await expectError("dev proposes a floor",
+      program.methods.proposeMinPosition(new BN(50_000_000)).accountsPartial({ platform: dev.publicKey, config: cfgAddr }).rpc(provider.opts),
+      /NotPlatform/, cfgAddr);
+    await program.methods.proposeMinPosition(new BN(50_000_000)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    let cfg: any = await program.account.config.fetch(cfgAddr);
+    if ((await conn.getSlot("confirmed")) < cfg.minPositionEffectiveSlot.toNumber()) {
+      await expectError("apply floor early",
+        program.methods.applyMinPosition().accountsPartial({ config: cfgAddr }).rpc(provider.opts), /MinPositionChangeTooEarly/, cfgAddr);
+    }
+    while ((await conn.getSlot("confirmed")) < cfg.minPositionEffectiveSlot.toNumber()) await sleep(300);
+    await program.methods.applyMinPosition().accountsPartial({ config: cfgAddr }).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    assert.equal(cfg.minPositionLamports.toNumber(), 50_000_000, "floor applied after the delay");
+    const floor = BigInt(cfg.minPositionLamports.toString());
+
     const snapSlot = await conn.getSlot("confirmed");
-    snap = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released);
+    snap = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released, floor);
     assert.equal(snap.leaves.length, 2, "both holders, dev excluded automatically");
+    assert.equal(snap.minPositionLamports, floor.toString(), "snapshot records the floor it used");
     // two holders: below the cap threshold, the whole release is split pro rata
     assert.equal(snap.total, released.toString(), "nothing held back with two holders");
-    // anyone re-running with the recorded (slot, released) gets the same root
-    const again = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released);
+    // anyone re-running with the recorded (slot, released, floor) gets the same root
+    const again = await snapshot(conn.rpcEndpoint, mint.toBase58(), snapSlot, program.programId, [], released, floor);
     assert.equal(again.root, snap.root, "reproducible");
 
+    // beta: only listed publishers may commit a root — the dev is not one
     const round = roundPda(0);
+    await expectError("dev opens a round",
+      program.methods.openRound(0, [...Buffer.from(snap.root, "hex")], new BN(released.toString()), new BN(snap.total),
+                 snap.leaves.length, new BN(snapSlot))
+        .accountsPartial({ publisher: dev.publicKey, escrow, round, systemProgram: SystemProgram.programId })
+        .rpc(provider.opts), /NotPublisher/, round);
     await program.methods
       .openRound(0, [...Buffer.from(snap.root, "hex")], new BN(released.toString()), new BN(snap.total),
                  snap.leaves.length, new BN(snapSlot))
@@ -238,6 +265,21 @@ describe("security review regressions (localnet)", () => {
     const r: any = await program.account.round.fetch(round);
     assert.equal(r.released.toString(), released.toString(), "release recorded for reproducers");
     assert.equal(r.snapshotSlot.toNumber(), snapSlot, "slot recorded for reproducers");
+    assert.equal(r.minPositionLamports.toNumber(), 50_000_000, "floor recorded on the round");
+
+    // a second publisher can be listed by the platform; the list is capped at four
+    cfg = await program.account.config.fetch(cfgAddr);
+    const list: PublicKey[] = [platform.publicKey, holders[0].publicKey, PublicKey.default, PublicKey.default];
+    await program.methods.setPublishers(list).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    assert.isTrue(cfg.publishers.some((k: PublicKey) => k.equals(holders[0].publicKey)), "holder listed as publisher");
+    await expectError("dev sets publishers",
+      program.methods.setPublishers(list).accountsPartial({ platform: dev.publicKey, config: cfgAddr }).rpc(provider.opts), /NotPlatform/, cfgAddr);
+    // floor back to the 0.1 SOL default for the other suites
+    await program.methods.proposeMinPosition(new BN(100_000_000)).accountsPartial(platformOnly).signers([platform]).rpc(provider.opts);
+    cfg = await program.account.config.fetch(cfgAddr);
+    while ((await conn.getSlot("confirmed")) < cfg.minPositionEffectiveSlot.toNumber()) await sleep(300);
+    await program.methods.applyMinPosition().accountsPartial({ config: cfgAddr }).rpc(provider.opts);
     st = await program.account.escrow.fetch(escrow);
     assert.equal(st.pending.toString(), "0", "the release is consumed; nothing is carried");
 

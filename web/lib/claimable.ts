@@ -14,7 +14,7 @@ async function snapshotForRound(mint: string, r: Round): Promise<Snapshot | null
   const file = path.join(CACHE, `${mint}-${r.index}-${r.root.slice(0, 8)}.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
   try {
-    const snap = await snapshot(rpcUrl(), mint, Number(r.snapshotSlot), PROGRAM_ID, [], r.released);
+    const snap = await snapshot(rpcUrl(), mint, Number(r.snapshotSlot), PROGRAM_ID, [], r.released, r.minPositionLamports);
     if (buildTree(snap.leaves).root.toString("hex") === r.root) {
       fs.writeFileSync(file, JSON.stringify(snap));
       return snap;

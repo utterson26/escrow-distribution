@@ -45,7 +45,62 @@ pub mod airdrop_escrow {
             config.pending_lock_cap_lamports = 0;
             config.lock_cap_effective_slot = 0;
             config.paused = false;
+            config.publishers = [Pubkey::default(); MAX_PUBLISHERS];
+            config.min_position_lamports = MIN_POSITION_LAMPORTS;
+            config.pending_min_position_lamports = 0;
+            config.min_position_effective_slot = 0;
         }
+        // the platform can always publish; anything else is added by `set_publishers`
+        if !config.publishers.contains(&platform) {
+            if let Some(slot) = config.publishers.iter().position(|k| *k == Pubkey::default()) {
+                config.publishers[slot] = platform;
+            } else {
+                config.publishers[0] = platform;
+            }
+        }
+        Ok(())
+    }
+
+    /// Beta: replace the list of keys allowed to open rounds. Platform only,
+    /// immediate (it can only narrow who publishes; the rounds themselves stay
+    /// bounded by the on-chain rules). Zero entries are empty slots.
+    pub fn set_publishers(ctx: Context<PlatformFeeChange>, publishers: [Pubkey; 4]) -> Result<()> {
+        require!(publishers.iter().any(|k| *k != Pubkey::default()), EscrowError::NoHolders);
+        ctx.accounts.config.publishers = publishers;
+        emit!(PublishersSet { publishers, slot: Clock::get()?.slot });
+        Ok(())
+    }
+
+    /// Propose a new eligibility floor (lamports at the curve price); live
+    /// after the config's delay via `apply_min_position`. Platform only.
+    pub fn propose_min_position(ctx: Context<PlatformFeeChange>, lamports: u64) -> Result<()> {
+        require!(lamports > 0, EscrowError::ZeroAmount);
+        let config = &mut ctx.accounts.config;
+        let now = Clock::get()?.slot;
+        let delay = if config.fee_delay_slots == 0 { PLATFORM_FEE_DELAY_SLOTS } else { config.fee_delay_slots };
+        config.pending_min_position_lamports = lamports;
+        config.min_position_effective_slot = now.saturating_add(delay);
+        emit!(MinPositionProposed {
+            current_lamports: config.min_position_lamports,
+            new_lamports: lamports,
+            proposed_slot: now,
+            effective_slot: config.min_position_effective_slot,
+        });
+        Ok(())
+    }
+
+    /// Permissionless once the delay has passed. Rounds already opened keep
+    /// the floor they were built with.
+    pub fn apply_min_position(ctx: Context<ApplyPlatformFee>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.min_position_effective_slot > 0, EscrowError::NoPendingMinPosition);
+        let now = Clock::get()?.slot;
+        require!(now >= config.min_position_effective_slot, EscrowError::MinPositionChangeTooEarly);
+        let old = config.min_position_lamports;
+        config.min_position_lamports = config.pending_min_position_lamports;
+        config.pending_min_position_lamports = 0;
+        config.min_position_effective_slot = 0;
+        emit!(MinPositionApplied { old_lamports: old, new_lamports: config.min_position_lamports, slot: now });
         Ok(())
     }
 
@@ -949,6 +1004,11 @@ pub mod airdrop_escrow {
         holder_count: u32,
         snapshot_slot: u64,
     ) -> Result<()> {
+        // beta: publishing is restricted to the config's allowlist
+        require!(
+            ctx.accounts.config.publishers.contains(&ctx.accounts.publisher.key()),
+            EscrowError::NotPublisher
+        );
         let now_slot = Clock::get()?.slot;
         require!(snapshot_slot <= now_slot, EscrowError::SnapshotInFuture);
         require!(holder_count > 0, EscrowError::NoHolders);
@@ -983,6 +1043,10 @@ pub mod airdrop_escrow {
         round.commit_slot = now_slot;
         round.snapshot_slot = snapshot_slot;
         round.bump = ctx.bumps.round;
+        round.min_position_lamports = match ctx.accounts.config.min_position_lamports {
+            0 => MIN_POSITION_LAMPORTS,
+            m => m,
+        };
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.allocated = escrow
@@ -1079,10 +1143,11 @@ pub mod airdrop_escrow {
             .checked_mul(curve.virtual_quote_reserves as u128)
             .ok_or(EscrowError::Overflow)?
             / (curve.virtual_token_reserves as u128);
-        require!(
-            value >= MIN_POSITION_LAMPORTS as u128,
-            EscrowError::PositionTooSmall
-        );
+        let floor = match round.min_position_lamports {
+            0 => MIN_POSITION_LAMPORTS,
+            m => m,
+        };
+        require!(value >= floor as u128, EscrowError::PositionTooSmall);
 
         let mint_key = ctx.accounts.escrow.mint;
         let bump = ctx.accounts.escrow.bump;
@@ -1603,6 +1668,24 @@ pub struct LockCapProposed {
 }
 #[event]
 pub struct LockCapApplied {
+    pub old_lamports: u64,
+    pub new_lamports: u64,
+    pub slot: u64,
+}
+#[event]
+pub struct PublishersSet {
+    pub publishers: [Pubkey; 4],
+    pub slot: u64,
+}
+#[event]
+pub struct MinPositionProposed {
+    pub current_lamports: u64,
+    pub new_lamports: u64,
+    pub proposed_slot: u64,
+    pub effective_slot: u64,
+}
+#[event]
+pub struct MinPositionApplied {
     pub old_lamports: u64,
     pub new_lamports: u64,
     pub slot: u64,
@@ -2160,11 +2243,12 @@ pub struct FireTrigger<'info> {
     pub bonding_curve: Box<Account<'info, pump_state::BondingCurve>>,
 }
 
-/// The root may be published by the dev or by the platform authority: the
-/// platform runs the crank that snapshots and opens rounds, so launches do not
-/// depend on the dev staying online. Neither can choose the amount (it is what
-/// a trigger released) nor who gets what: the allocation is a pure function of
-/// chain history and `released`, and every leaf is capped by the program.
+/// Beta: only keys on the config's publisher list may commit a root — in
+/// practice the platform's crank wallet, so launches do not depend on the dev
+/// staying online. A publisher cannot choose the amount (it is what a trigger
+/// released) nor who gets what: the allocation is a pure function of chain
+/// history and `released`, and every leaf is capped by the program.
+/// Permissionless publishing with an on-chain fraud proof comes after the audit.
 #[derive(Accounts)]
 #[instruction(index: u32)]
 pub struct OpenRound<'info> {
@@ -2173,11 +2257,12 @@ pub struct OpenRound<'info> {
     #[account(
         mut,
         seeds = [ESCROW_SEED, escrow.mint.as_ref()],
-        bump = escrow.bump,
-        constraint = escrow.dev == publisher.key() || escrow.platform == publisher.key()
-            @ EscrowError::NotPublisher
+        bump = escrow.bump
     )]
     pub escrow: Box<Account<'info, Escrow>>,
+    /// Publisher allowlist and the eligibility floor for this round.
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
     #[account(
         init,
         payer = publisher,

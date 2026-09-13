@@ -207,6 +207,8 @@ export async function snapshot(
   rpc: string, mintStr: string, slotArg?: number,
   escrowProgram = ESCROW_PROGRAM, extraExcluded: string[] = [],
   released: bigint = 0n,
+  /** eligibility floor in lamports at the curve price; the Round records the value it was built with */
+  minPosition: bigint = MIN_POSITION_LAMPORTS,
 ): Promise<Snapshot> {
   const c = new Connection(rpc, "confirmed");
   const mint = new PublicKey(mintStr);
@@ -239,7 +241,7 @@ export async function snapshot(
     const { balance, streakStart } = await historyFor(c, a.pubkey, snapshotSlot);
     if (balance === 0n || streakStart === 0) continue;         // sold out entirely
     const value = (balance * curve.virtualQuoteReserves) / curve.virtualTokenReserves;
-    if (value < MIN_POSITION_LAMPORTS) continue;               // under the minimum
+    if (value < minPosition) continue;                         // under the floor
     rows.push({ holder: owner, tokenAccount: a.pubkey.toBase58(), balance, streak: streakStart });
   }
 
@@ -270,7 +272,7 @@ export async function snapshot(
       virtualQuoteReserves: curve.virtualQuoteReserves.toString(),
       virtualTokenReserves: curve.virtualTokenReserves.toString(),
     },
-    minPositionLamports: MIN_POSITION_LAMPORTS.toString(),
+    minPositionLamports: minPosition.toString(),
     totalWeight: totalWeight.toString(),
     released: released.toString(), capBps: Number(MAX_SHARE_BPS), total: total.toString(),
     root: root.toString("hex"), leaves,
@@ -286,7 +288,8 @@ if (require.main === module) {
     if (cmd === "snapshot") {
       const extra = (get("--exclude") ?? "").split(",").filter(Boolean);
       const snap = await snapshot(rpc, get("--mint")!, get("--slot") ? Number(get("--slot")) : undefined,
-                                  ESCROW_PROGRAM, extra, BigInt(get("--released") ?? "0"));
+                                  ESCROW_PROGRAM, extra, BigInt(get("--released") ?? "0"),
+                                  BigInt(get("--min-position") ?? MIN_POSITION_LAMPORTS.toString()));
       const out = get("--out") ?? "snapshot.json";
       fs.writeFileSync(out, JSON.stringify(snap, null, 2));
       console.log(`root        : ${snap.root}`);
@@ -313,7 +316,7 @@ if (require.main === module) {
       process.exit(okRoot && okSum && okAlloc && okCap ? 0 : 1);
     } else if (cmd === "reproduce") {
       const snap: Snapshot = JSON.parse(fs.readFileSync(get("--in")!, "utf8"));
-      const again = await snapshot(rpc, snap.mint, snap.snapshotSlot, ESCROW_PROGRAM, snap.excluded, BigInt(snap.released));
+      const again = await snapshot(rpc, snap.mint, snap.snapshotSlot, ESCROW_PROGRAM, snap.excluded, BigInt(snap.released), BigInt(snap.minPositionLamports));
       const same = again.root === snap.root;
       console.log(`dosyadaki kok : ${snap.root}`);
       console.log(`yeniden uretim: ${again.root}`);

@@ -7,6 +7,8 @@
  *   config-admin.ts propose-fee <bps> | apply-fee           (platform / anyone)
  *   config-admin.ts propose-cap <lamports> | apply-cap
  *   config-admin.ts pause | unpause
+ *   config-admin.ts set-publishers <pubkey>[,<pubkey>...]   (platform; up to 4, beta allowlist)
+ *   config-admin.ts propose-min-position <lamports> | apply-min-position
  *
  * ANCHOR_PROVIDER_URL, ANCHOR_WALLET as usual.
  */
@@ -36,6 +38,9 @@ import { patchProvider } from "../tests/pump";
       pendingFeeBps: c.pendingFeeBps, feeEffectiveSlot: c.feeEffectiveSlot.toString(), feeDelaySlots: c.feeDelaySlots.toString(),
       maxLockedValueLamports: c.maxLockedValueLamports.toString(), pendingLockCapLamports: c.pendingLockCapLamports.toString(),
       lockCapEffectiveSlot: c.lockCapEffectiveSlot.toString(), paused: c.paused,
+      publishers: c.publishers.map((k: PublicKey) => k.toBase58()).filter((k: string) => k !== PublicKey.default.toBase58()),
+      minPositionLamports: c.minPositionLamports.toString(), pendingMinPositionLamports: c.pendingMinPositionLamports.toString(),
+      minPositionEffectiveSlot: c.minPositionEffectiveSlot.toString(),
     }, null, 2));
   };
   const admin = { authority: kp.publicKey, config, program: program.programId, programData, systemProgram: SystemProgram.programId };
@@ -51,7 +56,14 @@ import { patchProvider } from "../tests/pump";
     case "apply-cap": sig = await program.methods.applyLockCap().accountsPartial({ config }).rpc(provider.opts); break;
     case "pause": sig = await program.methods.setPaused(true).accountsPartial(plat).rpc(provider.opts); break;
     case "unpause": sig = await program.methods.setPaused(false).accountsPartial(plat).rpc(provider.opts); break;
-    default: console.log("kullanim: show | set-platform <platform> <feeWallet> | migrate | propose-fee <bps> | apply-fee | propose-cap <lamports> | apply-cap | pause | unpause"); process.exit(2);
+    case "set-publishers": {
+      const keys = a.split(",").map((k) => new PublicKey(k.trim()));
+      while (keys.length < 4) keys.push(PublicKey.default);
+      sig = await program.methods.setPublishers(keys.slice(0, 4)).accountsPartial(plat).rpc(provider.opts); break;
+    }
+    case "propose-min-position": sig = await program.methods.proposeMinPosition(new BN(a)).accountsPartial(plat).rpc(provider.opts); break;
+    case "apply-min-position": sig = await program.methods.applyMinPosition().accountsPartial({ config }).rpc(provider.opts); break;
+    default: console.log("kullanim: show | set-platform <platform> <feeWallet> | migrate | propose-fee <bps> | apply-fee | propose-cap <lamports> | apply-cap | pause | unpause | set-publishers <k,k,..> | propose-min-position <lamports> | apply-min-position"); process.exit(2);
   }
   console.log("sig", sig);
   await show();

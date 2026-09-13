@@ -1,6 +1,6 @@
 # escrow-distribution
 
-**Beta — unaudited. Per-coin lock cap: 50 SOL. Devnet only for now.**
+**Beta — unaudited. Per-coin lock cap: 50 SOL. Rounds are opened by the platform's keeper only. Devnet only for now.**
 
 escrow-distribution is a Solana program that launches a pump.fun coin with
 part of the creator's buy locked in a program-owned escrow, and hands that
@@ -63,11 +63,19 @@ Open source (MIT). Program id on devnet:
   per coin, measured at the launch price) can only be raised with the same
   seven-day delay. The platform can pause *launches*; it cannot pause claims,
   triggers, rounds or buybacks.
-- **Who publishes the allocation is bounded, not trusted.** The creator or
-  the platform opens a round, but the program refuses a release above what
-  the triggers freed, any leaf above the cap, any claim by a wallet that is
-  not in the tree or no longer holds its position — and the allocation is a
-  pure function of chain history, so anyone can rebuild it and compare.
+- **Who publishes the allocation is bounded, not trusted — and, during the
+  beta, allowlisted.** Only keys on the program config's publisher list (the
+  platform's keeper wallet) may open a round; the creator cannot. The
+  program refuses a release above what the triggers freed, any leaf above
+  the cap, any claim by a wallet that is not in the tree or no longer holds
+  its position — and the allocation is a pure function of chain history, so
+  anyone can rebuild it and compare. Permissionless publishing with an
+  on-chain fraud proof is planned for after the audit.
+- **Thresholds are in SOL and change slowly.** The eligibility floor
+  (0.1 SOL ≈ $20) and the per-coin lock cap (50 SOL) are program-config
+  values the platform can change only through a proposal that takes effect
+  seven days later; every round records the floor it was built with. A price
+  oracle is deferred to custom-pair support.
 - **Upgrades.** The program is upgradeable; the upgrade authority is meant to
   be a multisig from the first mainnet deploy. `SECURITY_REVIEW.md` lists
   every known limitation and the questions we want an auditor to answer.

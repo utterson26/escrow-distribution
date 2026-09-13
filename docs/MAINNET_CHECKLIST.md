@@ -47,7 +47,11 @@ and ships with the beta brakes (50 SOL per-coin lock cap, launch pause).
 2. `./scripts/deploy-mainnet.sh` — confirm step by step: verifiable build →
    balance → deploy → dump/compare + authority check → `set_platform` (creates
    `Config` with 10% fee, 50 SOL cap, 7-day delay, unpaused) → multisig.
-3. `scripts/config-admin.ts show` — platform, fee wallet, cap, paused=false.
+3. `scripts/config-admin.ts show` — platform, fee wallet, cap, floor (0.1 SOL),
+   paused=false, publishers = [platform]. Then
+   `config-admin.ts set-publishers <platform>,<crank>` so the crank can open
+   rounds (beta allowlist; the platform key signs). After any future
+   `migrate_config` the list must be re-checked: appended fields read as zero.
 4. Start the crank (`RPC_URL`, `CRANK_KEYPAIR`), watch one full tick with no
    escrows: it should log `start` and idle ticks only.
 5. Launch the showcase coin with `docs/SHOWCASE.md` parameters (a small script
