@@ -145,6 +145,35 @@ throwaway wallets are swept back and the creator's position is sold back at
 the end). `DEMO-devnet.md` is the last such run. Keep `patchProvider`
 (`tests/pump.ts`) on any provider you build against a load-balanced RPC.
 
+## Try on devnet
+
+The program is deployed on devnet and works against the real pump.fun devnet
+program. Five commands from a clean machine (Rust/Anchor toolchain as above,
+a Helius devnet key — the public RPC has no Token-2022 `getProgramAccounts`
+for the indexer):
+
+```bash
+git clone https://github.com/utterson26/escrow-distribution.git && cd escrow-distribution && npm install
+anchor idl build -o target/idl/airdrop_escrow.json -t target/types/airdrop_escrow.ts
+export HELIUS_RPC_URL='https://devnet.helius-rpc.com/?api-key=YOURS'
+solana airdrop 2 -u devnet            # a run spends ≈ 0.5 SOL net; the demo sweeps the rest back
+scripts/demo-video.sh && scripts/demo-video.sh start
+```
+
+The first `demo-video.sh` call is a dry run: it checks the RPC, the program,
+your balance and the config and prints the storyboard without sending
+anything. `start` runs the 3–4 minute loop — launch with a 30% lock, three
+buyers, fee split, buyback, volume trigger, random delay, snapshot, round,
+claims — with an explorer link for every transaction and before/after
+balances at every step (`demo-video.log` keeps the links).
+
+Beta note: only keys on the program's publisher allowlist may open rounds
+(and only the platform key may shorten the delay window), so the dry run
+fails on the "publisher" line for any other wallet. Everything up to the
+trigger — `launch`, fee sharing, `collect_fees`, `buyback`, `check_trigger`,
+`fire_trigger` — is permissionless and works from any funded wallet; the
+twelve-buyer story with a fixed list is `npm run demo -- --devnet`.
+
 ## Repository map
 
 | path | what |
@@ -153,8 +182,8 @@ the end). `DEMO-devnet.md` is the last such run. Keep `patchProvider`
 | `indexer/snapshot.ts` | deterministic holder snapshot + pro-rata allocator; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: fee sweep, buyback, triggers, rounds — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | Next.js site: coins, rounds, claim with a wallet, event feed |
-| `scripts/` | `localnet.sh`, `demo.ts`, `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
-| `docs/` | mainnet checklist, showcase parameters, grant one-pager, announcement draft, custom-pair notes |
+| `scripts/` | `localnet.sh`, `demo.ts`, `demo-video.sh` (devnet, 3–4 min, for recording), `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
+| `docs/` | mainnet checklist, showcase parameters, grant one-pager, hackathon application (`HACKATHON.md`), multisig guide, announcement draft, custom-pair notes |
 | `SECURITY_REVIEW.md` | trust model, findings, limitations, audit questions |
 | `PROGRESS.md` | running log (Turkish): what is proven, what is pending |
 

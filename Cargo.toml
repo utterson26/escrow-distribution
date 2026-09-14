@@ -12,6 +12,9 @@ rust-version = "1.89.0"
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+# "z" instead of the default 3: the .so shrinks by a fifth (751 KB -> 596 KB,
+# about 0.8 SOL less deploy rent); the test suites run at the same CU budgets.
+opt-level = "z"
 [profile.release.build-override]
 opt-level = 3
 incremental = false

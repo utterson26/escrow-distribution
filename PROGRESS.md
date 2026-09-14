@@ -1273,6 +1273,36 @@ işine ertelendi (README, SECURITY_REVIEW §5.11).
   publishers = yalnız platform (test anahtarları listeden çıkarıldı).
 - **SOL: 5,54 → 2,17.** 1 SOL sınırının altına inilmedi.
 
+## Adım 32 — hackathon hazırlığı: video demosu, HACKATHON.md, program boyutu, README devnet (14 Eylül) ✅
+
+- `scripts/demo-video.sh` + `scripts/demo-video.ts`: devnet'te kamera için
+  3–4 dk'lık akış — launch (%30 kilit) → 3 alıcı → collect_fees → buyback
+  (3 parça) → hacim tetikleyici → rastgele gecikme → snapshot → open_round →
+  3 claim + ikinci claim reddi → süpürme. Her adımda İngilizce başlık,
+  duraklama (`PAUSE_MS`, varsayılan 5 sn), her tx için explorer linki,
+  öncesi/sonrası bakiye tablosu. Argümansız çağrı **kuru koşu** (RPC, program,
+  bakiye, config, publisher listesi kontrolü + storyboard; hiçbir şey
+  gönderilmez); yalnız `start` ile koşar, başka argüman hata. Gerçek koşu:
+  coin `3Azw…GWzY`, 112 sn (2 sn duraklamayla), **0,46 SOL net**, çıktı
+  `demo-video.log` (gitignore).
+- `docs/HACKATHON.md`: Colosseum Crypto World's Fair başvuru metni
+  (İngilizce): tek cümle, problem, çözüm, 5 maddede akış, teknik durum
+  (devnet kanıtı, test sayıları, EVM portu), rakip tablosu, yol haritası,
+  ekip, linkler.
+- **Program boyutu:** `opt-level = "z"` (workspace release profili).
+  `.so` 751.280 → **596.136 B (−155.144 B, −%20,6)**; rent-exempt
+  3,817 → **3,029 SOL (−0,79 SOL)** yeni bir deploy için (devnet'teki
+  programdata 751.280 B kalıyor; küçülme mainnet'in ilk deploy'unda
+  görülür). `opt-level = "s"` 645.640 B verdi, z seçildi. Debug bölümü zaten
+  yoktu (strip etkisiz), `solana-sha256-hasher` gerekli (anchor-lang 1.2
+  hash'i yeniden dışa vermiyor). Localnet yeni build ile: ana **20/20**,
+  security **6/6**, manual **7/7**, multisig **4/4**, allocator ✅ — CU
+  bütçeleri değişmedi.
+- README: "Try on devnet" bölümü (5 komut: clone+install, IDL, HELIUS_RPC_URL,
+  airdrop, `demo-video.sh` kuru koşu + `start`); beta notu (publisher
+  listesi dışındaki cüzdan kuru koşuda ✗ görür, tetikleyiciye kadar her şey
+  izinsiz).
+
 ## Adım 31 — platform yetkisi → Squads multisig: rehber + localnet provası (14 Eylül) ✅
 
 - `docs/MULTISIG.md`: 2/3 kasa kurma (Phantom + Ledger + yedek, blind signing),
