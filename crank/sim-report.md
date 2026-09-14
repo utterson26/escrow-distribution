@@ -96,7 +96,7 @@ Crank cüzdanı `2ktrqBviYwFeySgykNqYgWw5Ru86nXZrTvDJ5YQhpAuc` (dev değil; prog
 | 15:40:37 | crank | HOT | buyback → ok spendable=31877273 spent=12420996 tokens=4926484509715 sig=2vzXPZNCCUcd… |
 | 15:40:37 | crank | HOT | check_trigger → still_armed cum_volume=772862428 mcap_sol=5.751 fire_slot=2160 sig=dNR9kPehs3v3… |
 | 15:40:37 | crank | HOT | fire_trigger → ok kind=volume tx_slot=2293 fire_slot=2160 released=928039790189 pending=928039790189 sig=5psVxWKnr5MV… |
-| 15:40:38 | crank | HOT | snapshot → ok slot=2293 holders=3 excluded=5 released=928039790189 total=928039790189 root=e41371efbd130f19… file=/home/pc/airdrop-launchpad/crank/snapshots/6dyK6reusaD625RXyMZyrdon2Vg8bicptRVCjKiRZjYi-0.json |
+| 15:40:38 | crank | HOT | snapshot → ok slot=2293 holders=3 excluded=5 released=928039790189 total=928039790189 root=e41371efbd130f19… file=crank/snapshots/6dyK6reusaD625RXyMZyrdon2Vg8bicptRVCjKiRZjYi-0.json |
 | 15:40:38 | crank | HOT | open_round → ok round=0 holders=3 released=928039790189 total=928039790189 commit_slot=2294 snapshot_slot=2293 sig=DPCgVJzKrkNL… |
 | 15:40:45 | sim | SLOW | buy 0.0066 SOL by trader sig=4XMyLRUZyZZVt7F1coXQAiwdm1PyeHLfiHYam2jsfi41sMs1xcUxWYssBH1MQRLYadkWZGLXRVcB2yafoRGBYAqE |
 | 15:40:47 | sim | HOT | buy 0.0397 SOL by trader sig=2nVKesnhyZp8pYLH2dM1Zw1brvczmPhrSEj7tFgXrvhqus5zLQ1WbCPj6sBhdDLTwHJC2i7gpQPAE6QxELPbBS91 |
@@ -132,13 +132,13 @@ Crank cüzdanı `2ktrqBviYwFeySgykNqYgWw5Ru86nXZrTvDJ5YQhpAuc` (dev değil; prog
 | 15:42:35 | crank | SLOW | check_trigger → still_armed cum_volume=39111108 mcap_sol=2.768 fire_slot=2503 sig=4nMvbG2r3xMt… |
 | 15:42:36 | sim | HOT | buy 0.0397 SOL by trader sig=5ZiRS8c7RLypXPcr8aon1Ufxn9haYeMaaZxmNGNopqvAvU6FHX7RoXQaaQ4UCTfXNvudThqikvnwpJw6hJQaJB2B |
 | 15:42:36 | crank | SLOW | fire_trigger → ok kind=volume tx_slot=2561 fire_slot=2503 released=900000000000 pending=900000000000 sig=2YaZ2smCdL1b… |
-| 15:42:36 | crank | SLOW | snapshot → ok slot=2561 holders=2 excluded=5 released=900000000000 total=900000000000 root=3498b29caf887b0d… file=/home/pc/airdrop-launchpad/crank/snapshots/9fwASWm6PoNPkgBSKHEVqxmiVEN9mHhzge8pdHrhMEmT-0.json |
+| 15:42:36 | crank | SLOW | snapshot → ok slot=2561 holders=2 excluded=5 released=900000000000 total=900000000000 root=3498b29caf887b0d… file=crank/snapshots/9fwASWm6PoNPkgBSKHEVqxmiVEN9mHhzge8pdHrhMEmT-0.json |
 | 15:42:36 | crank | SLOW | open_round → ok round=0 holders=2 released=900000000000 total=900000000000 commit_slot=2562 snapshot_slot=2561 sig=67pnoBEC3bxK… |
 | 15:42:37 | crank | 755b…8rVm | check_trigger → idle cum_volume=0 mcap_sol=1.133 sig=zjsbJPZLygEN… |
 | 15:42:37 | crank | J3M8…iQXP | check_trigger → idle cum_volume=39111108 mcap_sol=2.768 sig=4TjiucdRot1Y… |
 | 15:42:37 | crank | HOT | check_trigger → still_armed cum_volume=1099644182 mcap_sol=7.428 fire_slot=2464 sig=5qK4b89JcDB1… |
 | 15:42:38 | crank | HOT | fire_trigger → ok kind=milestone tx_slot=2566 fire_slot=2464 released=4799283662459 pending=4799283662459 sig=4vpvhLjDk7CC… |
-| 15:42:39 | crank | HOT | snapshot → ok slot=2566 holders=3 excluded=5 released=4799283662459 total=4799283662459 root=b575df38ad07bc67… file=/home/pc/airdrop-launchpad/crank/snapshots/6dyK6reusaD625RXyMZyrdon2Vg8bicptRVCjKiRZjYi-1.json |
+| 15:42:39 | crank | HOT | snapshot → ok slot=2566 holders=3 excluded=5 released=4799283662459 total=4799283662459 root=b575df38ad07bc67… file=crank/snapshots/6dyK6reusaD625RXyMZyrdon2Vg8bicptRVCjKiRZjYi-1.json |
 | 15:42:39 | crank | HOT | open_round → ok round=1 holders=3 released=4799283662459 total=4799283662459 commit_slot=2569 snapshot_slot=2566 sig=2DE9C14X1kaa… |
 | 15:43:33 | crank | - | tick 6 slot=2691 coins=8 |
 | 15:43:33 | crank | ARz9…YB3s | check_trigger → idle cum_volume=0 mcap_sol=0.968 sig=4Re65Q8xDDnH… |
