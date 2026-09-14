@@ -1273,6 +1273,23 @@ işine ertelendi (README, SECURITY_REVIEW §5.11).
   publishers = yalnız platform (test anahtarları listeden çıkarıldı).
 - **SOL: 5,54 → 2,17.** 1 SOL sınırının altına inilmedi.
 
+## Adım 31 — platform yetkisi → Squads multisig: rehber + localnet provası (14 Eylül) ✅
+
+- `docs/MULTISIG.md`: 2/3 kasa kurma (Phantom + Ledger + yedek, blind signing),
+  `set_platform <VAULT>` ile devir, kasadan propose/pause/set-publishers imzalama
+  (TX Builder'a base58 import → approve ×2 → execute), `apply-*` izinsiz, upgrade
+  authority'nin de kasaya taşınması. Uyarı: `Escrow.platform` launch'ta
+  kopyalanır; devirden önce launch edilmiş coin'lerde `intervene` eski anahtarda
+  kalır — devri ilk mainnet coin'inden önce yap.
+- `scripts/config-admin.ts`: `SQUADS_VAULT=<vault>` verilince platform-only
+  komutlar gönderilmez, kasa imzacı olacak şekilde kurulup imzasız base58 basılır.
+- `tests/multisig.ts` (localnet, Squads olmadan; kasa yerine geçici keypair):
+  devir → eski anahtar 6 platform-only çağrıda `NotPlatform` → base58 export'u
+  kasa imzalayıp gönderiyor → gecikme sonrası yabancı `apply` → ne eski anahtar
+  ne kasa `set_platform`'u geri alabiliyor. Suite tabanı/gecikmeyi geri koyuyor.
+- Localnet tam koşu **37/37** (ana 20, manual 7, multisig 4, security 6).
+- Web'de paused/tavan gösterimi (`1f108c5`) gece push'lanmıştı, ağaç temizdi.
+
 ## Senden karar bekleyenler (yeni)
 
 1. **F4 — claim için snapshot bakiyesini tutma şartı (`CLAIM_HOLD_BPS = 10000`).**
@@ -1282,9 +1299,9 @@ işine ertelendi (README, SECURITY_REVIEW §5.11).
 2. **Platform anahtarı kim?** Artık program config'inde ve yalnızca upgrade
    authority yazabiliyor. Devnet'e çıkarken `set_platform` ile gerçek platform
    anahtarını (ideali multisig) belirlemen gerekecek; şu an localnet'te crank'in
-   geçici anahtarı.
+   geçici anahtarı. Yol haritası: `docs/MULTISIG.md`.
 3. **Upgrade authority'yi multisig'e taşıma** (mainnet öncesi). Config'i de
-   koruyor artık.
+   koruyor artık. Komut ve sonrası: `docs/MULTISIG.md` bölüm 4.
 
 ## Web sitesi — durum
 

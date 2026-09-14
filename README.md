@@ -153,7 +153,7 @@ the end). `DEMO-devnet.md` is the last such run. Keep `patchProvider`
 | `indexer/snapshot.ts` | deterministic holder snapshot + pro-rata allocator; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: fee sweep, buyback, triggers, rounds — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | Next.js site: coins, rounds, claim with a wallet, event feed |
-| `scripts/` | `localnet.sh`, `demo.ts`, `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` |
+| `scripts/` | `localnet.sh`, `demo.ts`, `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
 | `docs/` | mainnet checklist, showcase parameters, grant one-pager, announcement draft, custom-pair notes |
 | `SECURITY_REVIEW.md` | trust model, findings, limitations, audit questions |
 | `PROGRESS.md` | running log (Turkish): what is proven, what is pending |
