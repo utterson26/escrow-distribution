@@ -1,117 +1,189 @@
-import { buildRows, coinLabel, fetchConfig } from "@/lib/data";
-import { fmtTokens, fmtSol, short, network, Config } from "@/lib/chain";
+import { Suspense } from "react";
+import Link from "next/link";
+import { buildRows, fetchConfig, CoinRow } from "@/lib/data";
+import { fmtSol, network, Config } from "@/lib/chain";
+import CoinTable, { compact } from "@/components/CoinTable";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Rendered from chain state and re-rendered at most every 15 s: fast for
+// everyone, and never more than a few blocks behind.
+export const revalidate = 15;
 
-function Next({ t }: { t: any }) {
-  if (!t) return <span className="pill">n/a</span>;
-  if (t.state === "armed") {
-    const secs = Math.round((t.slotsLeft ?? 0) * 0.4);
-    return (
-      <span className="pill on">
-        {t.kind} armed · fires in ~{secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`}
-      </span>
-    );
-  }
-  const v = Math.round(t.volumeProgressPct ?? 0);
-  const m = Math.round(t.milestoneProgressPct ?? 0);
+const NET = network().name;
+
+/* ------------------------------------------------------------------ hero */
+
+function Hero() {
   return (
-    <div style={{ minWidth: 150 }}>
-      <div className="k">volume {v}% · milestone {m}%</div>
-      <div className="bar"><i style={{ width: `${Math.max(v, m)}%` }} /></div>
+    <section className="hero">
+      <div>
+        <div className="eyebrow">Fair launches on pump.fun</div>
+        <h1>Locks the share devs promise to holders. Distributes it on-chain.</h1>
+        <p className="lead">
+          A launch on drop.chain puts part of the creator&apos;s own buy into a program-owned escrow
+          nobody can withdraw — the dev included. Trading releases it to holders in verifiable rounds.
+        </p>
+        <div className="cta">
+          <Link href="/launch" className="btn">Launch a coin</Link>
+          <a href="#coins" className="btn ghost">See live coins</a>
+        </div>
+      </div>
+      <Suspense fallback={<HeroArt />}>
+        <HeroLive />
+      </Suspense>
+    </section>
+  );
+}
+
+function HeroArt({ totals }: { totals?: { coins: number; locked: bigint; rounds: number; claimed: bigint } }) {
+  return (
+    <div className="hero-art" aria-label="what a launch locks">
+      <div className="k">A typical launch</div>
+      <div className="v sm">Creator buys · 30% locked for holders</div>
+      <div className="split" aria-hidden="true">
+        <i className="a" style={{ width: "30%" }} /><i className="c" style={{ width: "70%" }} />
+      </div>
+      <div className="legend">
+        <span><i style={{ background: "var(--acc)" }} />holder pool, program-owned</span>
+        <span><i style={{ background: "var(--dim2)" }} />stays with the creator</span>
+      </div>
+      <div className="grid" style={{ marginTop: 22, gridTemplateColumns: "repeat(2,1fr)" }}>
+        <div><div className="k">Volume release</div><div className="v sm">1% of pool</div><div className="sub">each time volume hits 1% of market cap</div></div>
+        <div><div className="k">Milestone release</div><div className="v sm">5% of pool</div><div className="sub">each time market cap doubles</div></div>
+      </div>
+      <div className="grid" style={{ marginTop: 18, gridTemplateColumns: "repeat(2,1fr)", borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+        <div><div className="k">On {NET} so far</div>
+          <div className="v sm">{totals ? `${totals.coins} coins` : "…"}</div>
+          <div className="sub">{totals ? `${compact(totals.locked)} tokens locked` : "reading the chain"}</div></div>
+        <div><div className="k">Distributed</div>
+          <div className="v sm">{totals ? `${totals.rounds} rounds` : "…"}</div>
+          <div className="sub">{totals ? `${compact(totals.claimed)} tokens claimed` : ""}</div></div>
+      </div>
     </div>
   );
 }
 
-/** The program-wide beta brakes, read from Config: launches paused?, per-coin lock cap, eligibility floor. */
+async function HeroLive() {
+  try {
+    const rows = await buildRows();
+    const totals = rows.reduce((t, r) => ({
+      coins: t.coins + 1,
+      locked: t.locked + r.escrow.escrowed + (r.escrow.manualTotal ?? 0n),
+      rounds: t.rounds + r.rounds,
+      claimed: t.claimed + r.escrow.claimed,
+    }), { coins: 0, locked: 0n, rounds: 0, claimed: 0n });
+    return <HeroArt totals={totals} />;
+  } catch { return <HeroArt />; }
+}
+
+/* ------------------------------------------------------------ how it works */
+
+function HowItWorks() {
+  return (
+    <section className="section" id="how">
+      <div className="section-head">
+        <h2>How it works</h2>
+        <p>One transaction to launch. Everything after that is permissionless and reproducible.</p>
+      </div>
+      <div className="steps">
+        <div className="step">
+          <div className="n">1</div>
+          <h3>Lock at launch</h3>
+          <p>The creator launches on pump.fun and buys in the same transaction. The share they choose (at least 1% of supply) moves into a program-owned escrow. No key exists that can withdraw it.</p>
+        </div>
+        <div className="step">
+          <div className="n">2</div>
+          <h3>Trading releases it</h3>
+          <p>When volume since the last round reaches 1% of market cap, 1% of the pool is released; when market cap doubles, 5%. The release lands at a random slot inside the next hour, so nobody can front-run it.</p>
+        </div>
+        <div className="step">
+          <div className="n">3</div>
+          <h3>Holders claim by proof</h3>
+          <p>A snapshot weights every eligible wallet by balance × time held; the creator is excluded. Only the Merkle root goes on chain — anyone can rebuild it — and each holder claims their row with a proof.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ coins */
+
 function BetaStatus({ cfg }: { cfg: Config | null }) {
   if (!cfg || cfg.paused === undefined) return null;
   const cap = cfg.maxLockedValueLamports ?? 0n;
   const floor = cfg.minPositionLamports ?? 0n;
-  const pendingCap = (cfg.lockCapEffectiveSlot ?? 0n) > 0n;
-  const pendingFloor = (cfg.minPositionEffectiveSlot ?? 0n) > 0n;
   return (
-    <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px", alignItems: "center", padding: "8px 12px", marginBottom: 12 }}>
+    <div className="flex small muted" style={{ marginBottom: 12, gap: "6px 18px" }}>
       <span className={`pill${cfg.paused ? " warn" : " on"}`}
             title={cfg.paused ? "the platform paused new launches; claims, triggers and rounds keep running" : "new launches are accepted"}>
-        launches {cfg.paused ? "paused" : "open"}
+        <span className="dot" aria-hidden="true" />launches {cfg.paused ? "paused" : "open"}
       </span>
-      <span className="k">
-        lock cap <b>{fmtSol(cap)} SOL</b> per coin
-        {pendingCap && ` (→ ${fmtSol(cfg.pendingLockCapLamports ?? 0n)} SOL at slot ${cfg.lockCapEffectiveSlot})`}
-      </span>
-      <span className="k">
-        eligibility floor <b>{fmtSol(floor)} SOL</b> per wallet
-        {pendingFloor && ` (→ ${fmtSol(cfg.pendingMinPositionLamports ?? 0n)} SOL at slot ${cfg.minPositionEffectiveSlot})`}
-      </span>
-      {cfg.publishers && <span className="k">rounds opened by {cfg.publishers.length} listed publisher{cfg.publishers.length === 1 ? "" : "s"}</span>}
+      <span>lock cap <b className="num">{fmtSol(cap)} SOL</b> per coin</span>
+      <span>eligibility floor <b className="num">{fmtSol(floor)} SOL</b> per wallet</span>
+      <span>platform fee <b className="num">{cfg.platformFeeBps / 100}%</b> of the creator fee</span>
     </div>
   );
 }
 
-export default async function Home() {
-  let rows: any[] = [];
-  let error: string | null = null;
+function CoinsSkeleton() {
+  return (
+    <div className="card" aria-busy="true" aria-live="polite">
+      <div className="muted small">Reading every escrow on {NET}…</div>
+      <div className="bar thin" style={{ marginTop: 12 }}><i style={{ width: "35%" }} /></div>
+    </div>
+  );
+}
+
+async function Coins() {
+  let rows: CoinRow[] = [];
   let cfg: Config | null = null;
-  try { rows = await buildRows(); cfg = await fetchConfig(); } catch (e: any) { error = String(e?.message ?? e); }
+  try { [rows, cfg] = await Promise.all([buildRows(), fetchConfig()]); }
+  catch (e: any) {
+    return <div className="card"><b>Could not reach the chain.</b><div className="note">{String(e?.message ?? e)}</div></div>;
+  }
+  if (!rows.length) return <><BetaStatus cfg={cfg} /><div className="empty">No coins have been launched on {NET} yet.</div></>;
 
-  if (error) return <div className="card"><b>Could not reach the chain.</b><div className="note">{error}</div></div>;
-  const net = network().name;
-  if (!rows.length) return <><BetaStatus cfg={cfg} /><div className="empty">No coins have been launched on {net} yet.</div></>;
-
+  // the current program layout up front; escrows written by earlier builds lack
+  // trigger state and go under a fold so they do not dilute the list
+  const current = rows.filter((r) => r.escrow.generation >= 5);
+  const older = rows.filter((r) => r.escrow.generation < 5);
   return (
     <>
-      <h2>Coins</h2>
       <BetaStatus cfg={cfg} />
-      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
-        <table>
-          <thead>
-            <tr>
-              <th>Coin</th><th>Locked</th><th>Dev share</th><th>Cap / wallet</th>
-              <th>Type · platform fee</th>
-              <th>Pool remaining</th><th>Market cap</th>
-              <th>Last distribution</th><th>Next trigger</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.escrow.address}>
-                <td>
-                  <a href={`/coin/${r.escrow.mint}`}><b>{coinLabel(r.escrow.mint, r.meta)}</b></a>
-                  <div className="k mono">{short(r.escrow.mint, 6)}</div>
-                </td>
-                <td>{r.lockedPct}% <span className="k">(holders {r.escrowPct}%{r.manualPct ? ` + list ${r.manualPct}%` : ""})</span></td>
-                <td>{r.devPct}%</td>
-                <td>{r.capPct}% (from {r.capMinHolders} holders)</td>
-                <td>{r.coinType} · {r.platformFeePct === null ? "fee split not set up" : `${r.platformFeePct}% platform`}</td>
-                <td>{fmtTokens(BigInt(r.poolRemaining))}</td>
-                <td>{fmtSol(BigInt(r.marketCapLamports))} SOL</td>
-                <td>
-                  {r.lastDistribution
-                    ? <>#{r.lastDistribution.index} · {r.lastDistribution.claimed}/{r.lastDistribution.holders} holders claimed · {fmtTokens(BigInt(r.lastDistribution.total))}</>
-                    : <span style={{ color: "var(--dim)" }}>none yet</span>}
-                </td>
-                <td><Next t={r.nextTrigger} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <CoinTable rows={current.length ? current : rows} />
+      {current.length > 0 && older.length > 0 && (
+        <details className="more">
+          <summary>{older.length} earlier test launches from previous program builds</summary>
+          <CoinTable rows={older} />
+        </details>
+      )}
+      <p className="note mt">
+        Every number is read live from the program on {NET}. Locked tokens sit in a program-owned account you can
+        verify on the explorer from each coin&apos;s page. The platform&apos;s only revenue is a cut of pump.fun&apos;s
+        creator fee; it never touches the locked pool.
+      </p>
+    </>
+  );
+}
+
+export default function Home() {
+  return (
+    <>
+      <div className="beta" role="note">
+        <span className="pill warn">beta</span>
+        <span><b>Unaudited.</b> The program is live on devnet only. Each coin may lock at most a capped value at launch and the
+          platform can pause new launches; claims and distributions never pause. Source, tests and the security review are public.</span>
       </div>
-      <div className="note">
-        Every number above is read live from the program on {net}. The locked share is a slice of the
-        launch buy, split between the holder pool (triggered distributions) and, optionally, a fixed
-        wallet list committed at launch; it must be at least 1% of total supply. The rest stayed with the
-        dev wallet — which never takes part in a distribution itself. Each round is split pro rata
-        (balance × time held) over every eligible holder, no wallet taking more than the cap once
-        there are enough holders. The platform fee is a cut of pump&apos;s creator fee only — it is
-        written into each coin&apos;s pump fee-sharing config and never touches the locked pool.
-        {cfg && <> Current platform rate for new launches: {cfg.platformFeeBps / 100}%
-          {cfg.feeEffectiveSlot > 0n && ` (change to ${cfg.pendingFeeBps / 100}% pending, effective at slot ${cfg.feeEffectiveSlot})`}.
-          The lock cap and the eligibility floor above are beta brakes in the same config; the platform
-          can change either only through a proposal that takes effect 7 days later, and every round
-          keeps the floor it was built with.</>}
-      </div>
+      <Hero />
+      <HowItWorks />
+      <section className="section" id="coins">
+        <div className="section-head">
+          <h2>Live coins</h2>
+          <p>Every launch the program has made on {NET}, newest first.</p>
+        </div>
+        <Suspense fallback={<CoinsSkeleton />}>
+          <Coins />
+        </Suspense>
+      </section>
     </>
   );
 }

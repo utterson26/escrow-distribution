@@ -18,25 +18,29 @@ const ata = (o: PublicKey, m: PublicKey) =>
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const u64 = (v: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(v); return b; };
 
-export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: string }) {
+export default function ClaimPanel({ mint, escrow, cluster }: { mint: string; escrow: string; cluster: string }) {
+  const explorerTx = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=${cluster}`;
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const [data, setData] = useState<any>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err" | "info"; text: string; sig?: string } | null>(null);
+  const [done, setDone] = useState<number[]>([]);
 
   useEffect(() => {
-    if (!publicKey) { setData(null); return; }
-    setMsg("Rebuilding the allocation from chain history…");
+    if (!publicKey) { setData(null); setMsg(null); return; }
+    setLoading(true); setMsg(null);
     fetch(`/api/claim/${mint}?wallet=${publicKey.toBase58()}&escrow=${escrow}`)
       .then((r) => r.json())
-      .then((d) => { setData(d); setMsg(null); })
-      .catch((e) => setMsg(String(e)));
+      .then((d) => setData(d))
+      .catch((e) => setMsg({ kind: "err", text: String(e) }))
+      .finally(() => setLoading(false));
   }, [publicKey, mint, escrow]);
 
   const claim = useCallback(async (c: any) => {
     if (!publicKey) return;
-    setBusy(true); setMsg(null);
+    setBusy(c.roundIndex); setMsg(null);
     try {
       const mintPk = new PublicKey(mint);
       const escrowPk = new PublicKey(escrow);
@@ -60,50 +64,66 @@ export default function ClaimPanel({ mint, escrow }: { mint: string; escrow: str
         ],
       });
       const sig = await sendTransaction(new Transaction().add(ix), connection);
-      setMsg(`Claim sent: ${sig}`);
+      setMsg({ kind: "info", text: "Claim sent, waiting for confirmation…", sig });
+      const bh = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+      setDone((d) => [...d, c.roundIndex]);
+      setMsg({ kind: "ok", text: `Round #${c.roundIndex} claimed.`, sig });
     } catch (e: any) {
-      setMsg(String(e?.message ?? e));
-    } finally { setBusy(false); }
+      setMsg({ kind: "err", text: String(e?.message ?? e) });
+    } finally { setBusy(null); }
   }, [publicKey, sendTransaction, connection, mint, escrow]);
 
   if (!publicKey) {
     return (
-      <div className="card">
-        <div className="k">Your share</div>
-        <div className="note">Connect a wallet to see whether this coin has set aside a share for you.</div>
-        <div style={{ marginTop: 10 }}><WalletMultiButton /></div>
+      <div className="card flex between">
+        <div>
+          <h3>Check your claims</h3>
+          <p className="note">Connect a wallet to see what every round of this coin has set aside for you.</p>
+        </div>
+        <WalletMultiButton>Connect wallet</WalletMultiButton>
       </div>
     );
   }
+  const claimable = (data?.claimable ?? []).filter((c: any) => !done.includes(c.roundIndex));
   return (
     <div className="card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div className="k">Your share</div><WalletMultiButton />
+      <div className="flex between">
+        <h3>Your claims</h3>
+        <WalletMultiButton />
       </div>
-      {msg && <div className="note">{msg}</div>}
-      {data?.error && <div className="note">Error: {data.error}</div>}
-      {data && !data.error && (
+      {loading && (
+        <div className="note mt" aria-live="polite">
+          Rebuilding each round&apos;s allocation from chain history and checking it against the on-chain root…
+          <div className="bar thin"><i style={{ width: "40%" }} /></div>
+        </div>
+      )}
+      {msg && (
+        <div className={`alert mt ${msg.kind === "err" ? "err" : msg.kind === "ok" ? "ok" : ""}`} role="status">
+          {msg.text}{msg.sig && <> <a href={explorerTx(msg.sig)} target="_blank" rel="noreferrer">view transaction ↗</a></>}
+        </div>
+      )}
+      {data?.error && <div className="alert err mt" role="alert">{data.error}</div>}
+      {data && !data.error && !loading && (
         <>
-          {data.claimable.length === 0 && (
-            <div className="note">
-              Nothing to claim. Checked {data.reproducible} of {data.rounds} round(s)
-              {data.claimed?.length > 0 && `; already claimed round(s) ${data.claimed.join(", ")}`}.
-              {data.opaque?.length > 0 &&
-                ` Round(s) ${data.opaque.join(", ")} could not be rebuilt from chain history — the operator has not published that snapshot.`}
-            </div>
-          )}
-          {data.claimable.map((c: any) => (
-            <div key={c.roundIndex}
-                 style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
-              <div style={{ flex: 1 }}>
-                <div className="v">{(Number(c.amount) / 1e6).toLocaleString("en-US")} tokens</div>
-                <div className="k">round #{c.roundIndex} · your share {c.sharePct}% of the round</div>
+          {claimable.map((c: any) => (
+            <div key={c.roundIndex} className="flex between mt" style={{ padding: "14px 16px", background: "var(--bg2)", borderRadius: 10, border: "1px solid var(--line)" }}>
+              <div>
+                <div className="v sm num">{(Number(c.amount) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 0 })} tokens</div>
+                <div className="sub">round #{c.roundIndex} · {c.sharePct}% of the round</div>
               </div>
-              <button className="btn" disabled={busy} onClick={() => claim(c)}>
-                {busy ? "Claiming…" : "Claim"}
+              <button className="btn" disabled={busy !== null} onClick={() => claim(c)}>
+                {busy === c.roundIndex ? "Claiming…" : "Claim"}
               </button>
             </div>
           ))}
+          {claimable.length === 0 && (
+            <p className="note mt">
+              Nothing to claim right now. Checked {data.reproducible} of {data.rounds} round{data.rounds === 1 ? "" : "s"}
+              {data.claimed?.length > 0 && <>; already claimed round{data.claimed.length === 1 ? "" : "s"} {data.claimed.join(", ")}</>}.
+              {data.opaque?.length > 0 && <> Round{data.opaque.length === 1 ? "" : "s"} {data.opaque.join(", ")} could not be rebuilt from chain history yet.</>}
+            </p>
+          )}
         </>
       )}
     </div>

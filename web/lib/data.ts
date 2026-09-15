@@ -6,17 +6,47 @@ import {
   MIN_LOCK_SUPPLY_BPS,
 } from "./chain";
 
-/** The program config (platform authority, platform fee); null before `set_platform`. */
-export async function fetchConfig(): Promise<Config | null> {
-  const addr = PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_ID)[0];
-  const info = await conn().getAccountInfo(addr);
-  return info ? decodeConfig(info.data as Buffer) : null;
+/**
+ * Short-lived in-process memo so a page and its API route do not each pay for
+ * the same getProgramAccounts scan; chain state on this site only changes on
+ * the order of minutes.
+ */
+const memos = new Map<string, { at: number; p: Promise<any> }>();
+export function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = memos.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.p;
+  const p = fn().catch((e) => { memos.delete(key); throw e; });
+  memos.set(key, { at: Date.now(), p });
+  return p;
 }
+const TTL = 15_000;
+
+/** The program config (platform authority, platform fee); null before `set_platform`. */
+export function fetchConfig(): Promise<Config | null> {
+  return memo("config", TTL, async () => {
+    const addr = PublicKey.findProgramAddressSync([Buffer.from("config")], PROGRAM_ID)[0];
+    const info = await conn().getAccountInfo(addr);
+    return info ? decodeConfig(info.data as Buffer) : null;
+  });
+}
+
+/** Launch time, recovered from the manual-list unlock (launch + 30 days); older layouts have none. */
+export function launchedAt(e: Escrow): Date | null {
+  if (e.generation < 4 || !e.manualUnlockTs) return null;
+  return new Date((Number(e.manualUnlockTs) - 30 * 24 * 60 * 60) * 1000);
+}
+
+/** Rounds written by earlier program generations decode to nonsense; keep only self-consistent ones. */
+export const saneRound = (r: Round) =>
+  r.holderCount <= 1_000_000 && r.claimedCount <= r.holderCount && r.total <= r.released && r.snapshotSlot <= r.commitSlot;
 
 /** Name and symbol from the mint's Token-2022 metadata extension (pump writes it at create). */
 export interface CoinMeta { name: string; symbol: string }
 
 export async function fetchMetadata(mints: string[]): Promise<Record<string, CoinMeta>> {
+  return memo(`meta:${mints.join(",")}`, 10 * 60_000, () => fetchMetadataRaw(mints));
+}
+async function fetchMetadataRaw(mints: string[]): Promise<Record<string, CoinMeta>> {
   const c = conn();
   const out: Record<string, CoinMeta> = {};
   for (let i = 0; i < mints.length; i += 100) {
@@ -56,6 +86,10 @@ export interface CoinRow {
   /** this coin's platform cut of the creator fee, as written into its pump sharing config (null: not set up yet) */
   platformFeePct: number | null;
   nextTrigger: NextTrigger | null;
+  /** ISO launch time, when the escrow layout records one */
+  launchedAt: string | null;
+  /** total rounds opened so far */
+  rounds: number;
 }
 
 export interface NextTrigger {
@@ -64,6 +98,10 @@ export interface NextTrigger {
   slotsLeft?: number;
   volumeProgressPct?: number;   // toward 1% of market cap
   milestoneProgressPct?: number; // toward 2x the last milestone
+  /** market cap the next milestone fires at (2x the last one), lamports as string */
+  milestoneTarget?: string;
+  /** trading volume since the last distribution and what the volume trigger needs, lamports as strings */
+  volumeSince?: string; volumeNeeded?: string;
 }
 
 const ESCROW_DISC = anchorDisc("account", "Escrow");
@@ -71,24 +109,29 @@ const ROUND_DISC = anchorDisc("account", "Round");
 // a discriminator is 8 bytes, so it cannot go through PublicKey (32 bytes)
 const toB58 = (b: Buffer) => bs58.encode(b);
 
-export async function fetchEscrows(): Promise<Escrow[]> {
-  const c = conn();
-  const accs = await c.getProgramAccounts(PROGRAM_ID, {
-    filters: [{ memcmp: { offset: 0, bytes: toB58(ESCROW_DISC) } }],
+export function fetchEscrows(): Promise<Escrow[]> {
+  return memo("escrows", TTL, async () => {
+    const accs = await conn().getProgramAccounts(PROGRAM_ID, {
+      filters: [{ memcmp: { offset: 0, bytes: toB58(ESCROW_DISC) } }],
+    });
+    return accs
+      .map((a) => decodeEscrow(a.pubkey.toBase58(), a.account.data as Buffer))
+      // only coins that actually launched; newest first, older layouts (no launch time) last
+      .filter((e) => e.bought > 0n)
+      .sort((a, b) => {
+        const ta = launchedAt(a)?.getTime() ?? 0, tb = launchedAt(b)?.getTime() ?? 0;
+        return tb - ta || Number(b.escrowed - a.escrowed);
+      });
   });
-  return accs
-    .map((a) => decodeEscrow(a.pubkey.toBase58(), a.account.data as Buffer))
-    // only coins that actually launched
-    .filter((e) => e.bought > 0n)
-    .sort((a, b) => Number(b.escrowed - a.escrowed));
 }
 
 export async function fetchRounds(escrowAddr?: string): Promise<Round[]> {
-  const c = conn();
-  const accs = await c.getProgramAccounts(PROGRAM_ID, {
-    filters: [{ memcmp: { offset: 0, bytes: toB58(ROUND_DISC) } }],
+  const rounds = await memo("rounds", TTL, async () => {
+    const accs = await conn().getProgramAccounts(PROGRAM_ID, {
+      filters: [{ memcmp: { offset: 0, bytes: toB58(ROUND_DISC) } }],
+    });
+    return accs.map((a) => decodeRound(a.pubkey.toBase58(), a.account.data as Buffer)).filter(saneRound);
   });
-  const rounds = accs.map((a) => decodeRound(a.pubkey.toBase58(), a.account.data as Buffer));
   return escrowAddr ? rounds.filter((r) => r.escrow === escrowAddr) : rounds;
 }
 
@@ -118,6 +161,7 @@ function nextTrigger(e: Escrow, curve: Curve | null, slot: number): NextTrigger 
     state: "waiting",
     volumeProgressPct: Math.min(100, volPct),
     milestoneProgressPct: Math.min(100, msPct),
+    milestoneTarget: target.toString(), volumeSince: since.toString(), volumeNeeded: needed.toString(),
   };
 }
 
@@ -128,7 +172,10 @@ export function manualPctOf(e: Escrow): number {
   return e.generation >= 5 ? bps / 100 : ((100 - e.escrowBps / 100) * bps) / 10000;
 }
 
-export async function buildRows(): Promise<CoinRow[]> {
+export function buildRows(): Promise<CoinRow[]> {
+  return memo("rows", TTL, buildRowsRaw);
+}
+async function buildRowsRaw(): Promise<CoinRow[]> {
   const c = conn();
   const [escrows, rounds, slot] = await Promise.all([
     fetchEscrows(), fetchRounds(), c.getSlot("confirmed"),
@@ -167,6 +214,8 @@ export async function buildRows(): Promise<CoinRow[]> {
       coinType: e.isHolderReward ? "holder-rewards" : "regular",
       platformFeePct: e.isHolderReward ? 0 : e.feeSharingSet ? (e.platformFeeBps ?? 0) / 100 : null,
       nextTrigger: nextTrigger(e, curve, slot),
+      launchedAt: launchedAt(e)?.toISOString() ?? null,
+      rounds: mine.length,
     });
   }
   return out;
@@ -187,17 +236,26 @@ export interface FeedItem {
   kind: string; escrow?: string; mint?: string; amount?: string; holder?: string;
 }
 
-export async function fetchFeed(limit = 30): Promise<FeedItem[]> {
+export function fetchFeed(limit = 30): Promise<FeedItem[]> {
+  return memo(`feed:${limit}`, TTL, () => fetchFeedRaw(limit));
+}
+async function fetchFeedRaw(limit: number): Promise<FeedItem[]> {
   const c = conn();
-  const sigs = await c.getSignaturesForAddress(PROGRAM_ID, { limit: 60 }, "confirmed");
-  const mintOf = new Map((await fetchEscrows()).map((e) => [e.address, e.mint]));
-  const items: FeedItem[] = [];
-  for (const s of sigs) {
-    if (s.err) continue;
-    const tx = await c.getTransaction(s.signature, {
+  const [sigs, escrows] = await Promise.all([
+    c.getSignaturesForAddress(PROGRAM_ID, { limit: 60 }, "confirmed"), fetchEscrows(),
+  ]);
+  const mintOf = new Map(escrows.map((e) => [e.address, e.mint]));
+  const ok = sigs.filter((s) => !s.err);
+  // one batched read per 20 signatures instead of a round trip each
+  const txs: (Awaited<ReturnType<typeof c.getTransaction>>)[] = [];
+  for (let i = 0; i < ok.length; i += 20) {
+    txs.push(...await c.getTransactions(ok.slice(i, i + 20).map((s) => s.signature), {
       commitment: "confirmed", maxSupportedTransactionVersion: 0,
-    });
-    const logs = tx?.meta?.logMessages ?? [];
+    }));
+  }
+  const items: FeedItem[] = [];
+  for (const [n, s] of ok.entries()) {
+    const logs = txs[n]?.meta?.logMessages ?? [];
     for (const l of logs) {
       if (!l.startsWith("Program data: ")) continue;
       const buf = Buffer.from(l.slice("Program data: ".length), "base64");

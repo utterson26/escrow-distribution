@@ -181,7 +181,7 @@ twelve-buyer story with a fixed list is `npm run demo -- --devnet`.
 | `programs/airdrop_escrow` | the Anchor program |
 | `indexer/snapshot.ts` | deterministic holder snapshot + pro-rata allocator; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: fee sweep, buyback, triggers, rounds — once a minute, for every coin ([README](crank/README.md)) |
-| `web/` | Next.js site: coins, rounds, claim with a wallet, event feed |
+| `web/` | drop.chain site (Next.js): live coins, coin pages with claims and a share estimator, launch form that signs from a browser wallet, docs, event feed |
 | `scripts/` | `localnet.sh`, `demo.ts`, `demo-video.sh` (devnet, 3–4 min, for recording), `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
 | `docs/` | mainnet checklist, showcase parameters, grant one-pager, hackathon application (`HACKATHON.md`), multisig guide, announcement draft, custom-pair notes |
 | `SECURITY_REVIEW.md` | trust model, findings, limitations, audit questions |
