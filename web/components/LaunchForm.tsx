@@ -277,24 +277,31 @@ export default function LaunchForm() {
             (5% of the remaining pool per market-cap doubling, 1% per volume trigger); per-coin schedules are on the roadmap, so this table is
             not written on chain yet.
           </p>
+          <div className="flex between mt" style={{ gap: "6px 16px" }} aria-live="polite">
+            <span className="small">
+              Released so far <b className="num">{schedTotal}%</b> · Still locked <b className="num">{Math.max(0, 100 - schedTotal)}%</b>
+            </span>
+            {schedTotal !== 100 && <span className="pill warn">a full schedule adds up to 100%</span>}
+          </div>
           <div className="tbl mt"><table className="milestones">
-            <thead><tr><th>Market cap</th><th className="r">Released at tier</th><th className="r">Cumulative</th></tr></thead>
+            <thead><tr><th>Market cap</th><th className="r">Released at tier</th><th className="r">Cumulative</th><th className="r">Still locked</th></tr></thead>
             <tbody>
-              {schedule.map((row, i) => (
-                <tr key={i}>
-                  <td><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} market cap in USD`} value={row.mcap}
-                             onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, mcap: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
-                  <td className="r"><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} percent released`} value={row.pct} style={{ textAlign: "right" }}
-                             onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, pct: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
-                  <td className="r muted">{schedule.slice(0, i + 1).reduce((s, r) => s + (Number(r.pct) || 0), 0)}%</td>
-                </tr>
-              ))}
+              {schedule.map((row, i) => {
+                const cum = schedule.slice(0, i + 1).reduce((s, r) => s + (Number(r.pct) || 0), 0);
+                return (
+                  <tr key={i}>
+                    <td><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} market cap in USD`} value={row.mcap}
+                               onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, mcap: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
+                    <td className="r"><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} percent released`} value={row.pct} style={{ textAlign: "right" }}
+                               onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, pct: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
+                    <td className="r muted">{cum}%</td>
+                    <td className="r"><b>{Math.max(0, 100 - cum)}%</b></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table></div>
-          <div className="flex between small muted mt">
-            <span>{schedule.map((r) => fmtK(r.mcap)).join(" → ")}</span>
-            <span className={schedTotal === 100 ? "" : "pill warn"}>{schedTotal}% total{schedTotal !== 100 && " — a full schedule adds up to 100%"}</span>
-          </div>
+          <div className="small muted mt">{schedule.map((r) => fmtK(r.mcap)).join(" → ")}</div>
         </div>
 
         <div className="card">

@@ -16,6 +16,10 @@ export const viewport: Viewport = { themeColor: "#0a0c10", width: "device-width"
 
 const REPO = "https://github.com/utterson26/escrow-distribution";
 
+const WALLET_GUARD = `(function(){var re=/(redefine|define) property:? ?(window\.)?(ethereum|solana|phantom)|ethereum.*(redefine|read.only)/i;
+window.addEventListener('error',function(e){var m=(e&&e.message)||(e.error&&e.error.message)||'';if(re.test(m)){e.stopImmediatePropagation();e.preventDefault();}},true);
+window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;var m=(r&&r.message)||String(r||'');if(re.test(m)){e.stopImmediatePropagation();e.preventDefault();}},true);})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const net = network();
   return (
@@ -24,6 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Pages render from chain state, so Next streams their metadata into the body; the
             description crawlers read from the initial <head> is set once here instead. */}
         <meta name="description" content={DESCRIPTION} />
+        {/* Browser wallet extensions fight over window.ethereum ("Cannot redefine property:
+            ethereum"); the error is theirs, not the page's, so swallow it before the dev
+            overlay or any other listener sees it. Registered first, in the capture phase. */}
+        <script dangerouslySetInnerHTML={{ __html: WALLET_GUARD }} />
       </head>
       <body>
         <header className="top">

@@ -74,6 +74,9 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
   const launched = launchedAt(e);
   const minPos = cfg?.minPositionLamports ?? DEFAULT_MIN_POSITION_LAMPORTS;
   const claimedPct = e.allocated > 0n ? Number((e.claimed * 1000n) / e.allocated) / 10 : 0;
+  // share of the holder pool that rounds have taken so far, and what is still locked
+  const releasedPct = e.escrowed > 0n ? Number((e.allocated * 1000n) / e.escrowed) / 10 : 0;
+  const stillLockedPct = Math.max(0, Math.round((100 - releasedPct) * 10) / 10);
 
   // trigger progress
   const target = (e.lastMilestoneMcap ?? 0n) * 2n;
@@ -127,6 +130,12 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
           <i className="a" style={{ width: `${e.escrowBps / 100}%` }} />
           {manualPct > 0 && <i className="b" style={{ width: `${manualPct}%` }} />}
           <i className="c" style={{ width: `${100 - lockedPct}%` }} />
+        </div>
+        <div className="flex between mt" style={{ gap: "6px 16px" }}>
+          <span className="small">
+            Released so far <b className="num">{releasedPct}%</b> · Still locked <b className="num">{stillLockedPct}%</b> · <b className="num">{rounds.length}</b> round{rounds.length === 1 ? "" : "s"}
+          </span>
+          <span className="tiny muted">of the holder pool locked at launch</span>
         </div>
         <div className="legend">
           <span><i style={{ background: "var(--acc)" }} />holder pool {e.escrowBps / 100}%</span>
