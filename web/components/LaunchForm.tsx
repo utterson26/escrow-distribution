@@ -13,6 +13,9 @@ import {
 interface Params {
   network: string;
   pump: PumpParams;
+  /** the same curve parameters on mainnet, for the "what would this cost for real" line */
+  mainnet: PumpParams | null;
+  solUsd: number | null;
   config: { paused: boolean; platformFeeBps: number; maxLockedValueLamports: string; minPositionLamports: string } | null;
 }
 
@@ -88,7 +91,8 @@ export default function LaunchForm() {
     if (lockedValue > cap) problems.push(`Locked value ${sol(lockedValue)} SOL exceeds the beta cap of ${sol(cap, 0)} SOL per coin — lock a smaller share.`);
     if (listPct > 0 && listErr) problems.push(`Fixed list: ${listErr}.`);
     if (listPct > 0 && !listErr && listTotal !== 10_000) problems.push(`Fixed list percentages add up to ${listTotal / 100}%; they should add up to 100% of the list's slice.`);
-    return { supply, buyPct, amount, holderBps, listBps, lockedBps, holderTokens, listTokens, keepTokens, locked, lockedSupplyPct, lamports, lockedValue, cap, list, listErr, listTotal, problems };
+    const mainnetLamports = p.mainnet && amount > 0n ? solForTokens(p.mainnet, amount) : null;
+    return { supply, buyPct, amount, holderBps, listBps, lockedBps, holderTokens, listTokens, keepTokens, locked, lockedSupplyPct, lamports, lockedValue, cap, list, listErr, listTotal, problems, mainnetLamports };
   }, [p, holderPct, listPct, keepPct, listText, name, symbol]);
 
   /* --------------------------------------------------------------- run */
@@ -194,10 +198,17 @@ export default function LaunchForm() {
         <div><div className="k">Holder pool</div><div className="v sm">{tok(d.holderTokens)}</div><div className="sub">{pctS(holderPct)} of supply</div></div>
         <div><div className="k">You keep</div><div className="v sm">{tok(d.keepTokens)}</div><div className="sub">{pctS(keepPct)} of supply · excluded from rounds</div></div>
         {listPct > 0 && <div><div className="k">Fixed list</div><div className="v sm">{tok(d.listTokens)}</div><div className="sub">{pctS(listPct)} of supply</div></div>}
-        <div><div className="k">Creator buy</div><div className="v sm">{sol(d.lamports)} SOL</div><div className="sub">{tok(d.amount)} = {pctS(d.buyPct)} of supply, at the launch price</div></div>
+        <div><div className="k">Creator buy</div><div className="v sm">{sol(d.lamports)} SOL</div><div className="sub">{tok(d.amount)} = {pctS(d.buyPct)} of supply, integrated along the curve, pump fees included</div></div>
         <div><div className="k">Locked value</div><div className="v sm">{sol(d.lockedValue)} SOL</div><div className="sub">beta cap {sol(d.cap, 0)} SOL</div></div>
         <div><div className="k">Creator fee split</div><div className="v sm">{holderRewards ? "on pump" : `${100 - (p.config?.platformFeeBps ?? 1000) / 100} / ${(p.config?.platformFeeBps ?? 1000) / 100}`}</div><div className="sub">{holderRewards ? "pump's holder pool" : "escrow / platform"}</div></div>
       </div>
+      {d.mainnetLamports !== null && (
+        <div className="sub mt" style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+          On mainnet the same buy would cost <b className="num">{sol(d.mainnetLamports, 2)} SOL</b>
+          {p.solUsd ? <> (≈ ${(Number(d.mainnetLamports) / 1e9 * p.solUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })} at ${p.solUsd.toFixed(0)}/SOL)</> : null}
+          : the curve starts at 30 SOL virtual there, 1 SOL on devnet.
+        </div>
+      )}
       <div className="mt2" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
         <div className="k">What holders get</div>
         <p className="small muted" style={{ marginTop: 4 }}>
@@ -240,6 +251,31 @@ export default function LaunchForm() {
         </div>
 
         <div className="card">
+          <div className="flex between"><h2 className="h3">Distribution</h2><span className="tiny muted">fixed at launch · cannot be changed later</span></div>
+          <div className="row2 mt" role="radiogroup" aria-label="distribution mode">
+            {([0, 1] as const).map((m) => (
+              <label key={m} className="card" style={{ cursor: "pointer", borderColor: mode === m ? "var(--acc)" : undefined, background: mode === m ? "var(--acc-soft)" : "var(--bg2)", margin: 0 }}>
+                <div className="flex" style={{ gap: 10 }}>
+                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => { setMode(m); if (m === 0) setListPct(0); }} disabled={running} />
+                  <b>{m === 0 ? "Auto" : "Manual"}</b>
+                  <span className="pill" style={{ marginLeft: "auto" }}>{m === 0 ? "rule-driven" : "dev-driven"}</span>
+                </div>
+                <p className="small muted" style={{ marginTop: 8 }}>
+                  {m === 0
+                    ? "The program releases the pool on its own: 1% each time volume reaches 1% of market cap, 5% each time market cap doubles, each at a random moment within the hour. You have no trigger, no pause and no veto — holders can count on it."
+                    : "Nothing releases until you say so. dev_distribute moves any amount up to the whole pool into the next round immediately — no threshold, no delay. Holders trust your timing; the pool itself can still never come back to you."}
+                </p>
+              </label>
+            ))}
+          </div>
+          <p className="note mt">
+            Both modes use the same distribution engine: a snapshot at the release, pro-rata by balance × time held, the eligibility
+            floor, the per-wallet cap, the creator and the fixed list excluded, Merkle claims. A fixed wallet list (team, partners) can be
+            added on Manual launches; an Auto coin locks everything for the holder pool.
+          </p>
+        </div>
+
+        <div className="card">
           <h2 className="h3">Lock</h2>
           <p className="note" style={{ marginTop: 4 }}>
             Shares of the total supply (1B). You buy exactly pool + list + keep in the launch transaction; the program moves the
@@ -254,9 +290,15 @@ export default function LaunchForm() {
               <div className="hint">stays in your wallet; never takes part in a round</div></div>
           </div>
           <div className="row2">
-            <div className="field"><label className="f" htmlFor="l-list">Fixed wallet list — {pctS(listPct)} of supply{d && listPct > 0 ? ` = ${tok(d.listTokens)}` : ""}</label>
-              <input id="l-list" type="range" min={0} max={20} step={1} value={listPct} onChange={(e) => setListPct(Number(e.target.value))} disabled={running} />
-              <div className="hint">optional: wallets committed at launch (team, partners), claimable by proof, locked 30 days</div></div>
+            {mode === 1 ? (
+              <div className="field"><label className="f" htmlFor="l-list">Fixed wallet list — {pctS(listPct)} of supply{d && listPct > 0 ? ` = ${tok(d.listTokens)}` : ""}</label>
+                <input id="l-list" type="range" min={0} max={20} step={1} value={listPct} onChange={(e) => setListPct(Number(e.target.value))} disabled={running} />
+                <div className="hint">optional: wallets committed at launch (team, partners), claimable by proof, locked 30 days</div></div>
+            ) : (
+              <div className="field"><div className="f">Fixed wallet list</div>
+                <div className="v sm muted">—</div>
+                <div className="hint">available on Manual launches; an Auto coin locks everything for the holder pool</div></div>
+            )}
             <div className="field"><div className="f">Creator buy</div>
               <div className="v sm num">{d ? `${sol(d.lamports)} SOL` : "—"}</div>
               <div className="hint">{d ? `${tok(d.amount)} tokens = ${pctS(d.buyPct)} of supply at the launch price, pump fees included` : "computed from the curve"}</div></div>
@@ -277,30 +319,6 @@ export default function LaunchForm() {
               <span>pump.fun holder-rewards coin — pump pays the creator fee to its own holder pool; the escrow gets no fee sweep and no buyback, only the locked supply and its rounds.</span>
             </label>
           </details>
-        </div>
-
-        <div className="card">
-          <div className="flex between"><h2 className="h3">Distribution</h2><span className="tiny muted">fixed at launch · cannot be changed later</span></div>
-          <div className="row2 mt" role="radiogroup" aria-label="distribution mode">
-            {([0, 1] as const).map((m) => (
-              <label key={m} className="card" style={{ cursor: "pointer", borderColor: mode === m ? "var(--acc)" : undefined, background: mode === m ? "var(--acc-soft)" : "var(--bg2)", margin: 0 }}>
-                <div className="flex" style={{ gap: 10 }}>
-                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} disabled={running} />
-                  <b>{m === 0 ? "Auto" : "Manual"}</b>
-                  <span className="pill" style={{ marginLeft: "auto" }}>{m === 0 ? "rule-driven" : "dev-driven"}</span>
-                </div>
-                <p className="small muted" style={{ marginTop: 8 }}>
-                  {m === 0
-                    ? "The program releases the pool on its own: 1% each time volume reaches 1% of market cap, 5% each time market cap doubles, each at a random moment within the hour. You have no trigger, no pause and no veto — holders can count on it."
-                    : "Nothing releases until you say so. dev_distribute moves any amount up to the whole pool into the next round immediately — no threshold, no delay. Holders trust your timing; the pool itself can still never come back to you."}
-                </p>
-              </label>
-            ))}
-          </div>
-          <p className="note mt">
-            Both modes use the same distribution engine: a snapshot at the release, pro-rata by balance × time held, the eligibility
-            floor, the per-wallet cap, the creator and the fixed list excluded, Merkle claims. The fixed wallet list works the same in both.
-          </p>
         </div>
 
         <div className="card">

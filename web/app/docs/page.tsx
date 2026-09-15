@@ -51,7 +51,9 @@ export default async function Docs() {
           <Q q="What exactly gets locked, and why are the percentages shares of supply?">
             <p>Part of the creator&apos;s own launch buy. pump.fun mints a fixed 1B tokens; on the launch form you choose the holder pool,
               the optional fixed list and what you keep as shares of that supply (say 30% + 0% + 2%), and the form prices the buy of
-              exactly that much — 32% of supply — off the curve. The <code>launch</code> instruction creates the coin, makes that buy and, in the
+              exactly that much — 32% of supply — by integrating along pump&apos;s constant-product curve (vSol × amount / (vTok − amount),
+              plus pump&apos;s 1.25% fees), not by multiplying the launch price by the amount: 320M tokens cost 0.43 SOL on devnet, where the
+              curve starts at 1 SOL virtual, and about 12.9 SOL on mainnet, where it starts at 30. The <code>launch</code> instruction creates the coin, makes that buy and, in the
               same transaction, moves the pool and the list into an escrow account owned by the program. Nothing is minted for the escrow
               separately — what holders get is what you bought and gave up.</p>
             <p>Shares of supply are the honest unit: &quot;30% of the buy&quot; says nothing until you know the buy, while &quot;30% of supply&quot; is a
@@ -66,8 +68,12 @@ export default async function Docs() {
               pool, immediately, no delay — and nothing else releases. Holders trust the creator&apos;s timing, not their honesty: the pool can never
               come back to the creator in either mode.</p>
             <p>Both modes hand every release to the same engine — snapshot at the release, pro-rata by balance × time held, the eligibility floor,
-              the per-wallet cap, the creator and the fixed list excluded, Merkle claims — and the fixed list works the same in both. The mode is
-              chosen at launch and no instruction changes it; the coin page shows it as a badge and each round records what released it.</p>
+              the per-wallet cap, the creator and the fixed list excluded, Merkle claims. The mode is chosen at launch and no instruction changes
+              it; the coin page shows it as a badge and each round records what released it.</p>
+            <p><b>Fixed wallet list:</b> the launch form offers it on Manual launches only. An Auto coin locks everything for the holder pool, so
+              its lock is exactly what the rule releases to holders; a Manual creator, who already controls the timing, may also commit a list of
+              wallets and percentages (team, partners) at launch — claimable by proof, locked 30 days, never editable. (The program itself accepts
+              a list in either mode; the restriction is the site&apos;s.)</p>
           </Q>
           <Q q="Can the creator get the locked tokens back?">
             <p>No. The escrow is a program-derived account; no private key exists for it, and the program has no instruction that returns

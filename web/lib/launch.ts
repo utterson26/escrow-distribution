@@ -90,6 +90,12 @@ export interface PumpParams {
   feeBps: string; creatorFeeBps: string; feeRecipient: string; buybackFeeRecipient: string;
 }
 
+/**
+ * pump's curve is constant-product over virtual reserves, so the cost of an
+ * exact token amount is the closed-form integral vSol·amount / (vTok − amount)
+ * — not price × amount, which understates a 32%-of-supply buy by a third.
+ * Checked against a real devnet launch: 320M tokens → 0.4249668 SOL, to the lamport.
+ */
 /** Tokens a fresh curve gives for `sol` lamports, fees taken off the top. */
 export function tokensForSol(p: PumpParams, lamports: bigint): bigint {
   const vt = BigInt(p.initialVirtualTokenReserves), vs = BigInt(p.initialVirtualSolReserves);
