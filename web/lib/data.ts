@@ -21,6 +21,16 @@ export function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promi
 }
 const TTL = 15_000;
 
+/** `Promise.all` with at most `n` calls in flight. */
+export async function mapLimit<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i]); }
+  }));
+  return out;
+}
+
 /** The program config (platform authority, platform fee); null before `set_platform`. */
 export function fetchConfig(): Promise<Config | null> {
   return memo("config", TTL, async () => {
@@ -246,13 +256,9 @@ async function fetchFeedRaw(limit: number): Promise<FeedItem[]> {
   ]);
   const mintOf = new Map(escrows.map((e) => [e.address, e.mint]));
   const ok = sigs.filter((s) => !s.err);
-  // one batched read per 20 signatures instead of a round trip each
-  const txs: (Awaited<ReturnType<typeof c.getTransaction>>)[] = [];
-  for (let i = 0; i < ok.length; i += 20) {
-    txs.push(...await c.getTransactions(ok.slice(i, i + 20).map((s) => s.signature), {
-      commitment: "confirmed", maxSupportedTransactionVersion: 0,
-    }));
-  }
+  // a few reads in flight at once (JSON-RPC batches need a paid RPC plan)
+  const txs = await mapLimit(ok, 6, (s) =>
+    c.getTransaction(s.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
   const items: FeedItem[] = [];
   for (const [n, s] of ok.entries()) {
     const logs = txs[n]?.meta?.logMessages ?? [];

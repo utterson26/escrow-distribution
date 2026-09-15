@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicKey } from "@solana/web3.js";
 import ClaimIsland from "@/components/ClaimIsland";
+import McapIsland from "@/components/McapIsland";
 import ShareCalculator from "@/components/ShareCalculator";
 import { compact, ago } from "@/components/CoinTable";
 import { fetchEscrows, fetchRounds, fetchMetadata, fetchConfig, coinLabel, manualPctOf, launchedAt } from "@/lib/data";
@@ -143,6 +144,8 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
           <span><i style={{ background: "var(--dim2)" }} />creator {100 - lockedPct}%</span>
         </div>
       </div>
+
+      <div className="mt"><McapIsland mint={mint} /></div>
 
       {e.generation >= 3 && (
         <section className="section">

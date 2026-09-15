@@ -62,6 +62,8 @@ const RPC_URL = process.env.RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? "http:
 const INTERVAL_MS = Number(process.env.CRANK_INTERVAL_MS ?? 60_000);
 const SNAPSHOT_DIR = process.env.CRANK_SNAPSHOT_DIR ?? path.join(__dirname, "snapshots");
 const ONCE = process.argv.includes("--once");
+/** Optional: only crank these mints (comma-separated) — handy when watching one demo coin. */
+const ONLY_MINTS = (process.env.CRANK_MINT ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 function loadKeypair(): Keypair {
   const p = process.env.CRANK_KEYPAIR ?? process.env.ANCHOR_WALLET
@@ -387,7 +389,7 @@ async function main() {
     try {
       const slot = await conn.getSlot("confirmed");
       const balance = await conn.getBalance(keypair.publicKey, "confirmed");
-      const escrows = await listEscrows();
+      const escrows = (await listEscrows()).filter((e) => !ONLY_MINTS.length || ONLY_MINTS.includes(e.state.mint.toBase58()));
       log({ event: "tick", tick, slot, coins: escrows.length, wallet_sol: (balance / 1e9).toFixed(4) });
       for (const esc of escrows) {
         try { await crankCoin(tick, esc); } catch (e) {

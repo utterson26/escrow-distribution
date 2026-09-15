@@ -24,3 +24,5 @@ demo-summary.json
 web/.cache/
 .env.mainnet
 demo-video.log
+
+sim-wallets-*.json

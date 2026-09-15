@@ -30,7 +30,8 @@ npm run crank -- --once
 ```
 
 Ortam: `RPC_URL`, `CRANK_KEYPAIR`, `CRANK_INTERVAL_MS` (60000),
-`CRANK_SNAPSHOT_DIR`, `CRANK_LOG` (JSONL). Her olay tek satır: `tick coin action result …` ve varsa `sig`.
+`CRANK_SNAPSHOT_DIR`, `CRANK_LOG` (JSONL), `CRANK_MINT` (virgülle ayrılmış;
+verilirse yalnızca o coin'ler işlenir — tek bir demo coin'ini izlerken). Her olay tek satır: `tick coin action result …` ve varsa `sig`.
 `fire_trigger` satırında `tx_slot` işlemin gerçekten indiği slot, `fire_slot`
 ise programın koyduğu eşik.
 

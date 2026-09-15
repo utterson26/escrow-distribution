@@ -167,6 +167,19 @@ buyers, fee split, buyback, volume trigger, random delay, snapshot, round,
 claims — with an explorer link for every transaction and before/after
 balances at every step (`demo-video.log` keeps the links).
 
+Or watch a coin live on the site instead of on a terminal: launch it from
+`http://localhost:3000/launch` with a browser wallet, then give it a market
+and a keeper —
+
+```bash
+(cd web && npm run dev)                                            # the site
+scripts/sim-traders.sh <MINT> --dry-run && scripts/sim-traders.sh <MINT>   # 15 random wallets, 15 min, ≤ 2 SOL, swept back at the end
+RPC_URL=$HELIUS_RPC_URL CRANK_MINT=<MINT> npm run crank             # fires triggers, opens rounds
+```
+
+The coin page's market-cap chart and round table refresh as trades land and
+the crank works; `--dry-run` prints the cast and the plan without sending.
+
 Beta note: only keys on the program's publisher allowlist may open rounds
 (and only the platform key may shorten the delay window), so the dry run
 fails on the "publisher" line for any other wallet. Everything up to the
@@ -182,7 +195,7 @@ twelve-buyer story with a fixed list is `npm run demo -- --devnet`.
 | `indexer/snapshot.ts` | deterministic holder snapshot + pro-rata allocator; `snapshot` / `verify` / `reproduce` |
 | `crank/` | the keeper: fee sweep, buyback, triggers, rounds — once a minute, for every coin ([README](crank/README.md)) |
 | `web/` | drop.chain site (Next.js): live coins, coin pages with claims and a share estimator, launch form that signs from a browser wallet, docs, event feed |
-| `scripts/` | `localnet.sh`, `demo.ts`, `demo-video.sh` (devnet, 3–4 min, for recording), `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
+| `scripts/` | `localnet.sh`, `demo.ts`, `demo-video.sh` (devnet, 3–4 min, for recording), `sim-traders.sh` (devnet, random traders for one coin), `deploy-mainnet.sh` (dry-run only for now), `config-admin.ts` (`SQUADS_VAULT=…` exports platform calls for Squads, see `docs/MULTISIG.md`) |
 | `docs/` | mainnet checklist, showcase parameters, grant one-pager, hackathon application (`HACKATHON.md`), multisig guide, announcement draft, custom-pair notes |
 | `SECURITY_REVIEW.md` | trust model, findings, limitations, audit questions |
 | `PROGRESS.md` | running log (Turkish): what is proven, what is pending |
