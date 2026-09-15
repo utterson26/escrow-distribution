@@ -185,7 +185,7 @@ describe("airdrop_escrow (devnet)", () => {
 
     const ix = await program.methods
       .launch("Airdrop Test", "ADT", "https://example.com/adt.json", amount, maxSolCost,
-              [...Buffer.alloc(32)], 0, escrowBps, false)  // manual 0 / holder 30%: holder-only coin, holder-rewards off
+              [...Buffer.alloc(32)], 0, escrowBps, false, 0)  // manual 0 / holder 30%: holder-only coin, holder-rewards off, Auto mode
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda(mint, program.programId),

@@ -339,7 +339,8 @@ async function main() {
       log({ tick, coin, action: "open_round", result: "skip", reason: "only the cap remainder is pending", pending });
       return;
     }
-    const index = rounds.reduce((m, r) => Math.max(m, r.state.index + 1), 0);
+    // the program insists on sequential indexes; the escrow counts them
+    const index: number = esc.state.roundsOpened ?? rounds.reduce((m, r) => Math.max(m, r.state.index + 1), 0);
     const snapSlot = await conn.getSlot("confirmed");
     let snap;
     try {

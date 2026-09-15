@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import { conn, bondingCurve, decodeCurve } from "@/lib/chain";
 import { mapLimit } from "@/lib/data";
+import { solPriceUsd } from "@/lib/solprice";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ const FRESH_MS = 8_000;
 /** Deepest first read; later calls only fetch what is newer than the last signature seen. */
 const FIRST_READ = 300;
 
-interface Cached { points: McapPoint[]; newest: string | null; supply: bigint; at: number; inflight: Promise<void> | null }
+interface Cached { points: McapPoint[]; newest: string | null; supply: bigint; complete: boolean; at: number; inflight: Promise<void> | null }
 const cache = new Map<string, Cached>();
 
 function decodeTrades(logs: string[], supply: bigint, slot: number, sig: string, blockTime: number | null): McapPoint[] {
@@ -45,11 +46,11 @@ function decodeTrades(logs: string[], supply: bigint, slot: number, sig: string,
 async function refresh(mint: string, entry: Cached) {
   const c = conn();
   const curveAddr = bondingCurve(new PublicKey(mint));
-  if (entry.supply === 0n) {
-    const info = await c.getAccountInfo(curveAddr);
-    if (!info) throw new Error("no bonding curve for this mint");
-    entry.supply = decodeCurve(info.data as Buffer).tokenTotalSupply;
-  }
+  const info = await c.getAccountInfo(curveAddr);
+  if (!info) throw new Error("no bonding curve for this mint");
+  const curve = decodeCurve(info.data as Buffer);
+  entry.supply = curve.tokenTotalSupply;
+  entry.complete = curve.complete;
   const sigs = await c.getSignaturesForAddress(curveAddr,
     entry.newest ? { until: entry.newest, limit: 1000 } : { limit: FIRST_READ }, "confirmed");
   const fresh = sigs.filter((s) => !s.err);
@@ -68,15 +69,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ mint: string }
   const { mint } = await ctx.params;
   try { new PublicKey(mint); } catch { return NextResponse.json({ error: "bad mint" }, { status: 400 }); }
   let entry = cache.get(mint);
-  if (!entry) { entry = { points: [], newest: null, supply: 0n, at: 0, inflight: null }; cache.set(mint, entry); }
+  if (!entry) { entry = { points: [], newest: null, supply: 0n, complete: false, at: 0, inflight: null }; cache.set(mint, entry); }
   try {
     if (Date.now() - entry.at > FRESH_MS) {
       // one refresh at a time per coin, however many tabs are polling
       entry.inflight ??= refresh(mint, entry).finally(() => { entry!.inflight = null; });
       await entry.inflight;
     }
-    return NextResponse.json({ points: entry.points, supply: entry.supply.toString(), at: entry.at });
+    const price = await solPriceUsd().catch(() => null);
+    return NextResponse.json({
+      points: entry.points, supply: entry.supply.toString(), complete: entry.complete, at: entry.at,
+      solUsd: price?.usd ?? null, priceSource: price?.source ?? null, priceAt: price?.at ?? null,
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e), points: entry.points }, { status: entry.points.length ? 200 : 500 });
+    return NextResponse.json({ error: String(e?.message ?? e), points: entry.points, complete: entry.complete }, { status: entry.points.length ? 200 : 500 });
   }
 }

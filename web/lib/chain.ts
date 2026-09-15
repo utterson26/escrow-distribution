@@ -51,8 +51,16 @@ export interface Escrow {
   platform?: string; dead?: boolean; lowVolumeDays?: number;
   /** generation 5: pump holder-rewards coin (no fee sweep / buyback), fee sharing state */
   isHolderReward?: boolean; feeSharingSet?: boolean; platformFeeBps?: number;
+  /** generation 6: Auto (0) / Manual (1) distribution mode, what released `pending`, rounds opened */
+  distributionMode?: 0 | 1; pendingKind?: number; roundsOpened?: number;
   generation: number;
 }
+export const MODE_AUTO = 0, MODE_MANUAL = 1;
+export const TRIGGER_VOLUME = 1, TRIGGER_MILESTONE = 2, TRIGGER_DEV = 3;
+export const triggerLabel = (k?: number) =>
+  k === TRIGGER_VOLUME ? "volume" : k === TRIGGER_MILESTONE ? "milestone" : k === TRIGGER_DEV ? "dev" : "—";
+export const modeOf = (e: Escrow): "auto" | "manual" | "unknown" =>
+  e.distributionMode === MODE_MANUAL ? "manual" : e.distributionMode === MODE_AUTO ? "auto" : "unknown";
 
 /** Program-wide config: platform authority and the platform's cut of the creator fee. */
 export interface Config {
@@ -140,6 +148,10 @@ export function decodeEscrow(address: string, data: Buffer): Escrow {
     e.isHolderReward = r.bool(); e.feeSharingSet = r.bool(); e.platformFeeBps = r.u16();
     e.generation = 5;
   }
+  if (r.left() >= 1 + 1 + 4) {
+    e.distributionMode = r.u8() === 1 ? 1 : 0; e.pendingKind = r.u8(); e.roundsOpened = r.u32();
+    e.generation = 6;
+  }
   return e;
 }
 
@@ -154,6 +166,8 @@ export interface Round {
   commitSlot: bigint; snapshotSlot: bigint;
   /** eligibility floor the round was built with (older rounds: the 0.1 SOL default) */
   minPositionLamports: bigint;
+  /** what released the tokens (TRIGGER_*); undefined on rounds from earlier layouts */
+  triggerKind?: number;
 }
 export const DEFAULT_MIN_POSITION_LAMPORTS = 100_000_000n;
 export function decodeRound(address: string, data: Buffer): Round {
@@ -166,6 +180,7 @@ export function decodeRound(address: string, data: Buffer): Round {
   };
   r.u8(); // bump
   if (r.left() >= 8) round.minPositionLamports = r.u64() || DEFAULT_MIN_POSITION_LAMPORTS;
+  if (r.left() >= 1) round.triggerKind = r.u8();
   return round;
 }
 /** Most of one round a single wallet may receive (program constant MAX_SHARE_BPS)... */

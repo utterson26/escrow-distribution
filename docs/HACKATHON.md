@@ -29,10 +29,14 @@ distribution a pure function of chain history:
   escrow. Optionally a fixed list of wallets and percentages is committed at
   the same time — only its Merkle root, published on chain, claimable by
   proof, unchangeable afterwards.
-- **Rules, not decisions.** Trading volume (1% of market cap) and market-cap
-  milestones (2×) release slices of the pool. The release fires at a random
-  slot within the next hour; anyone may call the trigger, nobody chooses the
-  moment.
+- **Rules, not decisions — or the dev's call, in the open.** A coin is
+  launched in one of two modes, fixed for life. **Auto:** trading volume (1%
+  of market cap) and market-cap milestones (2×) release slices of the pool;
+  the release fires at a random slot within the next hour; anyone may call
+  the trigger, nobody chooses the moment, the dev has no say. **Manual:**
+  the automatic rule is off and only the dev's `dev_distribute` releases —
+  any amount up to the pool, at once — into exactly the same rounds. In
+  neither mode is there a path from the pool back to the dev.
 - **Pro rata, capped, reproducible.** An open-source indexer weights holders
   by balance × holding time, drops dust positions, caps any wallet at 10% of a
   round from eleven holders on, and commits only a Merkle root plus its two
@@ -52,10 +56,12 @@ distribution a pure function of chain history:
    config splits every trade's creator fee 90/10; the escrow's share is
    converted back into the coin by permissionless, rate-limited buybacks and
    added to the pool.
-3. **`check_trigger` / `fire_trigger`** — permissionless. The keeper (or
-   anyone) samples the curve; when a volume or milestone condition holds, the
-   program arms a release for a random slot drawn from the SlotHashes sysvar
-   and refuses to fire early (`TooEarly`).
+3. **`check_trigger` / `fire_trigger`** (Auto) — permissionless. The keeper
+   (or anyone) samples the curve; when a volume or milestone condition holds,
+   the program arms a release for a random slot drawn from the SlotHashes
+   sysvar and refuses to fire early (`TooEarly`). **`dev_distribute`**
+   (Manual) — the dev releases an amount ≤ pool into `pending`, no delay;
+   refused on Auto coins and above the pool.
 4. **Snapshot + `open_round`** — the indexer replays every Token-2022 account
    of the coin to the snapshot slot, allocates pro rata, builds the tree. The
    publisher writes root, snapshot slot, released amount and holder count;
@@ -144,8 +150,13 @@ What is different, in one line each:
    (`docs/CUSTOM_PAIR.md`), which needs a price feed for the eligibility
    floor and the lock cap.
 4. **EVM deploy.** Robinhood Chain (Pons) and BNB Chain (Four.meme) after the
-   Solana audit; the adapters and fork tests already exist.
-5. **Adoption.** Integration guide for launchpads; second and third coins
+   Solana audit; the adapters and fork tests already exist. Auto / Manual
+   modes and supply-share launches still have to be ported (`docs/PARITY.md`).
+5. **Per-coin milestone tables (v2).** Today Auto coins share one rule; a
+   creator-defined tier table (e.g. 100K / 250K / 500K / 1M / 3M market cap
+   releasing 10 / 15 / 20 / 25 / 30%) needs a price feed and is scheduled
+   after the audit.
+6. **Adoption.** Integration guide for launchpads; second and third coins
    launched by third parties; lock cap raised as the program earns trust.
 
 ## Team

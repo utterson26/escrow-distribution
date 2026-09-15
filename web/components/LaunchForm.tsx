@@ -16,14 +16,11 @@ interface Params {
   config: { paused: boolean; platformFeeBps: number; maxLockedValueLamports: string; minPositionLamports: string } | null;
 }
 
-/** Planning aid shown next to the form; not enforced by the program in this beta. */
-const DEFAULT_SCHEDULE = [
-  { mcap: 100_000, pct: 10 }, { mcap: 250_000, pct: 15 }, { mcap: 500_000, pct: 20 },
-  { mcap: 1_000_000, pct: 25 }, { mcap: 3_000_000, pct: 30 },
-];
+/** the curve can only sell its real reserves (79.3% of supply on pump); keep launches well inside that */
+const MAX_BUY_PCT = 60;
 
-const fmtK = (n: number) => n >= 1e6 ? `$${(n / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 })}M` : `$${(n / 1e3).toLocaleString("en-US", { maximumFractionDigits: 0 })}K`;
-const tok = (raw: bigint) => { const n = Number(raw) / 10 ** DECIMALS; return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : n.toFixed(0); };
+const tok = (raw: bigint) => { const n = Number(raw) / 10 ** DECIMALS; return n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : n.toFixed(0); };
+const pctS = (n: number) => `${Number(n.toFixed(2))}%`;
 const sol = (lamports: bigint | number, d = 3) => (Number(lamports) / 1e9).toLocaleString("en-US", { maximumFractionDigits: d });
 
 type Step = { label: string; state: "todo" | "doing" | "done" | "failed"; sig?: string; note?: string };
@@ -38,12 +35,13 @@ export default function LaunchForm() {
   const [symbol, setSymbol] = useState("");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
-  const [buySol, setBuySol] = useState("0.5");
+  // every share is a share of the total supply pump mints (1B)
   const [holderPct, setHolderPct] = useState(30);
   const [listPct, setListPct] = useState(0);
+  const [keepPct, setKeepPct] = useState(2);
   const [listText, setListText] = useState("");
   const [holderRewards, setHolderRewards] = useState(false);
-  const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
+  const [mode, setMode] = useState<0 | 1>(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [steps, setSteps] = useState<Step[] | null>(null);
@@ -59,38 +57,39 @@ export default function LaunchForm() {
 
   /* ------------------------------------------------------------ derived */
   const d = useMemo(() => {
-    const lamports = BigInt(Math.round((Number(buySol) || 0) * 1e9));
     if (!p) return null;
     const supply = BigInt(p.pump.tokenTotalSupply);
-    const amount = lamports > 0n ? tokensForSol(p.pump, lamports) : 0n;
-    const holderBps = Math.round(holderPct * 100), listBps = Math.round(listPct * 100);
+    const buyPct = holderPct + listPct + keepPct;
+    // the creator buys exactly pool + list + keep, then the program splits the buy by bps
+    const amount = (supply * BigInt(Math.round(buyPct * 100))) / 10_000n;
+    const holderBps = buyPct > 0 ? Math.round((holderPct / buyPct) * 10_000) : 0;
+    const listBps = buyPct > 0 ? Math.round((listPct / buyPct) * 10_000) : 0;
     const lockedBps = holderBps + listBps;
-    const locked = (amount * BigInt(lockedBps)) / 10_000n;
+    const holderTokens = (amount * BigInt(holderBps)) / 10_000n;
+    const listTokens = (amount * BigInt(listBps)) / 10_000n;
+    const locked = holderTokens + listTokens;
+    const keepTokens = amount - locked;
     const minLock = (supply * BigInt(MIN_LOCK_SUPPLY_BPS)) / 10_000n;
     const lockedSupplyPct = supply > 0n ? Number((locked * 100_000n) / supply) / 1000 : 0;
+    // what the curve charges for that buy, fees included — the SOL the wallet must have
+    const lamports = amount > 0n ? solForTokens(p.pump, amount) : 0n;
     const lockedValue = amount > 0n ? (lamports * locked) / amount : 0n;
     const cap = BigInt(p.config?.maxLockedValueLamports ?? "50000000000");
-    // smallest buy that still clears the 1%-of-supply floor at this split
-    const minAmount = lockedBps > 0 ? (minLock * 10_000n) / BigInt(lockedBps) + 1n : 0n;
-    const minBuyLamports = lockedBps > 0 ? solForTokens(p.pump, minAmount) : 0n;
     let list: ReturnType<typeof parseManualList> = [], listErr: string | null = null;
-    if (listBps > 0) { try { list = parseManualList(listText); if (!list.length) listErr = "add at least one wallet"; } catch (e: any) { listErr = e.message; } }
+    if (listPct > 0) { try { list = parseManualList(listText); if (!list.length) listErr = "add at least one wallet"; } catch (e: any) { listErr = e.message; } }
     const listTotal = list.reduce((s, e) => s + e.bps, 0);
     const problems: string[] = [];
     if (p.config?.paused) problems.push("The platform has paused new launches; claims and rounds keep running.");
     if (!name.trim()) problems.push("Give the coin a name.");
     if (!/^[A-Za-z0-9]{1,10}$/.test(symbol.trim())) problems.push("Symbol: 1–10 letters or digits.");
-    if (lamports <= 0n) problems.push("Enter the SOL the creator buys with.");
-    if (lockedBps <= 0) problems.push("Lock at least something — a launch with nothing locked is just pump.fun.");
-    if (lockedBps > 10_000) problems.push("The lock cannot exceed 100%.");
-    if (amount > 0n && locked < minLock) problems.push(`The lock must be at least ${MIN_LOCK_SUPPLY_BPS / 100}% of total supply — buy at least ${sol(minBuyLamports)} SOL at this split, or lock a larger share.`);
-    if (lockedValue > cap) problems.push(`Locked value ${sol(lockedValue)} SOL exceeds the beta cap of ${sol(cap, 0)} SOL per coin — lower the buy or the share.`);
-    if (listBps > 0 && listErr) problems.push(`Fixed list: ${listErr}.`);
-    if (listBps > 0 && !listErr && listTotal !== 10_000) problems.push(`Fixed list percentages add up to ${listTotal / 100}%; they should add up to 100% of the list's slice.`);
-    return { lamports, supply, amount, holderBps, listBps, lockedBps, locked, lockedSupplyPct, lockedValue, cap, minBuyLamports, list, listErr, listTotal, problems, devPct: 100 - holderPct - listPct };
-  }, [p, buySol, holderPct, listPct, listText, name, symbol]);
-
-  const schedTotal = schedule.reduce((s, r) => s + (Number(r.pct) || 0), 0);
+    if (holderPct + listPct <= 0) problems.push("Lock something for holders — a launch with nothing locked is just pump.fun.");
+    if (buyPct > MAX_BUY_PCT) problems.push(`The creator buy (${pctS(buyPct)} of supply) is more than the curve can sell at launch — keep pool + list + keep under ${MAX_BUY_PCT}%.`);
+    if (locked > 0n && locked < minLock) problems.push(`The lock must be at least ${MIN_LOCK_SUPPLY_BPS / 100}% of total supply.`);
+    if (lockedValue > cap) problems.push(`Locked value ${sol(lockedValue)} SOL exceeds the beta cap of ${sol(cap, 0)} SOL per coin — lock a smaller share.`);
+    if (listPct > 0 && listErr) problems.push(`Fixed list: ${listErr}.`);
+    if (listPct > 0 && !listErr && listTotal !== 10_000) problems.push(`Fixed list percentages add up to ${listTotal / 100}%; they should add up to 100% of the list's slice.`);
+    return { supply, buyPct, amount, holderBps, listBps, lockedBps, holderTokens, listTokens, keepTokens, locked, lockedSupplyPct, lamports, lockedValue, cap, list, listErr, listTotal, problems };
+  }, [p, holderPct, listPct, keepPct, listText, name, symbol]);
 
   /* --------------------------------------------------------------- run */
   async function run() {
@@ -98,7 +97,7 @@ export default function LaunchForm() {
     const dev = publicKey;
     const mintKp = Keypair.generate();
     const mint = mintKp.publicKey;
-    const hasList = d.listBps > 0 && d.list.length > 0;
+    const hasList = listPct > 0 && d.list.length > 0;
     const S: Step[] = [
       { label: "Upload metadata to IPFS", state: "todo" },
       { label: "Create the address lookup table", state: "todo" },
@@ -132,6 +131,7 @@ export default function LaunchForm() {
         name: name.trim(), symbol: symbol.trim().toUpperCase(), uri: meta.uri,
         amount: d.amount, maxSolCost: (d.lamports * 108n) / 100n,
         manualRoot: root, manualBps: d.listBps, holderBps: d.holderBps, isHolderReward: holderRewards,
+        distributionMode: mode,
       });
       const addrs = [...ix.keys.filter((k) => !k.isSigner).map((k) => k.pubkey), PROGRAM_ID];
       const slot = await connection.getSlot("finalized");
@@ -176,29 +176,35 @@ export default function LaunchForm() {
     <div className="card sticky">
       <div className="flex between">
         <h3>{name.trim() || "Your coin"} {symbol.trim() && <span className="muted">({symbol.trim().toUpperCase()})</span>}</h3>
-        <span className="pill">{p.network}</span>
+        <span className={`pill${mode === 1 ? " warn" : " on"}`}>{mode === 1 ? "Manual" : "Auto"}</span>
       </div>
       <div className="split" style={{ marginTop: 14 }} aria-hidden="true">
         <i className="a" style={{ width: `${holderPct}%` }} />
         {listPct > 0 && <i className="b" style={{ width: `${listPct}%` }} />}
-        <i className="c" style={{ width: `${Math.max(0, d.devPct)}%` }} />
+        <i className="c" style={{ width: `${keepPct}%` }} />
+        <i style={{ width: `${Math.max(0, 100 - d.buyPct)}%`, background: "transparent" }} />
       </div>
       <div className="legend">
-        <span><i style={{ background: "var(--acc)" }} />holders {holderPct}%</span>
-        {listPct > 0 && <span><i style={{ background: "var(--acc2)", opacity: .55 }} />fixed list {listPct}%</span>}
-        <span><i style={{ background: "var(--dim2)" }} />you keep {Math.max(0, d.devPct)}%</span>
+        <span><i style={{ background: "var(--acc)" }} />holders {pctS(holderPct)}</span>
+        {listPct > 0 && <span><i style={{ background: "var(--acc2)", opacity: .55 }} />fixed list {pctS(listPct)}</span>}
+        <span><i style={{ background: "var(--dim2)" }} />you keep {pctS(keepPct)}</span>
+        <span><i style={{ background: "var(--line)" }} />on the curve {pctS(Math.max(0, 100 - d.buyPct))}</span>
       </div>
       <div className="grid mt2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div><div className="k">Creator buy</div><div className="v sm">{d.amount > 0n ? tok(d.amount) : "—"}</div><div className="sub">for {sol(d.lamports)} SOL · {d.supply > 0n && d.amount > 0n ? `${(Number((d.amount * 10_000n) / d.supply) / 100).toFixed(2)}% of supply` : ""}</div></div>
-        <div><div className="k">Locked</div><div className="v sm">{d.locked > 0n ? tok(d.locked) : "—"}</div><div className="sub">{d.lockedSupplyPct.toFixed(2)}% of supply · min {MIN_LOCK_SUPPLY_BPS / 100}%</div></div>
+        <div><div className="k">Holder pool</div><div className="v sm">{tok(d.holderTokens)}</div><div className="sub">{pctS(holderPct)} of supply</div></div>
+        <div><div className="k">You keep</div><div className="v sm">{tok(d.keepTokens)}</div><div className="sub">{pctS(keepPct)} of supply · excluded from rounds</div></div>
+        {listPct > 0 && <div><div className="k">Fixed list</div><div className="v sm">{tok(d.listTokens)}</div><div className="sub">{pctS(listPct)} of supply</div></div>}
+        <div><div className="k">Creator buy</div><div className="v sm">{sol(d.lamports)} SOL</div><div className="sub">{tok(d.amount)} = {pctS(d.buyPct)} of supply, at the launch price</div></div>
         <div><div className="k">Locked value</div><div className="v sm">{sol(d.lockedValue)} SOL</div><div className="sub">beta cap {sol(d.cap, 0)} SOL</div></div>
         <div><div className="k">Creator fee split</div><div className="v sm">{holderRewards ? "on pump" : `${100 - (p.config?.platformFeeBps ?? 1000) / 100} / ${(p.config?.platformFeeBps ?? 1000) / 100}`}</div><div className="sub">{holderRewards ? "pump's holder pool" : "escrow / platform"}</div></div>
       </div>
       <div className="mt2" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
         <div className="k">What holders get</div>
         <p className="small muted" style={{ marginTop: 4 }}>
-          1% of the remaining pool each time volume reaches 1% of market cap; 5% each time market cap doubles.
-          Rounds are split by balance × time held; you are excluded.
+          {mode === 0
+            ? "1% of the remaining pool each time trading volume reaches 1% of market cap; 5% each time market cap doubles. Releases land at a random moment within the hour; you cannot trigger, delay or stop them."
+            : "Whatever you release, when you release it: dev_distribute moves any amount up to the whole pool into the next round at once, with no delay. No automatic rule runs. You can never take the pool back."}
+          {" "}Every round is split by balance × time held across eligible holders — you are excluded.
         </p>
       </div>
       {d.problems.length > 0 && (
@@ -235,22 +241,25 @@ export default function LaunchForm() {
 
         <div className="card">
           <h2 className="h3">Lock</h2>
-          <p className="note" style={{ marginTop: 4 }}>You buy in the same transaction that creates the coin. The share you choose moves into a program-owned escrow; nobody can withdraw it, you included.</p>
+          <p className="note" style={{ marginTop: 4 }}>
+            Shares of the total supply (1B). You buy exactly pool + list + keep in the launch transaction; the program moves the
+            pool and the list into escrow the same instant. The SOL that buy costs is computed from the curve below.
+          </p>
           <div className="row2 mt">
-            <div className="field"><label className="f" htmlFor="l-buy">Creator buy (SOL)</label>
-              <input id="l-buy" className="in num" inputMode="decimal" value={buySol} onChange={(e) => setBuySol(e.target.value)} disabled={running} />
-              <div className="hint">{d && d.lockedBps > 0 ? `at least ${sol(d.minBuyLamports)} SOL for this split (1% of supply must be locked)` : "how much of the curve you take at launch"}</div></div>
-            <div className="field"><label className="f" htmlFor="l-holder">Holder pool — {holderPct}% of the buy</label>
-              <input id="l-holder" type="range" min={0} max={100 - listPct} step={1} value={holderPct} onChange={(e) => setHolderPct(Number(e.target.value))} disabled={running} />
-              <div className="hint">released to holders by the triggers; 30% is the usual choice</div></div>
+            <div className="field"><label className="f" htmlFor="l-holder">Holder pool — {pctS(holderPct)} of supply{d ? ` = ${tok(d.holderTokens)}` : ""}</label>
+              <input id="l-holder" type="range" min={0} max={MAX_BUY_PCT} step={1} value={holderPct} onChange={(e) => setHolderPct(Number(e.target.value))} disabled={running} />
+              <div className="hint">released to holders in rounds; 30% is the usual choice, 1% of supply is the floor</div></div>
+            <div className="field"><label className="f" htmlFor="l-keep">You keep — {pctS(keepPct)} of supply{d ? ` = ${tok(d.keepTokens)}` : ""}</label>
+              <input id="l-keep" type="range" min={0} max={20} step={1} value={keepPct} onChange={(e) => setKeepPct(Number(e.target.value))} disabled={running} />
+              <div className="hint">stays in your wallet; never takes part in a round</div></div>
           </div>
           <div className="row2">
-            <div className="field"><label className="f" htmlFor="l-list">Fixed wallet list — {listPct}% of the buy</label>
-              <input id="l-list" type="range" min={0} max={100 - holderPct} step={1} value={listPct} onChange={(e) => setListPct(Number(e.target.value))} disabled={running} />
-              <div className="hint">optional: a set of wallets committed at launch (team, partners), claimable by proof</div></div>
-            <div className="field"><div className="f">You keep</div>
-              <div className="v sm num">{d ? Math.max(0, d.devPct) : 100 - holderPct - listPct}%</div>
-              <div className="hint">your wallet never takes part in a round</div></div>
+            <div className="field"><label className="f" htmlFor="l-list">Fixed wallet list — {pctS(listPct)} of supply{d && listPct > 0 ? ` = ${tok(d.listTokens)}` : ""}</label>
+              <input id="l-list" type="range" min={0} max={20} step={1} value={listPct} onChange={(e) => setListPct(Number(e.target.value))} disabled={running} />
+              <div className="hint">optional: wallets committed at launch (team, partners), claimable by proof, locked 30 days</div></div>
+            <div className="field"><div className="f">Creator buy</div>
+              <div className="v sm num">{d ? `${sol(d.lamports)} SOL` : "—"}</div>
+              <div className="hint">{d ? `${tok(d.amount)} tokens = ${pctS(d.buyPct)} of supply at the launch price, pump fees included` : "computed from the curve"}</div></div>
           </div>
           {listPct > 0 && (
             <div className="field">
@@ -258,56 +267,46 @@ export default function LaunchForm() {
               <textarea id="l-rows" className="in mono" rows={5} value={listText} onChange={(e) => setListText(e.target.value)} disabled={running}
                         placeholder={"9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin, 60\n5qHyZPZFDLuQx2tWbSWqKNLt9Zv3DDJCvg4yyBR1KnQm, 40"} />
               {d?.listErr ? <div className="hint" style={{ color: "var(--bad)" }}>{d.listErr}</div>
-                : d && d.list.length > 0 && <div className="hint">{d.list.length} wallet{d.list.length === 1 ? "" : "s"} · {d.listTotal / 100}% · root <span className="mono">{manualRoot(d.list).toString("hex").slice(0, 16)}…</span> · the rows are published on chain after launch so recipients can prove their share; shares stay locked for 30 days</div>}
+                : d && d.list.length > 0 && <div className="hint">{d.list.length} wallet{d.list.length === 1 ? "" : "s"} · {d.listTotal / 100}% · root <span className="mono">{manualRoot(d.list).toString("hex").slice(0, 16)}…</span> · the rows are published on chain after launch so recipients can prove their share</div>}
             </div>
           )}
           <details className="more">
             <summary>Advanced</summary>
             <label className="flex small" style={{ gap: 10, marginTop: 8 }}>
               <input type="checkbox" checked={holderRewards} onChange={(e) => setHolderRewards(e.target.checked)} disabled={running} />
-              <span>pump.fun holder-rewards coin — pump pays the creator fee to its own holder pool; the escrow gets no fee sweep and no buyback, only the locked supply and its triggered rounds.</span>
+              <span>pump.fun holder-rewards coin — pump pays the creator fee to its own holder pool; the escrow gets no fee sweep and no buyback, only the locked supply and its rounds.</span>
             </label>
           </details>
         </div>
 
         <div className="card">
-          <div className="flex between"><h2 className="h3">Milestone schedule</h2><span className="pill">planning aid</span></div>
-          <p className="note" style={{ marginTop: 4 }}>
-            Market-cap tiers and the share of the locked pool you intend to have released by each. The devnet program enforces its own rule
-            (5% of the remaining pool per market-cap doubling, 1% per volume trigger); per-coin schedules are on the roadmap, so this table is
-            not written on chain yet.
-          </p>
-          <div className="flex between mt" style={{ gap: "6px 16px" }} aria-live="polite">
-            <span className="small">
-              Released so far <b className="num">{schedTotal}%</b> · Still locked <b className="num">{Math.max(0, 100 - schedTotal)}%</b>
-            </span>
-            {schedTotal !== 100 && <span className="pill warn">a full schedule adds up to 100%</span>}
+          <div className="flex between"><h2 className="h3">Distribution</h2><span className="tiny muted">fixed at launch · cannot be changed later</span></div>
+          <div className="row2 mt" role="radiogroup" aria-label="distribution mode">
+            {([0, 1] as const).map((m) => (
+              <label key={m} className="card" style={{ cursor: "pointer", borderColor: mode === m ? "var(--acc)" : undefined, background: mode === m ? "var(--acc-soft)" : "var(--bg2)", margin: 0 }}>
+                <div className="flex" style={{ gap: 10 }}>
+                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} disabled={running} />
+                  <b>{m === 0 ? "Auto" : "Manual"}</b>
+                  <span className="pill" style={{ marginLeft: "auto" }}>{m === 0 ? "rule-driven" : "dev-driven"}</span>
+                </div>
+                <p className="small muted" style={{ marginTop: 8 }}>
+                  {m === 0
+                    ? "The program releases the pool on its own: 1% each time volume reaches 1% of market cap, 5% each time market cap doubles, each at a random moment within the hour. You have no trigger, no pause and no veto — holders can count on it."
+                    : "Nothing releases until you say so. dev_distribute moves any amount up to the whole pool into the next round immediately — no threshold, no delay. Holders trust your timing; the pool itself can still never come back to you."}
+                </p>
+              </label>
+            ))}
           </div>
-          <div className="tbl mt"><table className="milestones">
-            <thead><tr><th>Market cap</th><th className="r">Released at tier</th><th className="r">Cumulative</th><th className="r">Still locked</th></tr></thead>
-            <tbody>
-              {schedule.map((row, i) => {
-                const cum = schedule.slice(0, i + 1).reduce((s, r) => s + (Number(r.pct) || 0), 0);
-                return (
-                  <tr key={i}>
-                    <td><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} market cap in USD`} value={row.mcap}
-                               onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, mcap: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
-                    <td className="r"><input className="in num" inputMode="numeric" aria-label={`tier ${i + 1} percent released`} value={row.pct} style={{ textAlign: "right" }}
-                               onChange={(e) => setSchedule(schedule.map((r, j) => j === i ? { ...r, pct: Number(e.target.value) || 0 } : r))} disabled={running} /></td>
-                    <td className="r muted">{cum}%</td>
-                    <td className="r"><b>{Math.max(0, 100 - cum)}%</b></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table></div>
-          <div className="small muted mt">{schedule.map((r) => fmtK(r.mcap)).join(" → ")}</div>
+          <p className="note mt">
+            Both modes use the same distribution engine: a snapshot at the release, pro-rata by balance × time held, the eligibility
+            floor, the per-wallet cap, the creator and the fixed list excluded, Merkle claims. The fixed wallet list works the same in both.
+          </p>
         </div>
 
         <div className="card">
           <h2 className="h3">Sign</h2>
           <p className="note" style={{ marginTop: 4 }}>
-            Three transactions from your wallet{d && d.listBps > 0 ? ", plus one per 25 rows of the fixed list" : ""}: two set up a one-off address
+            Three transactions from your wallet{listPct > 0 ? ", plus one per 25 rows of the fixed list" : ""}: two set up a one-off address
             lookup table (the launch touches 39 accounts), the third creates the coin on pump.fun, makes your buy and moves the locked
             share into escrow — atomically. If any part fails, nothing is created.
           </p>

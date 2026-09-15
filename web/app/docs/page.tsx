@@ -48,12 +48,26 @@ export default async function Docs() {
       <section className="section">
         <h2>Launching</h2>
         <div className="card faq mt" style={{ paddingBlock: 4 }}>
-          <Q q="What exactly gets locked?">
-            <p>Part of the creator&apos;s own launch buy. The <code>launch</code> instruction creates the coin on pump.fun, buys the amount you
-              chose, and in the same transaction moves your chosen share of those tokens into an escrow account owned by the program.
-              Nothing is minted for the escrow separately — what holders get is what you bought and gave up.</p>
-            <p>The lock can be split between a holder pool (released by the triggers) and a fixed wallet list committed at launch as a
-              Merkle root. Together they must be at least {MIN_LOCK_SUPPLY_BPS / 100}% of total supply and at most 100% of the buy.</p>
+          <Q q="What exactly gets locked, and why are the percentages shares of supply?">
+            <p>Part of the creator&apos;s own launch buy. pump.fun mints a fixed 1B tokens; on the launch form you choose the holder pool,
+              the optional fixed list and what you keep as shares of that supply (say 30% + 0% + 2%), and the form prices the buy of
+              exactly that much — 32% of supply — off the curve. The <code>launch</code> instruction creates the coin, makes that buy and, in the
+              same transaction, moves the pool and the list into an escrow account owned by the program. Nothing is minted for the escrow
+              separately — what holders get is what you bought and gave up.</p>
+            <p>Shares of supply are the honest unit: &quot;30% of the buy&quot; says nothing until you know the buy, while &quot;30% of supply&quot; is a
+              promise anyone can check against the escrow&apos;s balance. On chain the program stores the split as basis points of the buy; the site
+              converts back and forth. The pool plus the list must be at least {MIN_LOCK_SUPPLY_BPS / 100}% of total supply.</p>
+          </Q>
+          <Q q="Auto or Manual — what is the difference?">
+            <p><b>Auto</b>: the program releases the pool on its own — 1% of what remains each time trading volume reaches 1% of market cap, 5% each
+              time market cap doubles — at a random moment inside the delay window. The creator has no trigger, no pause and no veto;
+              <code>dev_distribute</code> is refused on an Auto coin.</p>
+            <p><b>Manual</b>: the automatic rule is off. The creator releases with <code>dev_distribute(amount)</code> — any amount up to the whole
+              pool, immediately, no delay — and nothing else releases. Holders trust the creator&apos;s timing, not their honesty: the pool can never
+              come back to the creator in either mode.</p>
+            <p>Both modes hand every release to the same engine — snapshot at the release, pro-rata by balance × time held, the eligibility floor,
+              the per-wallet cap, the creator and the fixed list excluded, Merkle claims — and the fixed list works the same in both. The mode is
+              chosen at launch and no instruction changes it; the coin page shows it as a badge and each round records what released it.</p>
           </Q>
           <Q q="Can the creator get the locked tokens back?">
             <p>No. The escrow is a program-derived account; no private key exists for it, and the program has no instruction that returns
@@ -66,10 +80,10 @@ export default async function Docs() {
               (currently {cap} SOL), and the platform can stop accepting new launches. Neither affects existing coins: claims, triggers and
               rounds never pause. Raising the cap goes through a proposal that takes effect seven days later, so it cannot be changed quietly.</p>
           </Q>
-          <Q q="What does the milestone schedule on the launch form do?">
-            <p>It is a planning aid for the tiers you intend to reach — 100K, 250K, 500K, 1M and 3M market cap by default, with 10, 15, 20, 25 and 30% of
-              the pool released by each. The devnet program does not read it: in this beta every coin follows the same rule (5% of the remaining pool
-              each time market cap doubles, 1% each time volume reaches 1% of market cap). Per-coin schedules are on the roadmap.</p>
+          <Q q="Can I set my own milestone table?">
+            <p>Not in this version. Auto coins follow one rule for everyone (5% of the remaining pool per market-cap doubling, 1% per volume trigger);
+              a creator who wants a specific schedule launches in Manual mode and releases on that schedule by hand. Per-coin milestone tables are a
+              v2 roadmap item.</p>
           </Q>
         </div>
       </section>
@@ -78,7 +92,8 @@ export default async function Docs() {
         <h2>Releases and rounds</h2>
         <div className="card faq mt" style={{ paddingBlock: 4 }}>
           <Q q="What triggers a release?">
-            <p>Two conditions, checked by anyone who calls <code>check_trigger</code> (a keeper does it regularly):</p>
+            <p>On an Auto coin, two conditions, checked by anyone who calls <code>check_trigger</code> (a keeper does it regularly); on a Manual
+              coin only the creator&apos;s <code>dev_distribute</code>, see above.</p>
             <p><b>Volume</b> — trading volume since the last round reaches 1% of market cap: 1% of the remaining pool is released.<br />
               <b>Milestone</b> — market cap reaches twice the last milestone: 5% of the remaining pool is released.</p>
             <p>A release does not land immediately. It is armed for a random slot inside the next hour, chosen from the slot hashes at arming time,
@@ -102,8 +117,9 @@ export default async function Docs() {
               written into every snapshot so a rebuild applies exactly the same one.</p>
           </Q>
           <Q q="What happens if the coin never reaches a milestone?">
-            <p>The volume trigger still runs: every time trading since the last round adds up to 1% of market cap, 1% of the remaining pool goes
-              out. A coin with steady trading keeps paying holders without ever doubling.</p>
+            <p>On an Auto coin the volume trigger still runs: every time trading since the last round adds up to 1% of market cap, 1% of the
+              remaining pool goes out. A coin with steady trading keeps paying holders without ever doubling. On a Manual coin milestones play no
+              part at all; the creator decides.</p>
             <p>If trading stops entirely, nothing is released — the pool simply waits. After seven consecutive days under 0.1% of market cap
               in volume the coin is flagged dead; the platform may then move the remaining pool back to the creator, on chain and logged,
               rather than leave it stranded forever. Until that flag, nobody can touch it.</p>

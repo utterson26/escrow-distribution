@@ -147,7 +147,7 @@ async function main() {
     const ix = await program.methods
       .launch(name, symbol, `https://example.com/${symbol.toLowerCase()}.json`,
               new BN(amountTokens).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL),
-              [...Buffer.alloc(32)], 0, 3000, false)
+              [...Buffer.alloc(32)], 0, 3000, false, 0)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,

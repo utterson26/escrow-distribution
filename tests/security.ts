@@ -165,7 +165,7 @@ describe("security review regressions (localnet)", () => {
     await sleep(1000);
     const launchIx = await program.methods
       .launch("Sec Test", "SEC", "https://example.com/sec.json",
-              new BN(300_000_000).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, 3000, false)
+              new BN(300_000_000).mul(new BN(10 ** 6)), new BN(2 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, 3000, false, 0)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority, ...pa, systemProgram: SystemProgram.programId,
@@ -358,7 +358,7 @@ describe("security review regressions (localnet)", () => {
     await sleep(1000);
     const launchIx = await program.methods
       .launch("Holder Rewards", "HR", "https://example.com/hr.json",
-              new BN(100_000_000).mul(new BN(10 ** 6)), new BN(1 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, 3000, true)
+              new BN(100_000_000).mul(new BN(10 ** 6)), new BN(1 * LAMPORTS_PER_SOL), [...Buffer.alloc(32)], 0, 3000, true, 0)
       .accountsPartial({
         dev: dev.publicKey, mint: mint2, escrow: escrow2, config: configPda(program.programId), escrowTokenAccount: escrowTa2,
         manualAuthority: manual2, manualTokenAccount: manualAta2, feeAuthority: fee2, ...pa2, systemProgram: SystemProgram.programId,

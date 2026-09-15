@@ -263,7 +263,7 @@ async function main() {
   {
     const ix = await program.methods
       .launch("Demo Coin", "DEMO", "https://example.com/demo.json",
-              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...teamTree.root], MANUAL_BPS, HOLDER_BPS, false)
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), [...teamTree.root], MANUAL_BPS, HOLDER_BPS, false, 0)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,

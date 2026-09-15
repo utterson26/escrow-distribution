@@ -61,11 +61,11 @@ export default function CoinTable({ rows }: { rows: CoinRow[] }) {
               <tr key={r.escrow.address}>
                 <td>
                   <Link href={`/coin/${r.escrow.mint}`} className="coin-name">{coinLabel(r.escrow.mint, r.meta)}</Link>
-                  <div className="tiny muted mono">{short(r.escrow.mint, 6)}{r.coinType === "holder-rewards" ? " · holder-rewards" : ""}</div>
+                  <div className="tiny muted mono">{short(r.escrow.mint, 6)}{r.mode !== "unknown" ? ` · ${r.mode}` : ""}{r.coinType === "holder-rewards" ? " · holder-rewards" : ""}</div>
                 </td>
                 <td className="r">
-                  <b>{r.lockedPct}%</b>
-                  <div className="tiny muted">{compact(r.escrow.escrowed + (r.escrow.manualTotal ?? 0n))} tokens</div>
+                  <b>{r.lockedSupplyPct !== null ? `${r.lockedSupplyPct}%` : `${r.lockedPct}%`}</b>
+                  <div className="tiny muted">{compact(r.escrow.escrowed + (r.escrow.manualTotal ?? 0n))} tokens{r.lockedSupplyPct !== null ? " · of supply" : " · of the buy"}</div>
                 </td>
                 <td className="r">{compact(r.poolRemaining)}</td>
                 <td className="r">{fmtSol(BigInt(r.marketCapLamports))} SOL</td>

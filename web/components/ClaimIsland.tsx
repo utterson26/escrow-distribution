@@ -1,5 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
+import type { DistributeProps } from "./DistributePanel";
 
 /** Wallet adapter + claim panel, loaded after the page has painted. */
 const Inner = dynamic(() => import("./ClaimInner"), {
@@ -11,4 +12,4 @@ const Inner = dynamic(() => import("./ClaimInner"), {
     </div>
   ),
 });
-export default function ClaimIsland(props: { mint: string; escrow: string; cluster: string }) { return <Inner {...props} />; }
+export default function ClaimIsland(props: { mint: string; escrow: string; cluster: string; distribute?: DistributeProps }) { return <Inner {...props} />; }

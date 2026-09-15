@@ -3,7 +3,7 @@ import bs58 from "bs58";
 import {
   conn, PROGRAM_ID, anchorDisc, decodeEscrow, decodeRound, decodeCurve,
   bondingCurve, ata, marketCap, short, Escrow, Round, Curve, Config, decodeConfig, MAX_SHARE_BPS, CAP_MIN_HOLDERS,
-  MIN_LOCK_SUPPLY_BPS,
+  MIN_LOCK_SUPPLY_BPS, modeOf,
 } from "./chain";
 
 /**
@@ -84,6 +84,8 @@ export interface CoinRow {
   escrowPct: number;          // holder-pool slice of the launch buy
   manualPct: number;          // fixed-list slice of the launch buy (generation ≥ 5: of the buy; older coins: of the dev share)
   lockedPct: number;          // the two together
+  /** locked tokens as a share of total supply (what the launch form promises); null without a curve */
+  lockedSupplyPct: number | null;
   devPct: number;             // what stayed with the dev
   /** platform constant: the lock must be at least this share of total supply */
   minLockSupplyPct: number;
@@ -100,6 +102,8 @@ export interface CoinRow {
   launchedAt: string | null;
   /** total rounds opened so far */
   rounds: number;
+  /** Auto / Manual distribution mode; "unknown" for escrows from earlier layouts */
+  mode: "auto" | "manual" | "unknown";
 }
 
 export interface NextTrigger {
@@ -213,6 +217,8 @@ async function buildRowsRaw(): Promise<CoinRow[]> {
       escrowPct: e.escrowBps / 100,
       manualPct: manualPctOf(e),
       lockedPct: e.escrowBps / 100 + manualPctOf(e),
+      lockedSupplyPct: curve && curve.tokenTotalSupply > 0n
+        ? Number(((e.escrowed + (e.manualTotal ?? 0n)) * 10_000n) / curve.tokenTotalSupply) / 100 : null,
       devPct: 100 - e.escrowBps / 100 - manualPctOf(e),
       minLockSupplyPct: MIN_LOCK_SUPPLY_BPS / 100,
       lastDistribution: last
@@ -226,6 +232,7 @@ async function buildRowsRaw(): Promise<CoinRow[]> {
       nextTrigger: nextTrigger(e, curve, slot),
       launchedAt: launchedAt(e)?.toISOString() ?? null,
       rounds: mine.length,
+      mode: modeOf(e),
     });
   }
   return out;
@@ -237,7 +244,7 @@ async function buildRowsRaw(): Promise<CoinRow[]> {
 
 const EVENTS: Record<string, string> = {};
 for (const n of ["ShareClaimed", "ManualClaimed", "TriggerFired", "RoundOpened",
-                 "BuybackDone", "Launched", "DeadCoinFlagged", "Intervened"]) {
+                 "BuybackDone", "Launched", "DeadCoinFlagged", "Intervened", "DevDistributionTriggered"]) {
   EVENTS[anchorDisc("event", n).toString("hex")] = n;
 }
 
@@ -283,6 +290,10 @@ async function fetchFeedRaw(limit: number): Promise<FeedItem[]> {
           item.amount = buf.readBigUInt64LE(76).toString();
         } else if (kind === "TriggerFired") {
           item.amount = buf.readBigUInt64LE(41).toString();
+        } else if (kind === "DevDistributionTriggered") {
+          // escrow(32) dev(32) amount(8) round_id(4) pending(8)
+          item.holder = new PublicKey(buf.subarray(40, 72)).toBase58();
+          item.amount = buf.readBigUInt64LE(72).toString();
         } else if (kind === "BuybackDone") {
           item.amount = buf.readBigUInt64LE(48).toString();
         }

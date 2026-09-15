@@ -10,10 +10,12 @@ audit. The last section lists what we want an auditor to look at.
 
 A pump.fun coin is created with a program-owned account as its creator; part
 of the dev's launch buy is locked in an escrow the program alone controls;
-trading volume and market-cap milestones release slices of that lock to
-every eligible holder, pro rata, claimed by Merkle proof; pump's creator fee
-is split between the escrow (bought back into the coin) and the platform.
-Nothing in the design lets a human withdraw the lock.
+slices of that lock are released to every eligible holder, pro rata, claimed
+by Merkle proof — on an **Auto** coin by trading volume and market-cap
+milestones, on a **Manual** coin only when the dev calls `dev_distribute`
+(mode fixed at launch); pump's creator fee is split between the escrow
+(bought back into the coin) and the platform. Nothing in the design lets a
+human withdraw the lock, in either mode.
 
 State: one `Config` PDA (platform authority, fee rate, lock cap, pause), one
 `Escrow` PDA per coin, one `Round` PDA per distribution, one `ClaimReceipt`
@@ -25,7 +27,7 @@ sign.
 | Party | Can | Cannot |
 |---|---|---|
 | Nobody | — | move tokens out of the escrow token account except through `claim_share`, `claim_manual`, `intervene` (below) |
-| Dev (launcher) | choose lock split, manual list, fee mode at launch; `publish_manual_list` | withdraw the lock; change the list; open rounds (beta allowlist); pick who gets a share; pause; change fees |
+| Dev (launcher) | choose lock split, manual list, fee mode and distribution mode at launch; `publish_manual_list`; on a Manual coin `dev_distribute` (release any amount ≤ pool into the next round, at once) | withdraw the lock; change the list or the mode; release on an Auto coin; open rounds (beta allowlist); pick who gets a share; send a release anywhere but into a round; pause; change fees |
 | Platform authority (`Config.platform`) | open rounds (it is on the publisher list); set the publisher list; `intervene` (only: unclaimed manual shares after 30 days → dev or pool; a dead coin's pool → dev); test knobs; propose fee / lock-cap / eligibility-floor changes; pause **launches** | take tokens for itself; skip the 7-day delay; stop claims, triggers, rounds or buybacks |
 | Upgrade authority | upgrade the program; `set_platform`; `migrate_config` | anything at runtime without an upgrade — which is why it must be a multisig on mainnet |
 | Any wallet | `check_trigger`, `fire_trigger`, `buyback`, `collect_fees`, `setup_fee_sharing`, `apply_*` after the delay, claim its own share | claim for someone else; claim twice; claim over the cap |
@@ -35,7 +37,17 @@ Program-side invariants (every one has a test):
 - `escrowed ≥ allocated ≥ claimed`; escrow token balance = `escrowed − claimed`
   (+ donations, + buyback tokens).
 - `open_round`: `released ≤ pending`, `total ≤ released`; `pending` is zeroed
-  and only `total` becomes `allocated` — the remainder stays in the pool.
+  and only `total` becomes `allocated` — the remainder stays in the pool;
+  `index == rounds_opened`, and the round records `trigger_kind`.
+- **No path from the pool to anyone but holders.** `pending` is fed only by
+  `fire_trigger` (Auto) and `dev_distribute` (Manual, `amount ≤ escrowed −
+  allocated − pending`, dev-signed, refused on Auto coins); tokens leave the
+  escrow token account only through `claim_share` (and, for a dead coin,
+  the logged platform `intervene`). `dev_distribute` moves no tokens and
+  names no destination; whatever it releases can only be claimed by proof
+  against a round the same allocator built — dev and list excluded.
+- `check_trigger` never arms on a Manual coin (`distribution_mode` is set at
+  launch, validated to Auto/Manual, and no instruction writes it later).
 - `claim_share`: proof must verify; amount ≤ 10% of `released` once the round
   has ≥ 11 holders; claims ≤ `total`; holder still holds the snapshot balance
   (`CLAIM_HOLD_BPS = 100%`) worth ≥ 0.1 SOL at the curve price; one receipt
@@ -178,7 +190,8 @@ Fixed: `protocolOwners` excludes the `manual` PDA. Surfaced by the demo.
 | `setup_fee_sharing` | payer (any) | payer rent → fee PDA → sharing config, leftover back | route the fee to themselves | shareholders come from `Config`, one-shot on pump |
 | `collect_fees` | payer (any) | vault → fee PDA → escrow; vault → platform | pass wrong shareholders | pump checks them against its config |
 | `buyback` | payer (any) | escrow SOL → curve → escrow tokens | sandwich; drain via stacking; forged curve | 0.5% cap, one per slot, on-chain quote −2%, canonical curve seeds |
-| `check_trigger` / `fire_trigger` | any | none / pool → `pending` | fire early; re-arm | `TooEarly`, `AlreadyArmed`, random delay |
+| `check_trigger` / `fire_trigger` | any | none / pool → `pending` | fire early; re-arm; arm a Manual coin | `TooEarly`, `AlreadyArmed`, random delay, mode check |
+| `dev_distribute` | dev | pool → `pending` (Manual only) | release on an Auto coin; release more than the pool; release from another dev's coin; route the release | `NotManualMode`, `OverPool`, `escrow.dev == signer`, no destination argument — only a round can take it |
 | `open_round` | listed publisher (beta) | pool → `allocated` | over-release; favour a wallet | allowlist, `released ≤ pending`, on-chain 10% cap, reproducible allocation |
 | `claim_share` | holder | escrow → holder | forge, double claim, claim after dump | proof, receipt, hold check, cap |
 | `claim_manual` | wallet | manual → wallet | forge, double claim | proof, bitmap, bps sum |

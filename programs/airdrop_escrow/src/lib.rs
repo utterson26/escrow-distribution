@@ -237,8 +237,13 @@ pub mod airdrop_escrow {
         manual_bps: u16,
         holder_bps: u16,
         is_holder_reward: bool,
+        distribution_mode: u8,
     ) -> Result<()> {
         require!(!ctx.accounts.config.paused, EscrowError::Paused);
+        require!(
+            distribution_mode == MODE_AUTO || distribution_mode == MODE_MANUAL,
+            EscrowError::BadDistributionMode
+        );
         let locked_bps = manual_bps as u64 + holder_bps as u64;
         require!(locked_bps > 0 && locked_bps <= BPS_DENOM, EscrowError::BadLockSplit);
         require!(
@@ -414,6 +419,9 @@ pub mod airdrop_escrow {
         escrow.is_holder_reward = is_holder_reward;
         escrow.fee_sharing_set = false;
         escrow.platform_fee_bps = 0;
+        escrow.distribution_mode = distribution_mode;
+        escrow.pending_kind = 0;
+        escrow.rounds_opened = 0;
         escrow.bump = ctx.bumps.escrow;
 
         emit!(Launched {
@@ -891,6 +899,14 @@ pub mod airdrop_escrow {
             return Ok(());
         }
 
+        // Manual mode: the sampling above still runs (volume, dead-coin days),
+        // but nothing arms — only `dev_distribute` releases.
+        if escrow.distribution_mode == MODE_MANUAL {
+            emit!(TriggerChecked { escrow: escrow.key(), mcap: mcap as u64,
+                                   cum_volume: escrow.cum_volume, armed: false, kind: 0 });
+            return Ok(());
+        }
+
         let pool = escrow
             .escrowed
             .checked_sub(escrow.allocated)
@@ -983,9 +999,47 @@ pub mod airdrop_escrow {
         escrow.armed_kind = 0;
         escrow.authorized = 0;
         escrow.fire_slot = 0;
+        escrow.pending_kind = kind;
 
         emit!(TriggerFired { escrow: escrow.key(), kind, amount, slot: now,
                              pending: escrow.pending });
+        Ok(())
+    }
+
+    /// Manual mode's only release path. The dev moves `amount` of the holder
+    /// pool into `pending`, at once and without a delay; the crank then takes
+    /// the same snapshot and opens the same kind of round as a fired trigger
+    /// would (pro rata by balance × time held, floor, cap, dev and list
+    /// excluded, Merkle claims). Nothing here can send tokens anywhere but
+    /// into such a round: the amount is bounded by the pool and the tokens
+    /// only ever leave the escrow through `claim_share`. Refused on Auto
+    /// coins, where the dev has no say in when the pool moves.
+    pub fn dev_distribute(ctx: Context<DevDistribute>, amount: u64) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        require!(escrow.distribution_mode == MODE_MANUAL, EscrowError::NotManualMode);
+        require!(amount > 0, EscrowError::ZeroAmount);
+        let pool = escrow
+            .escrowed
+            .checked_sub(escrow.allocated)
+            .ok_or(EscrowError::Overflow)?
+            .checked_sub(escrow.pending)
+            .ok_or(EscrowError::Overflow)?;
+        require!(amount <= pool, EscrowError::OverPool);
+
+        escrow.pending = escrow
+            .pending
+            .checked_add(amount)
+            .ok_or(EscrowError::Overflow)?;
+        escrow.pending_kind = TRIGGER_DEV;
+        escrow.volume_at_last_dist = escrow.cum_volume;
+
+        emit!(DevDistributionTriggered {
+            escrow: escrow.key(),
+            dev: ctx.accounts.dev.key(),
+            amount,
+            round_id: escrow.rounds_opened,
+            pending: escrow.pending,
+        });
         Ok(())
     }
 
@@ -1015,6 +1069,7 @@ pub mod airdrop_escrow {
         require!(total > 0, EscrowError::ZeroAmount);
         require!(total <= released, EscrowError::TotalOverReleased);
         require!(root != [0u8; 32], EscrowError::EmptyRoot);
+        require!(index == ctx.accounts.escrow.rounds_opened, EscrowError::BadRoundIndex);
 
         // The amount is not the publisher's to choose: it is at most what
         // fired triggers released and have not yet been handed out. `released`
@@ -1047,12 +1102,15 @@ pub mod airdrop_escrow {
             0 => MIN_POSITION_LAMPORTS,
             m => m,
         };
+        round.trigger_kind = ctx.accounts.escrow.pending_kind;
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.allocated = escrow
             .allocated
             .checked_add(total)
             .ok_or(EscrowError::Overflow)?;
+        escrow.rounds_opened = escrow.rounds_opened.saturating_add(1);
+        escrow.pending_kind = 0;
         // Whatever the round did not hand out (cap remainder, rounding) is not
         // carried: it simply stays in the pool, un-allocated, for a later
         // trigger. Nothing leaks out of the escrow.
@@ -1761,6 +1819,16 @@ pub struct TriggerFired {
     pub slot: u64,
     pub pending: u64,
 }
+/// The dev of a Manual-mode coin released `amount` of the pool; `round_id` is
+/// the index of the round that will hand it out.
+#[event]
+pub struct DevDistributionTriggered {
+    pub escrow: Pubkey,
+    pub dev: Pubkey,
+    pub amount: u64,
+    pub round_id: u32,
+    pub pending: u64,
+}
 #[event]
 pub struct RoundOpened {
     pub escrow: Pubkey,
@@ -2080,6 +2148,18 @@ pub struct ApplyPlatformFee<'info> {
 #[derive(Accounts)]
 pub struct PublishManualList<'info> {
     #[account(mut)]
+    pub dev: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ESCROW_SEED, escrow.mint.as_ref()],
+        bump = escrow.bump,
+        constraint = escrow.dev == dev.key() @ EscrowError::NotDev
+    )]
+    pub escrow: Box<Account<'info, Escrow>>,
+}
+
+#[derive(Accounts)]
+pub struct DevDistribute<'info> {
     pub dev: Signer<'info>,
     #[account(
         mut,

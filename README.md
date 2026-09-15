@@ -18,10 +18,19 @@ Open source (MIT). Program id on devnet:
 1. **Lock.** `launch` creates the coin on pump.fun and buys the creator's
    initial position in one transaction. A share of that buy (at least 1% of
    total supply, at most 50 SOL of value during the beta) is locked in two
-   slices: a **holder pool** the triggers distribute, and optionally a
+   slices: a **holder pool** that rounds distribute, and optionally a
    **fixed list** of wallets and percentages committed at launch, published on
    chain and claimable by proof. Either slice may be zero, not both. The
-   creator keeps the rest and is excluded from every distribution.
+   creator keeps the rest and is excluded from every distribution. The site
+   states every share as a share of the 1B supply ("30% of supply = 300M")
+   and prices the buy that delivers it; on chain the split is stored as
+   basis points of the buy.
+   `launch` also fixes the **distribution mode** for the life of the coin:
+   **Auto** — the volume / milestone rule in step 3 releases the pool and the
+   creator has no say; **Manual** — that rule is off and only the creator's
+   `dev_distribute(amount)` releases (any amount up to the pool, at once, no
+   delay), into the very same rounds. Neither mode has a path from the pool
+   back to the creator.
 2. **Two fee modes.** In *creator-fee* mode the coin's creator on pump.fun is
    a program-owned account, and pump's fee-sharing config splits every trade's
    creator fee 90% to the escrow and 10% to the platform — fixed per coin on
@@ -30,11 +39,14 @@ Open source (MIT). Program id on devnet:
    slot, priced on chain) and added to the pool. In *holder-rewards* mode the
    coin is a pump.fun holder-rewards coin: pump pays the creator fee to its
    own holder pool, and the program does nothing with fees.
-3. **Triggers.** Anyone may call `check_trigger`; it samples the curve. When
-   trading volume since the last distribution reaches 1% of market cap, 1% of
-   the pool is released; when market cap doubles, 5%. The release fires at a
-   random moment within the next hour (`fire_trigger`, also permissionless),
-   so the distribution slot cannot be front-run.
+3. **Triggers (Auto coins).** Anyone may call `check_trigger`; it samples
+   the curve. When trading volume since the last distribution reaches 1% of
+   market cap, 1% of the pool is released; when market cap doubles, 5%. The
+   release fires at a random moment within the next hour (`fire_trigger`,
+   also permissionless), so the distribution slot cannot be front-run. On a
+   Manual coin `check_trigger` still samples (volume, dead-coin days) but
+   never arms; `dev_distribute` is the only release and is refused on Auto
+   coins.
 4. **Pro-rata distribution.** An open-source indexer replays every token
    account's history to the snapshot slot, weights holders by balance × time
    held, drops positions under 0.1 SOL (≈ $20), and splits the release in
@@ -136,6 +148,7 @@ export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=~/.config/solana/
 npx ts-mocha -p ./tsconfig.json -t 600000 tests/airdrop_escrow.ts  # full flow, 20 tests
 npx ts-mocha -p ./tsconfig.json -t 600000 tests/security.ts        # SECURITY_REVIEW findings
 npx ts-mocha -p ./tsconfig.json -t 600000 tests/manual_airdrop.ts  # fixed list, brakes, intervention, dead coin
+npx ts-mocha -p ./tsconfig.json -t 600000 tests/distribution_mode.ts # Auto vs Manual: dev_distribute limits, no auto arm, same allocator
 npx ts-node -T indexer/allocate.test.ts                            # allocator unit tests
 ```
 
@@ -156,7 +169,7 @@ for the indexer):
 git clone https://github.com/utterson26/escrow-distribution.git && cd escrow-distribution && npm install
 anchor idl build -o target/idl/airdrop_escrow.json -t target/types/airdrop_escrow.ts
 export HELIUS_RPC_URL='https://devnet.helius-rpc.com/?api-key=YOURS'
-solana airdrop 2 -u devnet            # a run spends ≈ 0.5 SOL net; the demo sweeps the rest back
+solana airdrop 2 -u devnet            # a run spends ≈ 1.3 SOL net (two launches, 30% of supply locked each); the demo sweeps the rest back
 scripts/demo-video.sh && scripts/demo-video.sh start
 ```
 

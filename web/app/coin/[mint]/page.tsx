@@ -8,7 +8,7 @@ import { compact, ago } from "@/components/CoinTable";
 import { fetchEscrows, fetchRounds, fetchMetadata, fetchConfig, coinLabel, manualPctOf, launchedAt } from "@/lib/data";
 import {
   conn, bondingCurve, decodeCurve, marketCap, fmtTokens, fmtSol, short, ata, network,
-  MAX_SHARE_BPS, CAP_MIN_HOLDERS, DEFAULT_MIN_POSITION_LAMPORTS, DECIMALS, Escrow,
+  MAX_SHARE_BPS, CAP_MIN_HOLDERS, DEFAULT_MIN_POSITION_LAMPORTS, DECIMALS, Escrow, modeOf, triggerLabel, TRIGGER_DEV,
 } from "@/lib/chain";
 
 // Rendered from chain state and re-rendered at most every 15 s: fast for
@@ -73,6 +73,11 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
   const lockedPct = e.escrowBps / 100 + manualPct;
   const lockedTotal = e.escrowed + (e.manualTotal ?? 0n);
   const launched = launchedAt(e);
+  const mode = modeOf(e);
+  const supplyTokens = curve ? curve.tokenTotalSupply : 0n;
+  // shares of total supply, the way the launch form states them
+  const ofSupply = (v: bigint) => supplyTokens > 0n ? Number((v * 10_000n) / supplyTokens) / 100 : null;
+  const holderSupplyPct = ofSupply(e.escrowed), listSupplyPct = ofSupply(e.manualTotal ?? 0n), keptSupplyPct = ofSupply(e.bought - lockedTotal);
   const minPos = cfg?.minPositionLamports ?? DEFAULT_MIN_POSITION_LAMPORTS;
   const claimedPct = e.allocated > 0n ? Number((e.claimed * 1000n) / e.allocated) / 10 : 0;
   // share of the holder pool that rounds have taken so far, and what is still locked
@@ -99,6 +104,12 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         <div>
           <div className="flex" style={{ gap: 10 }}>
             <h1 style={{ fontSize: "clamp(24px,3.5vw,34px)" }}>{coinLabel(mint, meta)}</h1>
+            {mode !== "unknown" && (
+              <span className={`pill${mode === "manual" ? " warn" : " on"}`}
+                    title={mode === "manual" ? "Manual mode: only the creator's dev_distribute releases the pool" : "Auto mode: the volume / milestone rule releases the pool; the creator has no say"}>
+                {mode === "manual" ? "Manual" : "Auto"}
+              </span>
+            )}
             {e.isHolderReward && <span className="pill">holder-rewards</span>}
             {e.dead && <span className="pill bad">flagged dead</span>}
             {e.armed && <span className="pill on"><span className="dot" aria-hidden="true" />release armed</span>}
@@ -120,17 +131,19 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
       <div className="card mt2">
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))" }}>
           <Stat k="Locked at launch" v={`${compact(lockedTotal)}`}
-                sub={<><b>{lockedPct}%</b> of the creator&apos;s buy{manualPct ? ` · holders ${e.escrowBps / 100}% + list ${manualPct}%` : ""}</>} />
+                sub={holderSupplyPct !== null
+                  ? <><b>{ofSupply(lockedTotal)}%</b> of supply{manualPct ? ` · holders ${holderSupplyPct}% + list ${listSupplyPct}%` : ""}</>
+                  : <><b>{lockedPct}%</b> of the creator&apos;s buy</>} />
           <Stat k="Pool remaining" v={compact(pool)} sub={`${fmtTokens(pool)} tokens not yet released`} />
           <Stat k="Escrow holds" v={compact(escrowHeld)} sub="verifiable on the explorer" />
           <Stat k="Released" v={compact(e.allocated)} sub={`${claimedPct}% claimed · ${rounds.length} round${rounds.length === 1 ? "" : "s"}`} />
           <Stat k="Market cap" v={curve ? `${fmtSol(mcap)} SOL` : "—"} sub={curve?.complete ? "curve complete" : "on the bonding curve"} />
-          <Stat k="Creator kept" v={`${100 - lockedPct}%`} sub="never takes part in a round" />
+          <Stat k="Creator kept" v={keptSupplyPct !== null ? `${keptSupplyPct}%` : `${100 - lockedPct}%`} sub={`${keptSupplyPct !== null ? "of supply · " : ""}never takes part in a round`} />
         </div>
         <div className="split" style={{ marginTop: 18 }} aria-hidden="true">
-          <i className="a" style={{ width: `${e.escrowBps / 100}%` }} />
-          {manualPct > 0 && <i className="b" style={{ width: `${manualPct}%` }} />}
-          <i className="c" style={{ width: `${100 - lockedPct}%` }} />
+          <i className="a" style={{ width: `${holderSupplyPct ?? e.escrowBps / 100}%` }} />
+          {manualPct > 0 && <i className="b" style={{ width: `${listSupplyPct ?? manualPct}%` }} />}
+          <i className="c" style={{ width: `${keptSupplyPct ?? 100 - lockedPct}%` }} />
         </div>
         <div className="flex between mt" style={{ gap: "6px 16px" }}>
           <span className="small">
@@ -139,9 +152,10 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
           <span className="tiny muted">of the holder pool locked at launch</span>
         </div>
         <div className="legend">
-          <span><i style={{ background: "var(--acc)" }} />holder pool {e.escrowBps / 100}%</span>
-          {manualPct > 0 && <span><i style={{ background: "var(--acc2)", opacity: .55 }} />fixed list {manualPct}%</span>}
-          <span><i style={{ background: "var(--dim2)" }} />creator {100 - lockedPct}%</span>
+          <span><i style={{ background: "var(--acc)" }} />holder pool {holderSupplyPct ?? e.escrowBps / 100}%</span>
+          {manualPct > 0 && <span><i style={{ background: "var(--acc2)", opacity: .55 }} />fixed list {listSupplyPct ?? manualPct}%</span>}
+          <span><i style={{ background: "var(--dim2)" }} />creator kept {keptSupplyPct ?? 100 - lockedPct}%</span>
+          {keptSupplyPct !== null && <span><i style={{ background: "var(--line)" }} />rest of supply on the curve / with traders</span>}
         </div>
       </div>
 
@@ -149,9 +163,16 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
 
       {e.generation >= 3 && (
         <section className="section">
-          <div className="section-head"><h2>Next release</h2><p>Two independent triggers; either one opens a round.</p></div>
+          <div className="section-head"><h2>Next release</h2>
+            <p>{mode === "manual" ? "Manual mode: the creator decides when and how much; no automatic trigger runs." : "Two independent triggers; either one opens a round."}</p></div>
           <div className="card">
-            {e.armed ? (
+            {mode === "manual" ? (
+              <div className="alert" role="note">
+                {(e.pending ?? 0n) > 0n
+                  ? <>The creator released <b className="num">{compact(e.pending ?? 0n)}</b> tokens; the crank opens the round on its next pass.</>
+                  : <>Nothing is queued. The creator can release any amount up to the pool at any time with <code>dev_distribute</code>; volume and market cap do not release anything on this coin.</>}
+              </div>
+            ) : e.armed ? (
               <div className="alert ok" role="status">
                 The {e.armedKind === 2 ? "milestone" : "volume"} trigger fired. The release lands at slot {e.fireSlot?.toString()}
                 {armedIn > 0 ? ` — about ${armedIn < 60 ? `${Math.round(armedIn)}s` : `${Math.round(armedIn / 60)} min`} from now` : " — due now"}; anyone can call it in.
@@ -165,8 +186,8 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
               </div>
             )}
             <div className="grid mt2" style={{ borderTop: "1px solid var(--line)", paddingTop: 16 }}>
-              <Stat sm k="Released, unspent" v={compact(e.pending ?? 0n)} sub="waiting for a publisher to open the round" />
-              <Stat sm k="Last milestone" v={`${fmtSol(e.lastMilestoneMcap ?? 0n)} SOL`} sub="next fires at 2×" />
+              <Stat sm k="Released, unspent" v={compact(e.pending ?? 0n)} sub={(e.pending ?? 0n) > 0n ? `${triggerLabel(e.pendingKind)} release · waiting for the crank to open the round` : "nothing waiting for a round"} />
+              {mode !== "manual" && <Stat sm k="Last milestone" v={`${fmtSol(e.lastMilestoneMcap ?? 0n)} SOL`} sub="next fires at 2×" />}
               {!e.isHolderReward && <Stat sm k="Buyback" v={`${fmtSol(e.buybackSpent ?? 0n)} SOL`} sub={`→ ${compact(e.buybackTokens ?? 0n)} tokens added to the pool`} />}
               <Stat sm k="Creator fee" v={e.isHolderReward ? "on pump" : e.feeSharingSet ? `${100 - (e.platformFeeBps ?? 0) / 100} / ${(e.platformFeeBps ?? 0) / 100}` : "pending"}
                     sub={e.isHolderReward ? "pump pays it to its own holder pool" : e.feeSharingSet ? "escrow / platform split, fixed on pump" : "split is set on the crank's next pass"} />
@@ -182,11 +203,12 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         ) : (
           <div className="card pad0"><div className="tbl">
             <table>
-              <thead><tr><th>#</th><th className="r">Released</th><th className="r">Distributed</th><th className="r">Holders</th><th className="r">Claimed</th><th className="r">Snapshot slot</th><th>Root</th></tr></thead>
+              <thead><tr><th>#</th><th>Trigger</th><th className="r">Released</th><th className="r">Distributed</th><th className="r">Holders</th><th className="r">Claimed</th><th className="r">Snapshot slot</th><th>Root</th></tr></thead>
               <tbody>
                 {rounds.map((r) => (
                   <tr key={r.address}>
                     <td><a href={net.explorerAddress(r.address)} target="_blank" rel="noreferrer">#{r.index}</a></td>
+                    <td><span className={`pill${r.triggerKind === TRIGGER_DEV ? " warn" : ""}`}>{r.triggerKind === undefined ? (mode === "manual" ? "dev" : "auto") : triggerLabel(r.triggerKind)}</span></td>
                     <td className="r">{fmtTokens(r.released)}</td>
                     <td className="r">{fmtTokens(r.total)}</td>
                     <td className="r">{r.holderCount}</td>
@@ -208,7 +230,11 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
 
       <section className="section">
         <div className="section-head"><h2>Your share</h2><p>Connect a wallet to check every round for a claim; estimate the next one below.</p></div>
-        <ClaimIsland mint={mint} escrow={e.address} cluster={net.name} />
+        <ClaimIsland mint={mint} escrow={e.address} cluster={net.name}
+                     distribute={mode === "manual" ? {
+                       mint, dev: e.dev, cluster: net.name, symbol: meta?.symbol ?? "tokens",
+                       poolRemaining: String(toNum(pool - (e.pending ?? 0n))), supply: String(toNum(supplyTokens)),
+                     } : undefined} />
         <div className="mt">
           <ShareCalculator c={{
             poolRemaining: toNum(pool), circulating: Math.max(0, toNum(circulating)), priceSol,
@@ -235,9 +261,16 @@ export default async function Coin({ params }: { params: Promise<{ mint: string 
         <div className="card faq" style={{ paddingBlock: 4 }}>
           <details>
             <summary>How the lock works</summary>
-            <div className="a">At launch the creator bought {compact(e.bought)} tokens and {lockedPct}% of that buy was moved by the program into an
-              escrow account it alone controls{manualPct ? ` (${e.escrowBps / 100}% as the holder pool, ${manualPct}% for a fixed wallet list)` : ""}.
+            <div className="a">At launch the creator bought {compact(e.bought)} tokens{ofSupply(e.bought) !== null ? ` (${ofSupply(e.bought)}% of supply)` : ""} and {compact(lockedTotal)} of them
+              {ofSupply(lockedTotal) !== null ? ` — ${ofSupply(lockedTotal)}% of supply — ` : " "}were moved by the program into an
+              escrow account it alone controls{manualPct ? ` (${compact(e.escrowed)} as the holder pool, ${compact(e.manualTotal ?? 0n)} for a fixed wallet list)` : ""}.
               A lock must be at least 1% of total supply. There is no instruction that returns it to the creator.</div>
+          </details>
+          <details>
+            <summary>{mode === "manual" ? "Manual mode" : "Auto mode"}</summary>
+            <div className="a">{mode === "manual"
+              ? "The automatic rule is off for this coin. Only the creator's dev_distribute releases tokens — any amount up to the pool, at once, no delay — and each release goes into the same kind of round as any other coin: snapshot, pro-rata by balance × time held, floor, cap, creator and list excluded, Merkle claims. There is no path from the pool to the creator."
+              : "The program releases the pool on its own: 1% of the remaining pool each time trading volume reaches 1% of market cap, 5% each time market cap doubles, at a random moment inside the delay window. The creator cannot trigger, delay or stop a release; dev_distribute is refused on Auto coins."} The mode was fixed at launch and no instruction changes it.</div>
           </details>
           <details>
             <summary>Where the creator fee goes</summary>

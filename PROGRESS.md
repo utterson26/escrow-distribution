@@ -1350,3 +1350,49 @@ ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
 ANCHOR_WALLET=~/.config/solana/id.json \
   npx ts-mocha -p ./tsconfig.json -t 600000 tests/airdrop_escrow.ts
 ```
+
+## Adım 33 — Auto / Manual dağıtım modu, arz yüzdesi, USD mum grafiği (15 Eylül) ✅
+
+- **Program.** `launch(..., distribution_mode)`: 0 Auto / 1 Manual, başka değer
+  `BadDistributionMode`; sonradan değiştiren instruction yok. Escrow'a
+  `distribution_mode`, `pending_kind`, `rounds_opened`; Round'a `trigger_kind`
+  (1 hacim / 2 milestone / 3 dev). Yeni `dev_distribute(amount)`: yalnız dev
+  (`NotDev`), yalnız Manual (`NotManualMode`), `amount ≤ escrowed − allocated −
+  pending` (`OverPool`), bekleme yok, hedef argümanı yok — sadece `pending`
+  büyür, token yalnız `claim_share` ile çıkar. `check_trigger` Manual coin'de
+  örnekler ama kurmaz. `open_round` artık `index == rounds_opened` ister
+  (`BadRoundIndex`) ve tetikleyici tipini tura yazar. Event
+  `DevDistributionTriggered { escrow, dev, amount, round_id, pending }`.
+  Invariant SECURITY_REVIEW §2'ye eklendi ("havuzdan holder dışına yol yok").
+- **Testler.** Yeni `tests/distribution_mode.ts` (5): Auto'da dev_distribute
+  reddi + hacim kuralı aynen; Manual'da aynı piyasa hiç kurmuyor (2× fiyat
+  dahil); yabancı / platform / sıfır / havuz üstü reddi; ardışık iki çağrı
+  toplanıyor; tüm havuz tek çağrıda; tur aynı allocator (dev ve liste hariç),
+  `trigger_kind = dev`, Merkle claim, dev başkasının yaprağıyla claim edemez.
+  Localnet: ana 20/20, security 6/6, manual 7/7, allocator 6/6, multisig 4/4.
+- **Devnet.** Yeniden deploy (604 KB, 751 KB alan yetti; Config değişmedi,
+  migrate gerekmedi; slot 498770209). Config bulunan halinden (platform = bir
+  test anahtarı, 4 test publisher) dev cüzdanına geri alındı; suite'ler sonrası
+  yine (security/mode testleri platformu taşıyor). Helius ile: mode **5/5**,
+  security **6/6**, manual **7/7**, ana **20/20** (toplam ~3,1 SOL). Demo
+  (iki perde, 147 sn, 1,29 SOL net): Auto coin `FLv5…3EQ8` hacim turu 3/3
+  claim; Manual coin `9MLs…bJr7` dev_distribute 9M → `trigger_kind = dev`
+  turu 3/3 claim. Devnet curve'ünde %1 arz ≈ 0,02 SOL olduğu için demo
+  uygunluk tabanını 0,01 SOL'e indiriyor (platform, propose+apply, kısaltılmış
+  gecikme) ve orada bırakıyor — üretim 0,1 SOL. **SOL: 10,7 → 5,2.**
+- **demo-video.sh.** Arz yüzdeleri: creator %32 alır, %30 kilit, %2 kalır;
+  alıcılar %1/%2/%3 (SOL curve'den hesaplanır). İkinci perde: Manual coin,
+  aynı alıcılar, `dev_distribute` (%3 havuz), snapshot, tur, claim'ler.
+  15 adım, ~0,8 SOL.
+- **Web.** Launch formu: yüzdeler TOPLAM ARZIN yüzdesi ("30% of supply =
+  300M"), gereken SOL curve fiyatından; Distribution kartı (Auto/Manual,
+  önizleme metni moda göre); milestone tablosu kaldırıldı (v2 roadmap
+  notu HACKATHON.md'de). Coin sayfası: mod rozeti, Manual'da dev için
+  "Distribute now" (adet + arz %, imza), tur tablosunda tetikleyici tipi,
+  kilitli pay arz yüzdesi olarak. Grafik: USD (Jupiter; CoinGecko yedek; 60 sn
+  önbellek), 1 dk OHLC mum (indexer trade verisi), log eksen, kesikli
+  "Migration" çizgisi = 85 SOL × fiyat, mezuniyet sonrası mum rengi/rozet,
+  "Awaiting first trade". Docs SSS güncel. Feed `DevDistributionTriggered`.
+- **Docs.** README, SECURITY_REVIEW, HACKATHON (roadmap: milestone tablosu
+  v2, EVM parite), docs/PARITY.md (EVM için yapılacaklar), crank README
+  (`CRANK_MINT`, Manual modda davranış).

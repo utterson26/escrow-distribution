@@ -12,7 +12,7 @@ const LABEL: Record<string, string> = {
   ShareClaimed: "Share claimed", ManualClaimed: "Manual share claimed",
   TriggerFired: "Trigger fired", RoundOpened: "Round opened",
   BuybackDone: "Buyback", Launched: "Coin launched",
-  DeadCoinFlagged: "Flagged dead", Intervened: "Platform intervention",
+  DeadCoinFlagged: "Flagged dead", Intervened: "Platform intervention", DevDistributionTriggered: "Dev released (Manual)",
 };
 
 export default async function Feed() {

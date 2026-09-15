@@ -78,6 +78,14 @@ pub enum EscrowError {
     HoldingBelowSnapshot,
     #[msg("bonding curve reserves are zero")]
     EmptyCurve,
+    #[msg("distribution_mode must be 0 (Auto) or 1 (Manual)")]
+    BadDistributionMode,
+    #[msg("dev_distribute is only for Manual-mode coins; Auto coins release by the volume / milestone rule alone")]
+    NotManualMode,
+    #[msg("amount exceeds what the pool has left to release")]
+    OverPool,
+    #[msg("round index must be the next one in sequence")]
+    BadRoundIndex,
     #[msg("arithmetic overflow")]
     Overflow,
     #[msg("not applicable to a holder-rewards coin")]

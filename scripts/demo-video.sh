@@ -6,7 +6,7 @@
 #
 #   scripts/demo-video.sh          dry run: checks prerequisites, prints the
 #                                  storyboard, sends nothing
-#   scripts/demo-video.sh start    the real thing (≈ 0.5 SOL of devnet SOL
+#   scripts/demo-video.sh start    the real thing (≈ 1.3 SOL of devnet SOL
 #                                  net; throwaway wallets are swept back)
 #
 # Needs: HELIUS_RPC_URL (devnet) in ~/.airdrop-launchpad.env or the shell,

@@ -81,6 +81,14 @@ pub const DST_POOL: u8 = 1;
 
 pub const TRIGGER_VOLUME: u8 = 1;
 pub const TRIGGER_MILESTONE: u8 = 2;
+/// A release the dev asked for with `dev_distribute` (Manual mode only).
+pub const TRIGGER_DEV: u8 = 3;
+
+/// `distribution_mode`, fixed at launch. Auto: the volume / milestone rule
+/// releases the pool and the dev has no say. Manual: that rule is off and
+/// only `dev_distribute` releases — into the same snapshot + Merkle rounds.
+pub const MODE_AUTO: u8 = 0;
+pub const MODE_MANUAL: u8 = 1;
 
 /// Seed of the per-holder, per-round claim receipt.
 #[constant]

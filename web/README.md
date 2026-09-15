@@ -15,15 +15,21 @@ through `/api/rpc`, a same-origin pass-through with a method allowlist.
 
 - `/` — hero, how it works, live coin list (current program layout first,
   earlier test builds under a fold), beta status from `Config`.
-- `/coin/<mint>` — locked amount and share, pool remaining, both trigger
-  progress bars, distribution rounds, claims (connect a wallet), a share
-  estimator, the fixed wallet list when the coin has one, explorer links.
-- `/launch` — the creator form: buy size, holder / fixed-list split, wallet
-  list (Merkle root computed in the browser), a milestone schedule planning
-  aid, live preview against the program's limits, then three wallet signatures:
-  two for a one-off address lookup table (the launch touches 39 accounts) and
-  one v0 transaction that creates the coin on pump.fun, buys and locks. Fixed
-  list rows are published on chain right after.
+- `/coin/<mint>` — mode badge (Auto / Manual), locked share of supply, pool
+  remaining, a USD market-cap candlestick chart (one-minute candles from
+  pump's trade events, migration line, 10 s polling), trigger progress (Auto)
+  or the creator's "Distribute now" panel (Manual, dev wallet only),
+  distribution rounds with what triggered each, claims (connect a wallet), a
+  share estimator, the fixed wallet list when the coin has one, explorer links.
+- `/launch` — the creator form. Every share is a share of the 1B supply
+  (holder pool, fixed list, what you keep); the form prices the buy that
+  delivers them off the curve, computes the bps the program wants, and lets
+  you pick the distribution mode (Auto: the rule releases; Manual: only
+  `dev_distribute`). Wallet list Merkle root is computed in the browser; the
+  preview checks the program's limits live; then three wallet signatures: two
+  for a one-off address lookup table (the launch touches 39 accounts) and one
+  v0 transaction that creates the coin on pump.fun, buys and locks. Fixed list
+  rows are published on chain right after.
 - `/feed` — recent events, decoded from the program's own logs.
 - `/docs` — FAQ: minimum position, per-wallet cap, milestones, fees, what
   happens when a coin never reaches a milestone.
@@ -43,6 +49,9 @@ one `getProgramAccounts` scan.
 - `POST /api/metadata` — uploads the coin's metadata to pump.fun's IPFS
   endpoint (proxied: it does not answer cross-origin requests).
 - `POST /api/rpc` — JSON-RPC pass-through for the browser wallet.
+- `GET /api/mcap/<mint>` — the coin's trades (market cap after each, from
+  pump's `TradeEvent`s), the curve's graduation flag and the SOL price.
+- `GET /api/sol-price` — SOL/USD from Jupiter (CoinGecko fallback), 60 s cache.
 
 ## Reading old accounts
 

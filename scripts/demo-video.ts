@@ -4,14 +4,17 @@
  * beat, sends its transactions with explorer links, and shows the balances it
  * changed as before → after. Runs in about three to four minutes.
  *
- *   launch (30% lock) → three buyers → collect fees → buyback → volume trigger
- *   → random delay → snapshot + pro-rata shares → round on chain → claims
+ *   Auto coin:   launch (30% of supply locked, creator keeps 2%) → three buyers
+ *                (1% / 2% / 3% of supply) → collect fees → buyback → volume
+ *                trigger → random delay → snapshot + pro-rata shares → round → claims
+ *   Manual coin: launch in Manual mode → the same buyers → the dev releases a
+ *                slice with dev_distribute (no rule, no delay) → snapshot → round → claims
  *
  * Never run this file directly; `scripts/demo-video.sh start` is the entry
  * point. `--dry-run` checks the prerequisites and prints the storyboard
  * without sending anything (that is what the .sh does without `start`).
  *
- * Costs about 0.5 SOL of devnet SOL net (measured: 0.46): the throwaway wallets are swept
+ * Costs about 1.3 SOL of devnet SOL net (measured 1.29): two launches each lock 30% of supply for good; the throwaway wallets are swept
  * back and the creator's position is sold back at the end.
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -39,13 +42,28 @@ const RPC_URL = process.env.HELIUS_RPC_URL ?? "";
 /** pause after every heading and every balance table, so the viewer can read it */
 const PAUSE_MS = DRY_RUN ? 0 : Number(process.env.PAUSE_MS ?? 5000);
 /** SOL each buyer wallet is funded with; the leftover is swept back at the end */
-const FUND_SOL = 0.25;
-const BUYS = [0.15, 0.12, 0.10];
+const FUND_SOL = 0.2;
 const BUYERS = ["Alice", "Bob", "Carol"];
-/** locked share of the creator's buy: all of it goes to the holder pool (no fixed list) */
-const HOLDER_BPS = 3000;
-/** the creator's launch buy; 300M is what the devnet demo uses (≈ 0.4 SOL) */
-const LAUNCH_TOKENS = 300_000_000n;
+/** pump mints a fixed 1B; every share below is a share of that total supply */
+const SUPPLY = 1_000_000_000n;
+/** holder pool and what the creator keeps, in % of total supply (no fixed list here) */
+const POOL_PCT = 30, KEEP_PCT = 2;
+/** what each buyer takes, in % of total supply */
+const BUYER_PCT = [1, 2, 3];
+/** the creator's launch buy: pool + keep = 32% of supply (≈ 0.43 SOL on the devnet curve) */
+const LAUNCH_TOKENS = (SUPPLY * BigInt(POOL_PCT + KEEP_PCT)) / 100n;
+/** the program takes the lock as a share of the buy: 30 / 32 of it */
+const HOLDER_BPS = Math.round((POOL_PCT / (POOL_PCT + KEEP_PCT)) * 10_000);
+/** Manual act: share of the pool the dev releases in one call */
+const MANUAL_RELEASE_PCT = 3;
+const MODE_AUTO = 0, MODE_MANUAL = 1;
+/**
+ * Eligibility floor used on devnet. The devnet curve starts at 1 SOL virtual,
+ * so 1% of supply is worth ~0.02 SOL — under the production floor of 0.1 SOL.
+ * The platform lowers it (proposal + delay, delay narrowed by the test knob)
+ * so the buyers' positions count; production keeps 0.1 SOL.
+ */
+const DEVNET_FLOOR_LAMPORTS = 10_000_000; // 0.01 SOL
 /** random-delay window in slots: up to ~40 s on camera (production: 60 minutes) */
 const DELAY_WINDOW = 100;
 /** fees from three small buys are below the 0.01 SOL buyback minimum; this makes the buyback visible */
@@ -53,7 +71,7 @@ const TOPUP_SOL = 0.1;
 const BUYBACK_CHUNKS = 3;
 const SLOT_HASHES = new PublicKey("SysvarS1otHashes111111111111111111111111111");
 const DEC = 1_000_000n;
-const MIN_DEV_SOL = 1.5;
+const MIN_DEV_SOL = 2;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pause = () => sleep(PAUSE_MS);
@@ -106,9 +124,9 @@ function decodeBuybackDone(logs: string[]) {
 }
 
 const STORYBOARD: [string, string][] = [
-  ["Launch", `create the coin on pump.fun, creator buys ${Number(LAUNCH_TOKENS) / 1e6}M, 30% of that buy is locked in a program-owned escrow — one transaction`],
+  ["Launch (Auto)", `create the coin on pump.fun, creator buys ${POOL_PCT + KEEP_PCT}% of supply, ${POOL_PCT}% of supply is locked in a program-owned escrow, creator keeps ${KEEP_PCT}% — one transaction`],
   ["Fee sharing", "pump.fun's creator fee for this coin is split on pump itself: escrow share / platform share (config, 10% by default)"],
-  ["Three buyers", `${BUYERS.join(", ")} buy from pump.fun (${BUYS.join(" / ")} SOL); the creator fee accrues`],
+  ["Three buyers", `${BUYERS.join(", ")} buy ${BUYER_PCT.join("% / ")}% of supply from pump.fun; the creator fee accrues`],
   ["Collect fees", "the accrued creator fee is paid out: the escrow's share and the platform's share"],
   ["Buyback", `escrow SOL is converted into the coin in slot-sized chunks (≤ 0.5% of reserves each); ${TOPUP_SOL} SOL top-up so it shows on camera`],
   ["Volume trigger", "trading volume passed 1% of market cap: 1% of the pool is released after a random delay"],
@@ -116,7 +134,11 @@ const STORYBOARD: [string, string][] = [
   ["Snapshot", "deterministic holder snapshot, shares pro rata to balance × holding time"],
   ["Round on chain", "Merkle root + snapshot slot + released amount are written on chain"],
   ["Claims", "every holder claims with a proof from their own wallet; a second claim is rejected"],
-  ["Wrap-up", "throwaway wallets swept back, creator position sold back to the curve"],
+  ["Launch (Manual)", `a second coin in Manual mode: same ${POOL_PCT}% of supply locked, the automatic rule is off`],
+  ["Buyers again", `${BUYERS.join(", ")} buy the same ${BUYER_PCT.join("% / ")}%; volume alone arms nothing`],
+  ["Dev releases", `dev_distribute: the creator releases ${MANUAL_RELEASE_PCT}% of the pool — at once, no rule, no delay; only the dev may, and never more than the pool`],
+  ["Manual round", "same snapshot, same pro-rata split, same Merkle claims — the round is tagged as dev-released"],
+  ["Wrap-up", "throwaway wallets swept back, creator positions sold back to the curve"],
 ];
 
 async function main() {
@@ -143,7 +165,7 @@ async function main() {
   const isPublisher = cfg?.publishers?.some((k: PublicKey) => k.equals(dev.publicKey));
   info(`publisher allowlist includes creator wallet: ${isPublisher ? "yes ✓" : "NO ✗ (open_round would fail)"}`);
   const ok = !!progInfo && !!cfg && !cfg.paused && isPublisher && devSol >= MIN_DEV_SOL * LAMPORTS_PER_SOL;
-  console.log(`\n  storyboard (${STORYBOARD.length} steps, ~3–4 min with ${PAUSE_MS / 1000 || 5} s pauses):`);
+  console.log(`\n  storyboard (${STORYBOARD.length} steps, ~5–6 min with ${PAUSE_MS / 1000 || 5} s pauses):`);
   STORYBOARD.forEach(([t, s], i) => console.log(`   ${String(i + 1).padStart(2)}. ${t.padEnd(22)} ${s}`));
   if (DRY_RUN) {
     console.log(`\n  ${ok ? "all checks passed — run `scripts/demo-video.sh start` to record" : "checks FAILED — fix the ✗ lines above before recording"}\n`);
@@ -180,6 +202,17 @@ async function main() {
   const lamports = async (k: PublicKey) => BigInt(await conn.getBalance(k, "confirmed"));
   const escrowState = async () => (await program.account.escrow.fetch(escrow, "confirmed")) as any;
   const poolOf = (st: any) => BigInt(st.escrowed.toString()) - BigInt(st.allocated.toString());
+  /** live curve reserves, to price a buy of an exact share of supply */
+  const curveOf = async (bc: PublicKey) => {
+    const d = (await conn.getAccountInfo(bc, "confirmed"))!.data;
+    return { vTok: d.readBigUInt64LE(8), vSol: d.readBigUInt64LE(16) };
+  };
+  /** SOL to send with buy_exact_quote_in so that about `tokens` come out: curve price + pump's 1% fees + a hair of slack */
+  const solForTokens = (c: { vTok: bigint; vSol: bigint }, tokens: bigint) => {
+    const base = (c.vSol * tokens) / (c.vTok - tokens) + 1n;
+    return base + (base * 130n) / 10_000n;
+  };
+  const pctOfSupply = (tokens: bigint | string) => `${(Number(BigInt(tokens.toString())) / Number(SUPPLY * DEC) * 100).toFixed(2)}% of supply`;
   const errText = (e: any) => String(e?.message ?? e) + JSON.stringify(e?.logs ?? []);
 
   async function send(ixs: TransactionInstruction[], payer = dev, extra: Keypair[] = []) {
@@ -239,12 +272,12 @@ async function main() {
   }
 
   // ---- 1. launch ----
-  await heading("Launch", `Create the coin on pump.fun, buy ${Number(LAUNCH_TOKENS) / 1e6}M as the creator, lock 30% of that buy — one transaction`);
+  await heading("Launch (Auto)", `Create the coin on pump.fun, buy ${POOL_PCT + KEEP_PCT}% of supply as the creator, lock ${POOL_PCT}% of supply for holders, keep ${KEEP_PCT}% — one transaction`);
   const AMOUNT = LAUNCH_TOKENS * DEC;
   {
     const ix = await program.methods
       .launch("Fair Launch Demo", "FAIR", "https://example.com/fair.json",
-              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), Array(32).fill(0), 0, HOLDER_BPS, false)
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), Array(32).fill(0), 0, HOLDER_BPS, false, MODE_AUTO)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda, escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,
@@ -255,7 +288,7 @@ async function main() {
     const st = await escrowState();
     info(`coin    ${mint.toBase58()}\n    ${addrLink(mint)}\n    https://pump.fun/coin/${mint.toBase58()}`);
     info(`escrow  ${escrow.toBase58()} (program account — no private key exists)\n    ${addrLink(escrow)}`);
-    info(`lock = ${st.escrowed.toString() === "0" ? "?" : `${HOLDER_BPS / 100}% of the creator's buy`}; the creator is excluded from every distribution`);
+    info(`locked ${tok(st.escrowed.toString())} = ${pctOfSupply(st.escrowed.toString())} · creator keeps ${tok(AMOUNT - BigInt(st.escrowed.toString()))} = ${KEEP_PCT}% · Auto mode: the volume / milestone rule releases, the creator has no say`);
     await diff(before, { "creator coins": await coinBal(dev.publicKey), "escrow pool": poolOf(st) }, tok);
     // the keeper's first look records the baseline the volume trigger measures from
     if ((cfg.platform as PublicKey).equals(dev.publicKey)) {
@@ -282,8 +315,22 @@ async function main() {
     await pause();
   }
 
+  // ---- eligibility floor for the devnet curve (platform only) ----
+  let floorLamports = BigInt(cfg.minPositionLamports.toString()) || 100_000_000n;
+  if ((cfg.platform as PublicKey).equals(dev.publicKey) && floorLamports > BigInt(DEVNET_FLOOR_LAMPORTS)) {
+    const platformOnly = { platform: dev.publicKey, config: configPda };
+    await rpc(program.methods.setFeeDelay(new BN(5)).accountsPartial(platformOnly));
+    await rpc(program.methods.proposeMinPosition(new BN(DEVNET_FLOOR_LAMPORTS)).accountsPartial(platformOnly));
+    let c: any = await program.account.config.fetch(configPda, "confirmed");
+    while ((await conn.getSlot("confirmed")) < c.minPositionEffectiveSlot.toNumber()) await sleep(400);
+    await rpc(program.methods.applyMinPosition().accountsPartial({ config: configPda }));
+    c = await program.account.config.fetch(configPda, "confirmed");
+    floorLamports = BigInt(c.minPositionLamports.toString());
+    info(`eligibility floor lowered to ${sol(floorLamports)} for the devnet curve (production: 0.1 SOL; a 1%-of-supply position is worth ~0.02 SOL here) — proposal + delay, delay narrowed by the platform's test knob`);
+  }
+
   // ---- 3. three buyers ----
-  await heading("Three buyers", `${BUYERS.join(", ")} buy from pump.fun like anyone else — the creator fee accrues in pump's vault`);
+  await heading("Three buyers", `${BUYERS.join(", ")} buy ${BUYER_PCT.join("% / ")}% of supply from pump.fun like anyone else — the creator fee accrues in pump's vault`);
   {
     for (const w of wallets) {
       await send([
@@ -297,11 +344,13 @@ async function main() {
     for (const w of wallets) before[`${nameOf(w.publicKey.toBase58())} coins`] = 0n;
     for (let i = 0; i < wallets.length; i++) {
       const w = wallets[i];
+      const want = (SUPPLY * DEC * BigInt(BUYER_PCT[i])) / 100n;
+      const spend = solForTokens(await curveOf(pa.bondingCurve), want);
       const s = await send([
         ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        directBuyIx(mint, w.publicKey, sharingConfig, BigInt(Math.round(BUYS[i] * LAMPORTS_PER_SOL)), 1n),
+        directBuyIx(mint, w.publicKey, sharingConfig, spend, 1n),
       ], w);
-      tx(`${BUYERS[i]} (${short(w.publicKey)}) buys with ${BUYS[i]} SOL → ${tok(await coinBal(w.publicKey))}`, s);
+      tx(`${BUYERS[i]} (${short(w.publicKey)}) buys ${BUYER_PCT[i]}% of supply for ${sol(spend)} → ${tok(await coinBal(w.publicKey))}`, s);
       await sleep(800); // different holding times
     }
     const after: Bal = {};
@@ -410,7 +459,7 @@ async function main() {
   const stFired = await escrowState();
   const released = BigInt(stFired.pending.toString());
   const snapSlot = await conn.getSlot("confirmed");
-  const snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], released);
+  const snap = await snapshot(RPC_URL, mint.toBase58(), snapSlot, program.programId, [], released, floorLamports);
   {
     const sorted = [...snap.leaves].sort((x: any, y: any) => (BigInt(y.weight) > BigInt(x.weight) ? 1 : -1));
     for (const l of sorted) {
@@ -472,8 +521,142 @@ async function main() {
     info(`${rr.claimedCount}/${rr.holderCount} claimed, ${tok(rr.claimedAmount.toString())} / ${tok(rr.total.toString())}; the rest of the pool waits for the next trigger`);
   }
 
-  // ---- 11. wrap-up ----
-  await heading("Wrap-up", "Throwaway wallets return their SOL; the creator's position is sold back to the curve (devnet housekeeping)");
+  // ---- 11. Manual coin: launch ----
+  const mintKpM = Keypair.generate();
+  const mintM = mintKpM.publicKey;
+  const escrowM = escrowPda(mintM, program.programId);
+  const escrowTaM = escrowAta(escrowM, mintM);
+  const feeAuthorityM = feeAuthorityPda(mintM, program.programId);
+  const paM = pumpAccounts(mintM, dev.publicKey, feeAuthorityM);
+  const manualPdaM = PublicKey.findProgramAddressSync([Buffer.from("manual"), mintM.toBuffer()], program.programId)[0];
+  const manualAtaM = getAssociatedTokenAddressSync(mintM, manualPdaM, true, TOKEN_2022);
+  const coinAtaM = (owner: PublicKey) => getAssociatedTokenAddressSync(mintM, owner, true, TOKEN_2022);
+  const coinBalM = async (owner: PublicKey) => {
+    try { return BigInt((await conn.getTokenAccountBalance(coinAtaM(owner), "confirmed")).value.amount); } catch { return 0n; }
+  };
+  const escrowStateM = async () => (await program.account.escrow.fetch(escrowM, "confirmed")) as any;
+  await heading("Launch (Manual)", `A second coin, Manual mode: the same ${POOL_PCT}% of supply is locked, but the volume / milestone rule is off — only the creator's dev_distribute releases, into the same rounds`);
+  {
+    // its own lookup table (the launch touches 39 accounts)
+    const slot = await conn.getSlot("finalized");
+    const [createIx, addr] = AddressLookupTableProgram.createLookupTable({ authority: dev.publicKey, payer: dev.publicKey, recentSlot: slot });
+    const keys = [...Object.values(paM) as PublicKey[], escrowM, escrowTaM, mintM, dev.publicKey, manualPdaM, manualAtaM, configPda, feeAuthorityM,
+                  SystemProgram.programId, program.programId];
+    const uniq = [...new Map(keys.map((k) => [k.toBase58(), k])).values()];
+    await send([createIx]);
+    for (let i = 0; i < uniq.length; i += 18) {
+      await send([AddressLookupTableProgram.extendLookupTable({ payer: dev.publicKey, authority: dev.publicKey, lookupTable: addr, addresses: uniq.slice(i, i + 18) })]);
+    }
+    for (let i = 0; i < 60; i++) {
+      const acc = (await conn.getAddressLookupTable(addr)).value;
+      if (acc && acc.state.addresses.length >= uniq.length && (await conn.getSlot("confirmed")) > Number(acc.state.lastExtendedSlot)) break;
+      await sleep(500);
+    }
+    await sleep(1500);
+    const ix = await program.methods
+      .launch("Manual Mode Demo", "MANL", "https://example.com/manl.json",
+              new BN(AMOUNT.toString()), new BN(2.5 * LAMPORTS_PER_SOL), Array(32).fill(0), 0, HOLDER_BPS, false, MODE_MANUAL)
+      .accountsPartial({
+        dev: dev.publicKey, mint: mintM, escrow: escrowM, config: configPda, escrowTokenAccount: escrowTaM,
+        manualAuthority: manualPdaM, manualTokenAccount: manualAtaM, feeAuthority: feeAuthorityM,
+        ...paM, systemProgram: SystemProgram.programId,
+      }).instruction();
+    const lutAcc = (await conn.getAddressLookupTable(addr, { commitment: "confirmed" })).value!;
+    const bh = await conn.getLatestBlockhash("confirmed");
+    const msg = new TransactionMessage({ payerKey: dev.publicKey, recentBlockhash: bh.blockhash,
+      instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ix] }).compileToV0Message([lutAcc]);
+    const sig = await provider.sendAndConfirm(new VersionedTransaction(msg), [mintKpM], { commitment: "confirmed", skipPreflight: false, maxRetries: 10 });
+    tx("launch (Manual mode)", sig);
+    const st = await escrowStateM();
+    info(`coin    ${mintM.toBase58()}\n    ${addrLink(mintM)}`);
+    info(`locked ${tok(st.escrowed.toString())} = ${pctOfSupply(st.escrowed.toString())} · mode ${st.distributionMode === MODE_MANUAL ? "Manual" : "?"} · fixed at launch, no instruction changes it`);
+    if ((cfg.platform as PublicKey).equals(dev.publicKey)) {
+      await rpc(program.methods.setDelayWindow(new BN(DELAY_WINDOW)).accountsPartial({ platform: dev.publicKey, escrow: escrowM }));
+    }
+    tx("check_trigger — baseline", await rpc(program.methods.checkTrigger().accountsPartial({ escrow: escrowM, bondingCurve: paM.bondingCurve, slotHashes: SLOT_HASHES })));
+    await pause();
+  }
+
+  // ---- 12. Manual coin: buyers ----
+  await heading("Buyers again", `${BUYERS.join(", ")} buy the same ${BUYER_PCT.join("% / ")}% of supply — on a Manual coin that volume arms nothing`);
+  {
+    for (const w of wallets) {
+      await send([createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, coinAtaM(w.publicKey), w.publicKey, mintM, TOKEN_2022)]);
+    }
+    for (let i = 0; i < wallets.length; i++) {
+      const w = wallets[i];
+      const want = (SUPPLY * DEC * BigInt(BUYER_PCT[i])) / 100n;
+      const spend = solForTokens(await curveOf(paM.bondingCurve), want);
+      const s = await send([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+                            directBuyIx(mintM, w.publicKey, feeAuthorityM, spend, 1n)], w);
+      tx(`${BUYERS[i]} buys ${BUYER_PCT[i]}% of supply for ${sol(spend)} → ${tok(await coinBalM(w.publicKey))}`, s);
+      await sleep(800);
+    }
+    tx("check_trigger — the same volume that armed the Auto coin", await rpc(program.methods.checkTrigger().accountsPartial({ escrow: escrowM, bondingCurve: paM.bondingCurve, slotHashes: SLOT_HASHES })));
+    const st = await escrowStateM();
+    info(`armed: ${st.armed ? "YES (unexpected)" : "no — Manual mode never arms; the pool waits for the creator"}`);
+    await pause();
+  }
+
+  // ---- 13. Manual coin: dev releases ----
+  await heading("Dev releases", `dev_distribute: the creator releases ${MANUAL_RELEASE_PCT}% of the pool at once — no rule, no delay; only the dev may call it, never more than the pool, and the tokens can only leave through holders' claims`);
+  let releasedM = 0n;
+  {
+    const st0 = await escrowStateM();
+    const amount = (poolOf(st0) * BigInt(MANUAL_RELEASE_PCT)) / 100n;
+    try {
+      await rpc(program.methods.devDistribute(new BN(amount.toString())).accountsPartial({ dev: wallets[0].publicKey, escrow: escrowM }).signers([wallets[0]]));
+      info("WARNING: a holder's dev_distribute was accepted (unexpected)");
+    } catch (e: any) { info(`${BUYERS[0]} tries dev_distribute → rejected (${/NotDev|2003|ConstraintRaw/.test(errText(e)) ? "not the dev" : errText(e).slice(0, 40)})`); }
+    try {
+      await rpc(program.methods.devDistribute(new BN((poolOf(st0) + 1n).toString())).accountsPartial({ dev: dev.publicKey, escrow: escrowM }));
+      info("WARNING: over-pool release accepted (unexpected)");
+    } catch (e: any) { info(`creator asks for more than the pool → rejected (${/OverPool/.test(errText(e)) ? "OverPool" : errText(e).slice(0, 40)})`); }
+    const before: Bal = { "claimable (pending)": BigInt(st0.pending.toString()), "escrow pool (coins)": poolOf(st0) };
+    tx(`dev_distribute ${tok(amount)} (${MANUAL_RELEASE_PCT}% of the pool)`, await rpc(program.methods.devDistribute(new BN(amount.toString())).accountsPartial({ dev: dev.publicKey, escrow: escrowM })));
+    const st = await escrowStateM();
+    releasedM = BigInt(st.pending.toString());
+    await diff(before, { "claimable (pending)": releasedM, "escrow pool (coins)": poolOf(st) }, tok);
+    info("the pool only shrinks by what a round will hand to holders; nothing moved to the creator");
+  }
+
+  // ---- 14. Manual coin: round + claims ----
+  await heading("Manual round", "The same indexer snapshot, the same pro-rata split and Merkle claims; the round records that the dev released it");
+  {
+    const snapSlotM = await conn.getSlot("confirmed");
+    const snapM = await snapshot(RPC_URL, mintM.toBase58(), snapSlotM, program.programId, [], releasedM, floorLamports);
+    for (const l of [...snapM.leaves].sort((x: any, y: any) => (BigInt(y.weight) > BigInt(x.weight) ? 1 : -1))) {
+      const sPct = (Number(BigInt(l.amount) * 10000n / releasedM) / 100).toFixed(1);
+      info(`${nameOf(l.holder).padEnd(6)} holds ${tok(l.balance).padStart(8)} → share ${tok(l.amount)} (${sPct}%)`);
+    }
+    info(`creator excluded; ${snapM.leaves.length} holders; root ${snapM.root.slice(0, 16)}…`);
+    const roundM = PublicKey.findProgramAddressSync([Buffer.from("round"), escrowM.toBuffer(), Buffer.from(new Uint32Array([0]).buffer)], program.programId)[0];
+    tx("open_round", await rpc(program.methods
+      .openRound(0, [...Buffer.from(snapM.root, "hex")], new BN(releasedM.toString()), new BN(snapM.total), snapM.leaves.length, new BN(snapM.snapshotSlot))
+      .accountsPartial({ publisher: dev.publicKey, escrow: escrowM, round: roundM, systemProgram: SystemProgram.programId })));
+    const r: any = await program.account.round.fetch(roundM, "confirmed");
+    info(`round ${roundM.toBase58()} · trigger kind ${r.triggerKind === 3 ? "dev (Manual)" : r.triggerKind} · ${r.holderCount} holders · ${tok(r.total.toString())} coins\n    ${addrLink(roundM)}`);
+    const { layers } = buildTree(snapM.leaves);
+    const claimAccountsM = (h: PublicKey) => ({
+      holder: h, escrow: escrowM, round: roundM, mint: mintM, escrowTokenAccount: escrowTaM, holderTokenAccount: coinAtaM(h),
+      receipt: PublicKey.findProgramAddressSync([Buffer.from("receipt"), roundM.toBuffer(), h.toBuffer()], program.programId)[0],
+      bondingCurve: paM.bondingCurve, baseTokenProgram: TOKEN_2022, systemProgram: SystemProgram.programId,
+    });
+    const before: Bal = {};
+    for (const w of wallets) before[`${nameOf(w.publicKey.toBase58())} coins`] = await coinBalM(w.publicKey);
+    for (const leaf of snapM.leaves) {
+      const w = signerOf(leaf.holder);
+      tx(`${nameOf(leaf.holder)} claims +${tok(leaf.amount)}`, await rpc(program.methods
+        .claimShare(leaf.index, new BN(leaf.balance), new BN(leaf.amount), proofFor(layers, leaf.index).map((x) => [...x]))
+        .accountsPartial(claimAccountsM(w.publicKey)).signers([w])));
+    }
+    const after: Bal = {};
+    for (const w of wallets) after[`${nameOf(w.publicKey.toBase58())} coins`] = await coinBalM(w.publicKey);
+    await diff(before, after, tok);
+  }
+
+  // ---- 15. wrap-up ----
+  await heading("Wrap-up", "Throwaway wallets return their SOL; the creator's positions are sold back to the curve (devnet housekeeping)");
   {
     let swept = 0;
     for (const w of wallets) {
@@ -483,13 +666,24 @@ async function main() {
       try { await send([SystemProgram.transfer({ fromPubkey: w.publicKey, toPubkey: dev.publicKey, lamports: bal - keep })], w); swept += bal - keep; }
       catch (e: any) { info(`sweep ${short(w.publicKey)} skipped: ${String(e?.message ?? e).slice(0, 60)}`); }
     }
-    try { swept += await sellBackAll(conn, dev, mint, sharingConfig); } catch (e: any) { info(`sell-back skipped: ${String(e?.message ?? e).slice(0, 60)}`); }
+    // a sell right after the claims can miss a blockhash on devnet; three tries
+    const sellBack = async (label: string, m: PublicKey, creator: PublicKey) => {
+      for (let i = 0; i < 3; i++) {
+        try { swept += await sellBackAll(conn, dev, m, creator); return; }
+        catch (e: any) { if (i === 2) info(`sell-back (${label}) skipped: ${String(e?.message ?? e).slice(0, 60)}`); else await sleep(2000); }
+      }
+    };
+    await sellBack("Auto coin", mint, sharingConfig);
+    await sellBack("Manual coin", mintM, feeAuthorityM);
     const st = await escrowState();
+    const stM = await escrowStateM();
     const devEnd = await conn.getBalance(dev.publicKey, "confirmed");
     console.log(`\n${line()}`);
     info(`locked at launch ${tok(st.escrowed.toString())} · fees collected ${sol(st.feesCollected.toNumber())} · buyback ${sol(st.buybackSpent.toNumber())} → +${tok(st.buybackTokens.toString())} coins`);
     info(`distributed this round ${tok(st.allocated.toString())} · still locked ${tok(poolOf(st))} · nobody can withdraw it`);
-    info(`coin ${addrLink(mint)}`);
+    info(`Manual coin: released by the dev ${tok(stM.allocated.toString())} · still locked ${tok(poolOf(stM))}`);
+    info(`Auto coin ${addrLink(mint)}`);
+    info(`Manual coin ${addrLink(mintM)}`);
     info(`escrow ${addrLink(escrow)}`);
     info(`devnet SOL spent net ${sol(devSol - devEnd)} (swept back ${sol(swept)}) · ${Math.round((Date.now() - t0) / 1000)} s`);
     console.log(line());

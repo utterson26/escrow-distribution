@@ -13,8 +13,9 @@ export default function Launch() {
         <div className="eyebrow">Launch</div>
         <h1 style={{ fontSize: "clamp(26px,3.5vw,36px)" }}>Lock what you promise. Then launch.</h1>
         <p style={{ maxWidth: 680 }}>
-          Choose how much of your own launch buy goes to holders. The program moves it into escrow in the same transaction
-          that creates the coin, and trading releases it in rounds anyone can verify. Read the <Link href="/docs">docs</Link> first if
+          Choose what share of the supply is locked for holders and how it is released — by the program&apos;s rule (Auto) or
+          on your call (Manual). You buy that share in the transaction that creates the coin; the program moves it into escrow the same
+          instant, and every release is a round anyone can verify. Read the <Link href="/docs">docs</Link> first if
           this is your first launch.
         </p>
       </div>

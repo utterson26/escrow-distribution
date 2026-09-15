@@ -144,7 +144,7 @@ describe("manual airdrop (localnet)", () => {
     const tryLaunch = async (manualBps: number, holderBps: number, rootArg: number[], amount: BN) => {
       const bad = await program.methods
         .launch("Manual Test", "MAN", "https://example.com/man.json", amount, new BN(0.4 * LAMPORTS_PER_SOL),
-                rootArg, manualBps, holderBps, false)
+                rootArg, manualBps, holderBps, false, 0)
         .accountsPartial(launchAccounts).instruction();
       const bh0 = await conn.getLatestBlockhash("confirmed");
       const m = new TransactionMessage({
@@ -213,7 +213,7 @@ describe("manual airdrop (localnet)", () => {
     const ix = await program.methods
       .launch("Manual Test", "MAN", "https://example.com/man.json",
               AMOUNT, new BN(0.4 * LAMPORTS_PER_SOL),
-              [...root], MANUAL_BPS, ESCROW_BPS, false)
+              [...root], MANUAL_BPS, ESCROW_BPS, false, 0)
       .accountsPartial({
         dev: dev.publicKey, mint, escrow, config: configPda(program.programId), escrowTokenAccount: escrowTa,
         manualAuthority: manualPda, manualTokenAccount: manualAta, feeAuthority,

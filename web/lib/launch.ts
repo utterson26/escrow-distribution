@@ -23,9 +23,10 @@ export const DECIMALS = 6;
 export const MAX_MANUAL_ENTRIES = 50;
 export const MIN_LOCK_SUPPLY_BPS = 100;
 
-// sha256("global:launch")[..8] and sha256("global:publish_manual_list")[..8], from the IDL
+// sha256("global:<name>")[..8], from the IDL
 const LAUNCH_DISC = Buffer.from([153, 241, 93, 225, 22, 69, 74, 61]);
 const PUBLISH_DISC = Buffer.from([44, 124, 36, 194, 216, 102, 229, 135]);
+const DEV_DISTRIBUTE_DISC = Buffer.from([4, 224, 28, 220, 113, 233, 173, 137]);
 
 const pda = (seeds: (Buffer | Uint8Array)[], prog: PublicKey) => PublicKey.findProgramAddressSync(seeds, prog)[0];
 const ata = (owner: PublicKey, mint: PublicKey, tp: PublicKey) =>
@@ -111,6 +112,8 @@ export interface LaunchArgs {
   name: string; symbol: string; uri: string;
   amount: bigint; maxSolCost: bigint;
   manualRoot: Buffer; manualBps: number; holderBps: number; isHolderReward: boolean;
+  /** 0 Auto (volume / milestone rule), 1 Manual (dev_distribute only); fixed for the life of the coin */
+  distributionMode: 0 | 1;
 }
 
 const str = (s: string) => { const b = Buffer.from(s, "utf8"); const l = Buffer.alloc(4); l.writeUInt32LE(b.length); return Buffer.concat([l, b]); };
@@ -186,7 +189,7 @@ export function launchInstruction(mint: PublicKey, dev: PublicKey, p: PumpParams
   ];
   const data = Buffer.concat([
     LAUNCH_DISC, str(a.name), str(a.symbol), str(a.uri), u64(a.amount), u64(a.maxSolCost),
-    a.manualRoot, u16le(a.manualBps), u16le(a.holderBps), Buffer.from([a.isHolderReward ? 1 : 0]),
+    a.manualRoot, u16le(a.manualBps), u16le(a.holderBps), Buffer.from([a.isHolderReward ? 1 : 0]), Buffer.from([a.distributionMode]),
   ]);
   return new TransactionInstruction({ programId: PROGRAM_ID, keys, data });
 }
@@ -199,6 +202,15 @@ export function publishManualInstruction(mint: PublicKey, dev: PublicKey, entrie
   return new TransactionInstruction({
     programId: PROGRAM_ID, data,
     keys: [{ pubkey: dev, isWritable: true, isSigner: true }, { pubkey: escrow, isWritable: true, isSigner: false }],
+  });
+}
+
+/** `dev_distribute(amount)`: the dev of a Manual-mode coin releases `amount` of the pool into the next round. */
+export function devDistributeInstruction(mint: PublicKey, dev: PublicKey, amount: bigint): TransactionInstruction {
+  const escrow = pda([Buffer.from("escrow"), mint.toBuffer()], PROGRAM_ID);
+  return new TransactionInstruction({
+    programId: PROGRAM_ID, data: Buffer.concat([DEV_DISTRIBUTE_DISC, u64(amount)]),
+    keys: [{ pubkey: dev, isWritable: false, isSigner: true }, { pubkey: escrow, isWritable: true, isSigner: false }],
   });
 }
 

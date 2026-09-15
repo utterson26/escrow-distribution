@@ -139,6 +139,13 @@ pub struct Escrow {
     /// The platform bps written into this coin's sharing config (fixed there;
     /// a later rate change only reaches new launches).
     pub platform_fee_bps: u16,
+    /// MODE_AUTO or MODE_MANUAL; chosen at launch, never changes.
+    pub distribution_mode: u8,
+    /// What released the tokens now in `pending` (TRIGGER_*), copied onto the
+    /// round that hands them out.
+    pub pending_kind: u8,
+    /// Rounds opened so far; the next round's index.
+    pub rounds_opened: u32,
 }
 
 /// One row of the manual airdrop list, published on chain so anyone can
@@ -179,6 +186,9 @@ pub struct Round {
     /// The eligibility floor this round was built with (from `Config` at
     /// `open_round`); `claim_share` checks against this, not the live config.
     pub min_position_lamports: u64,
+    /// What released the tokens this round hands out: TRIGGER_VOLUME,
+    /// TRIGGER_MILESTONE or TRIGGER_DEV.
+    pub trigger_kind: u8,
 }
 
 /// Marks one holder's claim in one round. Its existence is the "already
